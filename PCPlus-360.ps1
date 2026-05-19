@@ -1096,8 +1096,8 @@ tr:hover td { background: #eaf7fc; }
 /* ── QR placeholder boxes ── */
 .qr-row { display: flex; justify-content: center; gap: 60px; margin: 20px 0; }
 .qr-item { text-align: center; }
-.qr-item img { width: 120px; height: 120px; border-radius: 8px; }
-.qr-item .qr-fallback { width: 120px; height: 120px; border: 2px dashed #94a3b8; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 7.5pt; color: #94a3b8; line-height: 1.3; }
+.qr-item img { width: 160px; height: 160px; border-radius: 8px; }
+.qr-item .qr-fallback { width: 160px; height: 160px; border: 2px dashed #94a3b8; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 7.5pt; color: #94a3b8; line-height: 1.3; }
 .qr-label { font-size: 9pt; font-weight: 600; color: #0d4b71; margin-top: 8px; }
 .qr-sublabel { font-size: 7.5pt; color: #64748b; margin-top: 2px; }
 
@@ -1614,8 +1614,8 @@ tr:hover td { background: #eaf7fc; }
 /* QR codes */
 .qr-row { display: flex; justify-content: center; gap: 60px; margin: 20px 0; }
 .qr-item { text-align: center; }
-.qr-item img { width: 120px; height: 120px; border-radius: 8px; }
-.qr-item .qr-fallback { width: 120px; height: 120px; border: 2px dashed #94a3b8; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 7.5pt; color: #94a3b8; line-height: 1.3; }
+.qr-item img { width: 160px; height: 160px; border-radius: 8px; }
+.qr-item .qr-fallback { width: 160px; height: 160px; border: 2px dashed #94a3b8; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 7.5pt; color: #94a3b8; line-height: 1.3; }
 .qr-label { font-size: 9pt; font-weight: 600; color: #0d4b71; margin-top: 8px; }
 .qr-sublabel { font-size: 7.5pt; color: #64748b; margin-top: 2px; }
 
