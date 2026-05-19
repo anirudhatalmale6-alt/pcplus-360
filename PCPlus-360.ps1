@@ -732,8 +732,8 @@ function Calculate-Score {
         if ($passed) { $score += $c.Pts }
         $breakdown += @{ Check = $c.Name; Points = $c.Pts; Passed = $passed }
     }
-    $grade = switch ($true) { ($score -ge 90){"A"} ($score -ge 80){"B"} ($score -ge 70){"C"} ($score -ge 60){"D"} default{"F"} }
-    $color = switch ($grade) { "A"{"#27ae60"} "B"{"#27ae60"} "C"{"#f39c12"} "D"{"#f39c12"} "F"{"#e74c3c"} }
+    $grade = if ($score -ge 90){"A"} elseif ($score -ge 80){"B"} elseif ($score -ge 70){"C"} elseif ($score -ge 60){"D"} else {"F"}
+    $color = if ($grade -eq "A" -or $grade -eq "B"){"#27ae60"} elseif ($grade -eq "C" -or $grade -eq "D"){"#f39c12"} else {"#e74c3c"}
     return @{ Score = $score; Grade = $grade; Color = $color; Breakdown = $breakdown }
 }
 
@@ -755,8 +755,8 @@ function Build-HardwareReport {
     if ($StressResults.Disk -and -not $StressResults.Disk.Passed) { $hwScore -= 15; $hwIssues += "Disk benchmark FAILED" }
     foreach ($d in $SystemInfo.Disks) { if ($d.UsedPct -gt 90) { $hwScore -= 10; $hwIssues += "Drive $($d.Drive) nearly full ($($d.UsedPct)%)" } }
     $hwScore = [math]::Max($hwScore, 0)
-    $hwGrade = switch ($true) { ($hwScore -ge 90){"A"} ($hwScore -ge 80){"B"} ($hwScore -ge 70){"C"} ($hwScore -ge 60){"D"} default{"F"} }
-    $hwColor = switch ($hwGrade) { "A"{"#27ae60"} "B"{"#27ae60"} "C"{"#f39c12"} "D"{"#f39c12"} "F"{"#e74c3c"} }
+    $hwGrade = if ($hwScore -ge 90){"A"} elseif ($hwScore -ge 80){"B"} elseif ($hwScore -ge 70){"C"} elseif ($hwScore -ge 60){"D"} else {"F"}
+    $hwColor = if ($hwGrade -eq "A" -or $hwGrade -eq "B"){"#27ae60"} elseif ($hwGrade -eq "C" -or $hwGrade -eq "D"){"#f39c12"} else {"#e74c3c"}
     $dashOffset = 283 - (283 * $hwScore / 100)
 
     # Load logo as base64 data URI
@@ -942,7 +942,7 @@ function Build-HardwareReport {
     # Build recommendations HTML
     $recsHTML = ""
     for ($i = 0; $i -lt $recommendations.Count; $i++) {
-        $recsHTML += "<li style='margin-bottom:6px;'><strong>$($i+1).</strong> $($recommendations[$i])</li>`n"
+        $recsHTML += "<li style='margin-bottom:6px;'>$($recommendations[$i])</li>`n"
     }
 
     # Build category score cards for executive summary
