@@ -7,22 +7,43 @@
     Runs from USB drive with no installation required.
 .NOTES
     Company:  PC Plus Computing
-    Version:  1.0.0
+    Version:  1.0.2
     Requires: PowerShell 5.1+, Windows 10/11, Administrator privileges
 #>
 
 #Requires -Version 5.1
-Set-StrictMode -Version Latest
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DEBUG LOG (writes to file next to script so we can see crashes)
+# ─────────────────────────────────────────────────────────────────────────────
+$Global:DebugLogPath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Definition) "PCPlus360-debug.log"
+function Write-DebugLog {
+    param([string]$Msg)
+    $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    "[$ts] $Msg" | Out-File -FilePath $Global:DebugLogPath -Append -Encoding UTF8
+}
+
+Write-DebugLog "Script starting..."
+Write-DebugLog "PowerShell version: $($PSVersionTable.PSVersion)"
+Write-DebugLog "Script path: $($MyInvocation.MyCommand.Definition)"
+Write-DebugLog "Current user: $env:USERNAME"
+
 $ErrorActionPreference = 'Continue'
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ELEVATION
 # ─────────────────────────────────────────────────────────────────────────────
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-Add-Type -AssemblyName PresentationFramework
-Add-Type -AssemblyName PresentationCore
-Add-Type -AssemblyName WindowsBase
+Write-DebugLog "Loading assemblies..."
+try {
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
+    Add-Type -AssemblyName PresentationFramework
+    Add-Type -AssemblyName PresentationCore
+    Add-Type -AssemblyName WindowsBase
+    Write-DebugLog "Assemblies loaded OK"
+} catch {
+    Write-DebugLog "Assembly load FAILED: $($_.Exception.Message)"
+}
 
 function Test-IsAdmin {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -30,20 +51,30 @@ function Test-IsAdmin {
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
-if (-not (Test-IsAdmin)) {
+$isAdmin = Test-IsAdmin
+Write-DebugLog "Is Admin: $isAdmin"
+
+if (-not $isAdmin) {
+    Write-DebugLog "Not admin - attempting elevation..."
     try {
-        Start-Process powershell.exe -ArgumentList "-STA -NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Definition)`"" -Verb RunAs
+        $scriptPath = $MyInvocation.MyCommand.Definition
+        Start-Process powershell.exe -ArgumentList "-STA -NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`"" -Verb RunAs
+        Write-DebugLog "Elevation launched OK, exiting non-admin instance"
     } catch {
-        [System.Windows.Forms.MessageBox]::Show("This tool requires Administrator privileges.", "PC Plus 360 - Elevation Required", "OK", "Warning")
+        Write-DebugLog "Elevation FAILED: $($_.Exception.Message)"
+        [System.Windows.Forms.MessageBox]::Show("This tool requires Administrator privileges.`n`n$($_.Exception.Message)", "PC Plus 360 - Elevation Required", "OK", "Warning")
     }
     exit
 }
+
+Write-DebugLog "Running as admin, continuing..."
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GLOBALS
 # ─────────────────────────────────────────────────────────────────────────────
 $Global:ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 if ([string]::IsNullOrEmpty($Global:ScriptDir)) { $Global:ScriptDir = Get-Location }
+Write-DebugLog "ScriptDir: $Global:ScriptDir"
 $Global:ToolsDir = Join-Path $Global:ScriptDir "tools"
 $Global:ReportsDir = Join-Path $Global:ScriptDir "reports"
 $Global:DiagResults = @{}
@@ -1258,8 +1289,10 @@ $xaml = @"
 </Window>
 "@
 
+    Write-DebugLog "Parsing XAML..."
     $reader = [System.Xml.XmlReader]::Create([System.IO.StringReader]::new($xaml))
     $window = [System.Windows.Markup.XamlReader]::Load($reader)
+    Write-DebugLog "XAML parsed OK, window created"
 
     # Get controls
     $txtCustomer = $window.FindName("txtCustomer")
@@ -1465,9 +1498,13 @@ $xaml = @"
 # ─────────────────────────────────────────────────────────────────────────────
 # ENTRY POINT
 # ─────────────────────────────────────────────────────────────────────────────
+Write-DebugLog "About to call Show-Launcher..."
 try {
     Show-Launcher
+    Write-DebugLog "Show-Launcher completed normally"
 } catch {
-    $errMsg = "PC Plus 360 encountered an error:`n`n$($_.Exception.Message)`n`nAt: $($_.InvocationInfo.ScriptName):$($_.InvocationInfo.ScriptLineNumber)`n`n$($_.Exception.StackTrace)"
-    [System.Windows.Forms.MessageBox]::Show($errMsg, "PC Plus 360 - Error", "OK", "Error") | Out-Null
+    $errMsg = "$($_.Exception.Message)`nLine: $($_.InvocationInfo.ScriptLineNumber)`n$($_.Exception.StackTrace)"
+    Write-DebugLog "FATAL ERROR: $errMsg"
+    [System.Windows.Forms.MessageBox]::Show("PC Plus 360 Error:`n`n$errMsg", "PC Plus 360 - Error", "OK", "Error") | Out-Null
 }
+Write-DebugLog "Script finished."
