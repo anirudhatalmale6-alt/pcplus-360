@@ -32,7 +32,7 @@ function Test-IsAdmin {
 
 if (-not (Test-IsAdmin)) {
     try {
-        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Definition)`"" -Verb RunAs
+        Start-Process powershell.exe -ArgumentList "-STA -NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Definition)`"" -Verb RunAs
     } catch {
         [System.Windows.Forms.MessageBox]::Show("This tool requires Administrator privileges.", "PC Plus 360 - Elevation Required", "OK", "Warning")
     }
@@ -1292,18 +1292,16 @@ $xaml = @"
     }
 
     # Portable tool buttons
-    foreach ($mapping in @(
-        @{Btn="btnCDI";Tool=$tools.CrystalDiskInfo}, @{Btn="btnHWiNFO";Tool=$tools.HWiNFO},
-        @{Btn="btnCPUZ";Tool=$tools.CPUZ}, @{Btn="btnGPUZ";Tool=$tools.GPUZ},
-        @{Btn="btnHWMon";Tool=$tools.HWMonitor}, @{Btn="btnBattView";Tool=$tools.BatteryInfoView}
-    )) {
-        $b = $window.FindName($mapping.Btn)
-        $toolPath = $mapping.Tool
-        if ($toolPath) {
-            $b.Add_Click([System.Windows.RoutedEventHandler]{
-                param($s,$e)
-                Start-Process $toolPath -ErrorAction SilentlyContinue
-            }.GetNewClosure())
+    $toolPaths = @{
+        btnCDI = $tools.CrystalDiskInfo; btnHWiNFO = $tools.HWiNFO
+        btnCPUZ = $tools.CPUZ; btnGPUZ = $tools.GPUZ
+        btnHWMon = $tools.HWMonitor; btnBattView = $tools.BatteryInfoView
+    }
+    foreach ($key in $toolPaths.Keys) {
+        $b = $window.FindName($key)
+        if ($toolPaths[$key]) {
+            $b.Tag = $toolPaths[$key]
+            $b.Add_Click({ param($sender,$e); Start-Process $sender.Tag -ErrorAction SilentlyContinue })
         }
     }
 
@@ -1467,4 +1465,9 @@ $xaml = @"
 # ─────────────────────────────────────────────────────────────────────────────
 # ENTRY POINT
 # ─────────────────────────────────────────────────────────────────────────────
-Show-Launcher
+try {
+    Show-Launcher
+} catch {
+    $errMsg = "PC Plus 360 encountered an error:`n`n$($_.Exception.Message)`n`nAt: $($_.InvocationInfo.ScriptName):$($_.InvocationInfo.ScriptLineNumber)`n`n$($_.Exception.StackTrace)"
+    [System.Windows.Forms.MessageBox]::Show($errMsg, "PC Plus 360 - Error", "OK", "Error") | Out-Null
+}
