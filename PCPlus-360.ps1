@@ -81,9 +81,9 @@ $Global:DiagResults = @{}
 $Global:LogLines = [System.Collections.ArrayList]::new()
 
 $COMPANY      = "PC Plus Computing"
-$PHONE        = "604-760-1662"
+$PHONE        = "604-760-1662 | 236-500-2700"
 $WEBSITE      = "pcpluscomputing.com"
-$VERSION      = "1.0.0"
+$VERSION      = "1.2.0"
 
 if (-not (Test-Path $Global:ReportsDir)) { New-Item -Path $Global:ReportsDir -ItemType Directory -Force | Out-Null }
 if (-not (Test-Path $Global:ToolsDir)) { New-Item -Path $Global:ToolsDir -ItemType Directory -Force | Out-Null }
@@ -774,6 +774,13 @@ function Build-HardwareReport {
         "<div style='background:#0a1628;color:#fff;padding:20px 50px;font-size:22pt;font-weight:bold;letter-spacing:3px;border-radius:6px;margin-bottom:30px;'>PC PLUS COMPUTING</div>"
     }
 
+    # Load QR codes as base64 data URIs
+    $qrAppointmentUri = ""; $qrServiceUri = ""
+    $qrAppPath = Join-Path $Global:ScriptDir "qr-appointments.txt"
+    $qrSvcPath = Join-Path $Global:ScriptDir "qr-service-requests.txt"
+    if (Test-Path $qrAppPath) { try { $qrAppointmentUri = "data:image/png;base64,$((Get-Content $qrAppPath -Raw).Trim())" } catch {} }
+    if (Test-Path $qrSvcPath) { try { $qrServiceUri = "data:image/png;base64,$((Get-Content $qrSvcPath -Raw).Trim())" } catch {} }
+
     # Category sub-scores for executive summary
     # Storage Health
     $storageScore = 100
@@ -1087,12 +1094,12 @@ tr:hover td { background: #eaf7fc; }
 .summary-chip .chip-lbl { font-size: 7.5pt; color: #64748b; text-transform: uppercase; font-weight: 600; letter-spacing: 0.3px; }
 
 /* ── QR placeholder boxes ── */
-.qr-row { display: flex; justify-content: center; gap: 40px; margin: 20px 0; }
-.qr-box {
-    width: 100px; height: 100px; border: 2px dashed #94a3b8; border-radius: 8px;
-    display: flex; align-items: center; justify-content: center; text-align: center;
-    font-size: 7.5pt; color: #94a3b8; line-height: 1.3;
-}
+.qr-row { display: flex; justify-content: center; gap: 60px; margin: 20px 0; }
+.qr-item { text-align: center; }
+.qr-item img { width: 120px; height: 120px; border-radius: 8px; }
+.qr-item .qr-fallback { width: 120px; height: 120px; border: 2px dashed #94a3b8; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 7.5pt; color: #94a3b8; line-height: 1.3; }
+.qr-label { font-size: 9pt; font-weight: 600; color: #0d4b71; margin-top: 8px; }
+.qr-sublabel { font-size: 7.5pt; color: #64748b; margin-top: 2px; }
 
 /* ── Repeated page footer ── */
 .page-footer-bar {
@@ -1355,13 +1362,15 @@ $(if($logoDataUri){"<img src='$logoDataUri' alt='PC Plus Computing' style='width
 <div style="font-size:10pt;color:#64748b;margin-bottom:30px;">Your Security, Our Priority &nbsp;|&nbsp; 30+ Years in Service &nbsp;|&nbsp; 4.9&#9733; Google Rating</div>
 
 <div class="qr-row">
-<div>
-<div class="qr-box">Book<br/>Appointment</div>
-<div style="font-size:7.5pt;color:#64748b;margin-top:4px;">Scan to book online</div>
+<div class="qr-item">
+$(if($qrAppointmentUri){"<img src='$qrAppointmentUri' alt='Book Appointment'/>"}else{"<div class='qr-fallback'>Book<br/>Appointment</div>"})
+<div class="qr-label">Book an Appointment</div>
+<div class="qr-sublabel">pcpluscomputing.com/appointments</div>
 </div>
-<div>
-<div class="qr-box">Send Us<br/>Info</div>
-<div style="font-size:7.5pt;color:#64748b;margin-top:4px;">Scan to share files</div>
+<div class="qr-item">
+$(if($qrServiceUri){"<img src='$qrServiceUri' alt='Send Info'/>"}else{"<div class='qr-fallback'>Send Us<br/>Info</div>"})
+<div class="qr-label">Send Us Your Info</div>
+<div class="qr-sublabel">Service Request Portal</div>
 </div>
 </div>
 
@@ -1390,11 +1399,34 @@ function Build-SecurityReport {
     $passCount = ($Scoring.Breakdown | Where-Object { $_.Passed }).Count
     $failCount = ($Scoring.Breakdown | Where-Object { -not $_.Passed }).Count
     $dashOffset = 283 - (283 * $Scoring.Score / 100)
+
+    # Load logo as base64 data URI
+    $logoDataUri = ""
+    $logoPath = Join-Path $Global:ScriptDir "logo-base64.txt"
+    if (Test-Path $logoPath) {
+        try {
+            $logoB64 = (Get-Content $logoPath -Raw).Trim()
+            $logoDataUri = "data:image/png;base64,$logoB64"
+        } catch { $logoDataUri = "" }
+    }
+    $logoHTML = if ($logoDataUri) {
+        "<img src='$logoDataUri' alt='PC Plus Computing' style='width:350px;max-width:90%;margin-bottom:30px;'/>"
+    } else {
+        "<div style='background:#0a1628;color:#fff;padding:20px 50px;font-size:22pt;font-weight:bold;letter-spacing:3px;border-radius:6px;margin-bottom:30px;'>PC PLUS COMPUTING</div>"
+    }
+
+    # Load QR codes as base64 data URIs
+    $qrAppointmentUri = ""; $qrServiceUri = ""
+    $qrAppPath = Join-Path $Global:ScriptDir "qr-appointments.txt"
+    $qrSvcPath = Join-Path $Global:ScriptDir "qr-service-requests.txt"
+    if (Test-Path $qrAppPath) { try { $qrAppointmentUri = "data:image/png;base64,$((Get-Content $qrAppPath -Raw).Trim())" } catch {} }
+    if (Test-Path $qrSvcPath) { try { $qrServiceUri = "data:image/png;base64,$((Get-Content $qrSvcPath -Raw).Trim())" } catch {} }
+
     # Breakdown rows
     $breakdownRows = ($Scoring.Breakdown | ForEach-Object {
         $ic = if($_.Passed){"<span class='pass'>$iconPass</span>"}else{"<span class='fail'>$iconFail</span>"}
-        $st = if($_.Passed){"PASS"}else{"FAIL"}; $sc = if($_.Passed){"pass"}else{"fail"}
-        "<tr><td>$ic</td><td>$($_.Check)</td><td class='$sc'>$st</td><td>$($_.Points) pts</td></tr>"
+        $statusBadge = if($_.Passed){"<span class='status-badge status-pass'>PASS</span>"}else{"<span class='status-badge status-fail'>FAIL</span>"}
+        "<tr><td style='width:30px;text-align:center;'>$ic</td><td>$($_.Check)</td><td>$statusBadge</td><td style='text-align:center;font-weight:600;'>$($_.Points) pts</td></tr>"
     }) -join "`n"
     # Recommendations
     $recs = @()
@@ -1423,104 +1455,328 @@ function Build-SecurityReport {
         }
     }
     $recsHTML = ($recs | ForEach-Object {
-        $sc = switch($_.Severity){"Critical"{"fail"}"Warning"{"warn"}default{"info"}}
-        "<tr><td class='$sc'><strong>$($_.Severity)</strong></td><td>$($_.Check)</td><td>$($_.Rec)</td></tr>"
+        $borderColor = switch($_.Severity){"Critical"{"#dc2626"}"Warning"{"#f59e0b"}default{"#2596be"}}
+        $bgColor = switch($_.Severity){"Critical"{"#fef5f5"}"Warning"{"#fffbeb"}default{"#f0f7fb"}}
+        $sevColor = switch($_.Severity){"Critical"{"#dc2626"}"Warning"{"#92400e"}default{"#0d4b71"}}
+        "<div class='rec-card' style='border-left:4px solid $borderColor;background:$bgColor;'><div class='rec-severity' style='color:$sevColor;'>$($_.Severity)</div><div class='rec-check'>$($_.Check)</div><div class='rec-action'>$($_.Rec)</div></div>"
     }) -join "`n"
-    # Security details
-    $secRows = ""
-    $defSt = if($Security.Defender.RealTimeProtection -eq $true){"<span class='pass'>$iconPass Active</span>"}elseif($Security.Defender.RealTimeProtection -eq $false){"<span class='fail'>$iconFail Disabled</span>"}else{"<span class='warn'>$iconWarn Unknown</span>"}
-    $secRows += "<tr><td>Windows Defender</td><td>$defSt</td></tr>`n"
-    if($Security.Defender.DefinitionAge -ne $null){$da=if($Security.Defender.DefinitionsUpToDate){"pass"}else{"fail"};$secRows+="<tr><td>AV Definitions</td><td class='$da'>$($Security.Defender.DefinitionAge) days old</td></tr>`n"}
-    if($Security.ThirdPartyAV.Count -gt 0){$secRows+="<tr><td>Third-Party AV</td><td class='pass'>$($Security.ThirdPartyAV -join ', ')</td></tr>`n"}
-    foreach($p in @("Domain","Private","Public")){$v=$Security.Firewall.$p;$s=if($v -eq $true){"<span class='pass'>$iconPass Enabled</span>"}elseif($v -eq $false){"<span class='fail'>$iconFail Disabled</span>"}else{"<span class='warn'>$iconWarn Unknown</span>"};$secRows+="<tr><td>Firewall - $p</td><td>$s</td></tr>`n"}
-    $uacSt = if($Security.UAC.Enabled){"<span class='pass'>$iconPass Enabled</span>"}else{"<span class='fail'>$iconFail Disabled</span>"}
-    $secRows += "<tr><td>UAC</td><td>$uacSt</td></tr>`n"
-    if($Security.BitLocker.Count -gt 0){foreach($d in $Security.BitLocker.Keys){$bi=$Security.BitLocker[$d];$bs=if($bi.Status -eq "On"){"<span class='pass'>$iconPass Encrypted</span>"}else{"<span class='fail'>$iconFail Not Encrypted</span>"};$secRows+="<tr><td>BitLocker $d</td><td>$bs</td></tr>`n"}}else{$secRows+="<tr><td>BitLocker</td><td class='fail'>$iconFail Not Detected</td></tr>`n"}
-    $sbSt = if($Security.SecureBoot -eq $true){"<span class='pass'>$iconPass Enabled</span>"}elseif($Security.SecureBoot -eq $false){"<span class='fail'>$iconFail Disabled</span>"}else{"<span class='warn'>$iconWarn Unknown</span>"}
-    $secRows += "<tr><td>Secure Boot</td><td>$sbSt</td></tr>`n"
-    $tpmSt = if($Security.TPM.Present){"<span class='pass'>$iconPass Present</span>"}else{"<span class='fail'>$iconFail Not Present</span>"}
-    $secRows += "<tr><td>TPM</td><td>$tpmSt</td></tr>`n"
-    $secRows += "<tr><td>Password Policy</td><td>Min: $($Security.PasswordPolicy.MinLength), Complexity: $(if($Security.PasswordPolicy.Complexity){'Yes'}else{'No'}), Lockout: $(if($Security.PasswordPolicy.LockoutThreshold -gt 0){$Security.PasswordPolicy.LockoutThreshold}else{'None'})</td></tr>`n"
-    $gSt = if($Security.GuestDisabled -eq $true){"<span class='pass'>$iconPass Disabled</span>"}else{"<span class='fail'>$iconFail Enabled</span>"}; $secRows += "<tr><td>Guest Account</td><td>$gSt</td></tr>`n"
-    $alSt = if($Security.AutoLoginDisabled -eq $true){"<span class='pass'>$iconPass Off</span>"}else{"<span class='fail'>$iconFail On</span>"}; $secRows += "<tr><td>Auto-Login</td><td>$alSt</td></tr>`n"
-    $rdpSt = if($Security.RDP.Enabled -eq $false){"<span class='pass'>$iconPass Disabled</span>"}elseif($Security.RDP.NLA){"<span class='warn'>$iconWarn Enabled (NLA)</span>"}else{"<span class='fail'>$iconFail Enabled (No NLA)</span>"}; $secRows += "<tr><td>Remote Desktop</td><td>$rdpSt</td></tr>`n"
-    $smbSt = if($Security.SMBv1Disabled -eq $true){"<span class='pass'>$iconPass Disabled</span>"}else{"<span class='fail'>$iconFail Enabled</span>"}; $secRows += "<tr><td>SMBv1</td><td>$smbSt</td></tr>`n"
-    $secRows += "<tr><td>Local Admins</td><td>$($Security.LocalAdmins.Count): $($Security.LocalAdmins.Names)</td></tr>`n"
+    # Security details - card-style panels
+    $secDetails = @()
+    # Defender
+    $defSt = if($Security.Defender.RealTimeProtection -eq $true){"<span class='status-badge status-pass'>$iconPass Active</span>"}elseif($Security.Defender.RealTimeProtection -eq $false){"<span class='status-badge status-fail'>$iconFail Disabled</span>"}else{"<span class='status-badge status-warn'>$iconWarn Unknown</span>"}
+    $secDetails += @{ Name="Windows Defender"; Status=$defSt }
+    if($Security.Defender.DefinitionAge -ne $null){$da=if($Security.Defender.DefinitionsUpToDate){"status-pass"}else{"status-fail"};$secDetails+=@{Name="AV Definitions";Status="<span class='status-badge $da'>$($Security.Defender.DefinitionAge) days old</span>"}}
+    if($Security.ThirdPartyAV.Count -gt 0){$secDetails+=@{Name="Third-Party AV";Status="<span class='status-badge status-pass'>$($Security.ThirdPartyAV -join ', ')</span>"}}
+    foreach($p in @("Domain","Private","Public")){$v=$Security.Firewall.$p;$s=if($v -eq $true){"<span class='status-badge status-pass'>$iconPass Enabled</span>"}elseif($v -eq $false){"<span class='status-badge status-fail'>$iconFail Disabled</span>"}else{"<span class='status-badge status-warn'>$iconWarn Unknown</span>"};$secDetails+=@{Name="Firewall - $p";Status=$s}}
+    $uacSt = if($Security.UAC.Enabled){"<span class='status-badge status-pass'>$iconPass Enabled</span>"}else{"<span class='status-badge status-fail'>$iconFail Disabled</span>"}
+    $secDetails += @{ Name="UAC"; Status=$uacSt }
+    if($Security.BitLocker.Count -gt 0){foreach($d in $Security.BitLocker.Keys){$bi=$Security.BitLocker[$d];$bs=if($bi.Status -eq "On"){"<span class='status-badge status-pass'>$iconPass Encrypted</span>"}else{"<span class='status-badge status-fail'>$iconFail Not Encrypted</span>"};$secDetails+=@{Name="BitLocker $d";Status=$bs}}}else{$secDetails+=@{Name="BitLocker";Status="<span class='status-badge status-fail'>$iconFail Not Detected</span>"}}
+    $sbSt = if($Security.SecureBoot -eq $true){"<span class='status-badge status-pass'>$iconPass Enabled</span>"}elseif($Security.SecureBoot -eq $false){"<span class='status-badge status-fail'>$iconFail Disabled</span>"}else{"<span class='status-badge status-warn'>$iconWarn Unknown</span>"}
+    $secDetails += @{ Name="Secure Boot"; Status=$sbSt }
+    $tpmSt = if($Security.TPM.Present){"<span class='status-badge status-pass'>$iconPass Present (v$($Security.TPM.Version))</span>"}else{"<span class='status-badge status-fail'>$iconFail Not Present</span>"}
+    $secDetails += @{ Name="TPM"; Status=$tpmSt }
+    $secDetails += @{ Name="Password Policy"; Status="Min Length: $($Security.PasswordPolicy.MinLength), Complexity: $(if($Security.PasswordPolicy.Complexity){'Yes'}else{'No'}), Lockout: $(if($Security.PasswordPolicy.LockoutThreshold -gt 0){$Security.PasswordPolicy.LockoutThreshold}else{'None'})" }
+    $gSt = if($Security.GuestDisabled -eq $true){"<span class='status-badge status-pass'>$iconPass Disabled</span>"}else{"<span class='status-badge status-fail'>$iconFail Enabled</span>"}
+    $secDetails += @{ Name="Guest Account"; Status=$gSt }
+    $alSt = if($Security.AutoLoginDisabled -eq $true){"<span class='status-badge status-pass'>$iconPass Off</span>"}else{"<span class='status-badge status-fail'>$iconFail On</span>"}
+    $secDetails += @{ Name="Auto-Login"; Status=$alSt }
+    $rdpSt = if($Security.RDP.Enabled -eq $false){"<span class='status-badge status-pass'>$iconPass Disabled</span>"}elseif($Security.RDP.NLA){"<span class='status-badge status-warn'>$iconWarn Enabled (NLA)</span>"}else{"<span class='status-badge status-fail'>$iconFail Enabled (No NLA)</span>"}
+    $secDetails += @{ Name="Remote Desktop"; Status=$rdpSt }
+    $smbSt = if($Security.SMBv1Disabled -eq $true){"<span class='status-badge status-pass'>$iconPass Disabled</span>"}else{"<span class='status-badge status-fail'>$iconFail Enabled</span>"}
+    $secDetails += @{ Name="SMBv1"; Status=$smbSt }
+    $secDetails += @{ Name="Local Admins"; Status="$($Security.LocalAdmins.Count): $($Security.LocalAdmins.Names)" }
+
+    # Build security detail cards
+    $secDetailCards = ($secDetails | ForEach-Object {
+        "<div class='sec-detail-row'><div class='sec-detail-label'>$($_.Name)</div><div class='sec-detail-value'>$($_.Status)</div></div>"
+    }) -join "`n"
+
     # Patch rows
     $patchRows = if($MissingPatches.Count -gt 0){
-        ($MissingPatches | ForEach-Object {$sc=switch($_.Severity){"Critical"{"fail"}"Important"{"warn"}default{""}};"<tr><td>$($_.KB)</td><td>$($_.Title)</td><td class='$sc'>$($_.Severity)</td></tr>"}) -join "`n"
-    } else { "<tr><td colspan='3' class='pass' style='text-align:center;'>$iconPass All patches up to date</td></tr>" }
+        ($MissingPatches | ForEach-Object {
+            $sevBadge = switch($_.Severity){"Critical"{"<span class='status-badge status-fail'>Critical</span>"}"Important"{"<span class='status-badge status-warn'>Important</span>"}default{"<span class='status-badge status-info'>$($_.Severity)</span>"}}
+            "<tr><td style='font-family:Consolas,monospace;font-weight:600;'>$($_.KB)</td><td>$($_.Title)</td><td>$sevBadge</td><td style='text-align:right;'>$($_.SizeMB) MB</td></tr>"
+        }) -join "`n"
+    } else { "<tr><td colspan='4' class='pass' style='text-align:center;padding:16px;'>$iconPass All patches up to date</td></tr>" }
+
+    # Mini donut helper for exec summary cards
+    $criticalPatches = ($MissingPatches | Where-Object { $_.Severity -eq "Critical" }).Count
+    $importantPatches = ($MissingPatches | Where-Object { $_.Severity -eq "Important" }).Count
 
 $html = @"
 <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><title>Security Audit Report - $($Params.CustomerName)</title>
 <style>
-@page { size:letter;margin:0.6in 0.7in; }
-*{margin:0;padding:0;box-sizing:border-box;}
-body{font-family:'Segoe UI',Tahoma,sans-serif;font-size:10pt;color:#333;line-height:1.5;background:#fff;}
-.page-break{page-break-before:always;}
-.cover{height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;page-break-after:always;}
-.cover-logo{background:#0a1628;color:#fff;padding:20px 50px;font-size:22pt;font-weight:bold;letter-spacing:3px;border-radius:6px;margin-bottom:40px;}
-.cover-title{font-size:26pt;font-weight:300;color:#0a1628;margin-bottom:8px;letter-spacing:2px;}
-.cover-subtitle{font-size:13pt;color:#666;margin-bottom:30px;}
-.cover .meta{font-size:11pt;color:#555;margin:4px 0;}
-.section-header{background:#0a1628;color:#fff;padding:10px 18px;font-size:13pt;font-weight:600;margin:25px 0 12px 0;border-radius:4px;}
-.sub-header{color:#2596be;font-size:11pt;font-weight:600;margin:18px 0 8px 0;padding-bottom:4px;border-bottom:2px solid #2596be;}
-table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:9.5pt;}
-th{background:#0a1628;color:#fff;padding:8px 10px;text-align:left;font-weight:600;font-size:9pt;text-transform:uppercase;}
-td{padding:7px 10px;border-bottom:1px solid #e8e8e8;vertical-align:top;}
-tr:nth-child(even) td{background:#f8f9fa;}
-.pass{color:#27ae60;font-weight:600;} .fail{color:#e74c3c;font-weight:600;} .warn{color:#f39c12;font-weight:600;}
-.summary-grid{display:flex;gap:16px;margin:16px 0;}
-.summary-box{flex:1;text-align:center;padding:16px;border-radius:6px;border:1px solid #e0e0e0;}
-.summary-box .number{font-size:28pt;font-weight:bold;display:block;}
-.summary-box .label{font-size:9pt;color:#666;text-transform:uppercase;}
-.report-footer{margin-top:30px;padding:16px 0;border-top:2px solid #0a1628;text-align:center;font-size:9pt;color:#888;}
-.report-footer strong{color:#0a1628;}
-@media print{.page-break{page-break-before:always;}body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+@page { size: letter; margin: 0.5in 0.6in 0.7in 0.6in; }
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: 'Segoe UI', -apple-system, Tahoma, sans-serif; font-size: 9.5pt; color: #1e293b; line-height: 1.6; background: #fff; }
+h1,h2,h3,h4 { margin:0; }
+
+/* Print handling */
+@media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .page-break { page-break-before: always; }
+    .no-break { page-break-inside: avoid; }
+}
+.page-break { page-break-before: always; }
+.no-break { page-break-inside: avoid; }
+
+/* Cover page */
+.cover {
+    height: 100vh; display: flex; flex-direction: column; justify-content: center;
+    align-items: center; text-align: center; page-break-after: always;
+    background: linear-gradient(180deg, #ffffff 0%, #f0f7fb 50%, #eaf7fc 100%);
+    position: relative;
+}
+.cover::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 6px;
+    background: linear-gradient(90deg, #0d4b71, #2596be, #0d4b71);
+}
+.cover-title { font-size: 24pt; font-weight: 700; color: #0a1628; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 6px; }
+.cover-subtitle { font-size: 11pt; color: #64748b; margin-bottom: 28px; font-weight: 400; letter-spacing: 0.5px; }
+.cover-grade-label { font-size: 13pt; font-weight: 700; margin-top: 6px; margin-bottom: 28px; }
+.cover-meta { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px 36px; display: inline-block; text-align: left; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+.cover-meta p { font-size: 10.5pt; color: #475569; margin: 5px 0; }
+.cover-meta strong { color: #0a1628; min-width: 100px; display: inline-block; }
+.cover-footer { position: absolute; bottom: 30px; text-align: center; width: 100%; }
+.cover-footer .company-url { font-size: 11pt; color: #0d4b71; font-weight: 600; letter-spacing: 0.5px; }
+.cover-footer .tagline { font-size: 8.5pt; color: #94a3b8; margin-top: 4px; }
+
+/* Section headers */
+.section-header {
+    background: linear-gradient(135deg, #0a1628 0%, #0d4b71 100%);
+    color: #fff; padding: 10px 20px; font-size: 12pt; font-weight: 600;
+    margin: 24px 0 14px 0; border-radius: 6px; letter-spacing: 0.5px;
+    display: flex; align-items: center; gap: 10px;
+}
+.section-header .section-icon { font-size: 14pt; opacity: 0.85; }
+.sub-header {
+    color: #0d4b71; font-size: 10.5pt; font-weight: 700; margin: 18px 0 8px 0;
+    padding-bottom: 5px; border-bottom: 2px solid #2596be; letter-spacing: 0.3px;
+}
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 9pt; }
+th {
+    background: #0d4b71; color: #fff; padding: 7px 10px; text-align: left;
+    font-weight: 600; font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.5px;
+}
+td { padding: 6px 10px; border-bottom: 1px solid #e2e8f0; vertical-align: middle; }
+tr:nth-child(even) td { background: #f8fafc; }
+tr:hover td { background: #eaf7fc; }
+.pass { color: #16a34a; font-weight: 600; }
+.fail { color: #dc2626; font-weight: 600; }
+.warn { color: #f59e0b; font-weight: 600; }
+
+/* Status badges */
+.status-badge {
+    display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 8.5pt;
+    font-weight: 600; letter-spacing: 0.3px;
+}
+.status-pass { background: #dcfce7; color: #166534; }
+.status-fail { background: #fef2f2; color: #991b1b; }
+.status-warn { background: #fffbeb; color: #92400e; }
+.status-info { background: #f0f7fb; color: #0d4b71; }
+
+/* Score cards (executive summary) */
+.score-cards {
+    display: flex; gap: 12px; margin: 14px 0; flex-wrap: wrap; justify-content: center;
+}
+.score-card {
+    flex: 1; min-width: 110px; max-width: 150px; text-align: center; padding: 14px 10px;
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.score-card-label { font-size: 8pt; color: #64748b; text-transform: uppercase; font-weight: 600; margin-top: 4px; letter-spacing: 0.3px; }
+.score-card-value { font-size: 16pt; font-weight: 700; margin-top: 2px; }
+
+/* Recommendation cards */
+.rec-card {
+    padding: 12px 16px; margin: 8px 0; border-radius: 6px;
+}
+.rec-severity { font-size: 8pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+.rec-check { font-size: 10pt; font-weight: 600; color: #0a1628; margin-bottom: 3px; }
+.rec-action { font-size: 9pt; color: #475569; }
+
+/* Security detail rows */
+.sec-detail-panel {
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+    overflow: hidden; margin-bottom: 14px;
+}
+.sec-detail-row {
+    display: flex; padding: 9px 16px; border-bottom: 1px solid #f1f5f9;
+    align-items: center;
+}
+.sec-detail-row:nth-child(even) { background: #f8fafc; }
+.sec-detail-row:last-child { border-bottom: none; }
+.sec-detail-label { min-width: 180px; font-weight: 600; color: #334155; font-size: 9.5pt; }
+.sec-detail-value { flex: 1; font-size: 9.5pt; }
+
+/* QR codes */
+.qr-row { display: flex; justify-content: center; gap: 60px; margin: 20px 0; }
+.qr-item { text-align: center; }
+.qr-item img { width: 120px; height: 120px; border-radius: 8px; }
+.qr-item .qr-fallback { width: 120px; height: 120px; border: 2px dashed #94a3b8; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 7.5pt; color: #94a3b8; line-height: 1.3; }
+.qr-label { font-size: 9pt; font-weight: 600; color: #0d4b71; margin-top: 8px; }
+.qr-sublabel { font-size: 7.5pt; color: #64748b; margin-top: 2px; }
+
+/* Repeated page footer */
+.page-footer-bar {
+    margin-top: 30px; padding: 10px 0; border-top: 2px solid #0d4b71;
+    text-align: center; font-size: 8pt; color: #94a3b8;
+}
+.page-footer-bar strong { color: #0d4b71; }
 </style></head><body>
 
+<!-- COVER PAGE -->
 <div class="cover">
-<div class="cover-logo">PC PLUS COMPUTING</div>
+<div>$logoHTML</div>
 <div class="cover-title">SECURITY AUDIT REPORT</div>
-<div class="cover-subtitle">Comprehensive Security Assessment</div>
-<svg viewBox="0 0 100 100" width="180" height="180">
-<circle cx="50" cy="50" r="45" fill="none" stroke="#e0e0e0" stroke-width="8"/>
-<circle cx="50" cy="50" r="45" fill="none" stroke="$($Scoring.Color)" stroke-width="8" stroke-dasharray="283" stroke-dashoffset="$dashOffset" transform="rotate(-90 50 50)" stroke-linecap="round"/>
-<text x="50" y="45" text-anchor="middle" font-size="22" font-weight="bold" fill="$($Scoring.Color)">$($Scoring.Score)</text>
-<text x="50" y="62" text-anchor="middle" font-size="14" font-weight="bold" fill="$($Scoring.Color)">$($Scoring.Grade)</text>
+<div class="cover-subtitle">Comprehensive Security Assessment &amp; Compliance Audit</div>
+
+<div style="margin: 10px 0 6px 0;">
+<svg viewBox="0 0 120 120" width="200" height="200">
+<circle cx="60" cy="60" r="50" fill="none" stroke="#e5e7eb" stroke-width="10"/>
+<circle cx="60" cy="60" r="50" fill="none" stroke="$($Scoring.Color)" stroke-width="10" stroke-dasharray="314" stroke-dashoffset="$([math]::Round(314 - (314 * $Scoring.Score / 100)))" transform="rotate(-90 60 60)" stroke-linecap="round"/>
+<text x="60" y="68" text-anchor="middle" font-size="36" font-weight="bold" fill="$($Scoring.Color)">$($Scoring.Grade)</text>
 </svg>
-<p class="meta" style="font-size:14pt;color:$($Scoring.Color);font-weight:bold;margin-top:10px;">Security Score: $($Scoring.Score) / 100 - Grade $($Scoring.Grade)</p>
-<div style="margin-top:30px;">
-<p class="meta"><strong>Customer:</strong> $($Params.CustomerName)</p>
-$(if($Params.ContactName){"<p class='meta'><strong>Contact:</strong> $($Params.ContactName)</p>"})
-<p class="meta"><strong>Device:</strong> $($SystemInfo.ComputerName)</p>
-<p class="meta"><strong>Date:</strong> $date</p>
-<p class="meta"><strong>Technician:</strong> $($Params.TechName)</p>
-</div></div>
-
-<div class="page-break"></div>
-<div class="section-header">Security Score Breakdown</div>
-<div class="summary-grid">
-<div class="summary-box" style="border-color:#27ae60;"><span class="number pass">$passCount</span><span class="label">Passed</span></div>
-<div class="summary-box" style="border-color:#e74c3c;"><span class="number fail">$failCount</span><span class="label">Failed</span></div>
-<div class="summary-box" style="border-color:$($Scoring.Color);"><span class="number" style="color:$($Scoring.Color);">$($Scoring.Score)</span><span class="label">Score</span></div>
-<div class="summary-box"><span class="number">$($MissingPatches.Count)</span><span class="label">Missing Patches</span></div>
 </div>
-<table><tr><th></th><th>Check</th><th>Status</th><th>Weight</th></tr>$breakdownRows</table>
+<div class="cover-grade-label" style="color:$($Scoring.Color);">$($Scoring.Score) / 100</div>
 
-$(if($recs.Count -gt 0){"<div class='section-header'>Recommendations</div><table><tr><th>Severity</th><th>Check</th><th>Action Required</th></tr>$recsHTML</table>"})
+<div class="cover-meta">
+<p><strong>Customer:</strong> $($Params.CustomerName)</p>
+$(if($Params.ContactName){"<p><strong>Contact:</strong> $($Params.ContactName)</p>"})
+<p><strong>Device:</strong> $($SystemInfo.ComputerName)</p>
+<p><strong>Date:</strong> $date</p>
+<p><strong>Technician:</strong> $($Params.TechName)</p>
+</div>
 
+<div class="cover-footer">
+<div class="company-url">$WEBSITE | $PHONE</div>
+<div class="tagline">Your Security, Our Priority &nbsp;|&nbsp; 30+ Years in Service &nbsp;|&nbsp; 4.9&#9733; Google Rating</div>
+</div>
+</div>
+
+<!-- EXECUTIVE SUMMARY -->
 <div class="page-break"></div>
-<div class="section-header">Detailed Security Status</div>
-<table><tr><th style="width:40%;">Check</th><th>Status</th></tr>$secRows</table>
 
-<div class="section-header">Missing Windows Updates ($($MissingPatches.Count))</div>
-<table><tr><th>KB</th><th>Title</th><th>Severity</th></tr>$patchRows</table>
+<div class="section-header"><span class="section-icon">&#128737;</span> Executive Summary</div>
 
-<div class="report-footer">
-<p><strong>$COMPANY</strong></p><p>$WEBSITE | $PHONE</p>
-<p style="margin-top:8px;font-size:8pt;">Security Audit Report generated $date | Technician: $($Params.TechName)</p>
-</div></body></html>
+<div style="display:flex;align-items:center;gap:24px;margin:14px 0;">
+<div style="text-align:center;">
+<svg viewBox="0 0 100 100" width="100" height="100">
+<circle cx="50" cy="50" r="40" fill="none" stroke="#e5e7eb" stroke-width="8"/>
+<circle cx="50" cy="50" r="40" fill="none" stroke="$($Scoring.Color)" stroke-width="8" stroke-dasharray="251" stroke-dashoffset="$([math]::Round(251 - (251 * $Scoring.Score / 100)))" transform="rotate(-90 50 50)" stroke-linecap="round"/>
+<text x="50" y="46" text-anchor="middle" font-size="20" font-weight="bold" fill="$($Scoring.Color)">$($Scoring.Grade)</text>
+<text x="50" y="62" text-anchor="middle" font-size="11" fill="#64748b">$($Scoring.Score) / 100</text>
+</svg>
+<div style="font-size:8pt;color:#64748b;font-weight:600;margin-top:4px;">SECURITY SCORE</div>
+</div>
+<div style="flex:1;">
+<div class="score-cards">
+<div class="score-card">
+<div class="score-card-value" style="color:#16a34a;">$passCount</div>
+<svg viewBox="0 0 80 6" width="80" height="6" style="margin-top:6px;"><rect width="80" height="6" rx="3" fill="#e5e7eb"/><rect width="$([math]::Round(80 * $passCount / $Scoring.Breakdown.Count))" height="6" rx="3" fill="#16a34a"/></svg>
+<div class="score-card-label">Passed</div>
+</div>
+<div class="score-card">
+<div class="score-card-value" style="color:#dc2626;">$failCount</div>
+<svg viewBox="0 0 80 6" width="80" height="6" style="margin-top:6px;"><rect width="80" height="6" rx="3" fill="#e5e7eb"/><rect width="$([math]::Round(80 * $failCount / $Scoring.Breakdown.Count))" height="6" rx="3" fill="#dc2626"/></svg>
+<div class="score-card-label">Failed</div>
+</div>
+<div class="score-card">
+<div class="score-card-value" style="color:$($Scoring.Color);">$($Scoring.Score)</div>
+<svg viewBox="0 0 80 6" width="80" height="6" style="margin-top:6px;"><rect width="80" height="6" rx="3" fill="#e5e7eb"/><rect width="$([math]::Round(80 * $Scoring.Score / 100))" height="6" rx="3" fill="$($Scoring.Color)"/></svg>
+<div class="score-card-label">Score</div>
+</div>
+<div class="score-card">
+<div class="score-card-value" style="color:$(if($MissingPatches.Count -eq 0){'#16a34a'}elseif($criticalPatches -gt 0){'#dc2626'}else{'#f59e0b'});">$($MissingPatches.Count)</div>
+<svg viewBox="0 0 80 6" width="80" height="6" style="margin-top:6px;"><rect width="80" height="6" rx="3" fill="#e5e7eb"/><rect width="$(if($MissingPatches.Count -gt 0){[math]::Min(80, $MissingPatches.Count * 4)}else{0})" height="6" rx="3" fill="$(if($criticalPatches -gt 0){'#dc2626'}elseif($MissingPatches.Count -gt 0){'#f59e0b'}else{'#16a34a'})"/></svg>
+<div class="score-card-label">Missing Patches</div>
+</div>
+</div>
+</div>
+</div>
+
+$(if($recs.Count -gt 0){
+"<div style='background:#fef5f5;border:1px solid #fca5a5;border-radius:10px;padding:14px 18px;margin:12px 0;'>
+<div style='font-size:10.5pt;font-weight:700;color:#991b1b;margin-bottom:8px;'>&#9888; Action Required ($($recs.Count) item$(if($recs.Count -ne 1){'s'}))</div>
+$recsHTML
+</div>"
+} else {
+"<div style='background:#eafaf1;border:1px solid #86efac;border-radius:10px;padding:16px 20px;margin:12px 0;'>
+<div style='font-size:10.5pt;font-weight:700;color:#166534;'>$iconPass All Security Checks Passed</div>
+<div style='font-size:9.5pt;color:#334155;margin-top:4px;'>This system meets all security baseline requirements.</div>
+</div>"
+})
+
+<div class="page-footer-bar"><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
+
+<!-- SCORE BREAKDOWN -->
+<div class="page-break"></div>
+
+<div class="section-header"><span class="section-icon">&#128202;</span> Security Score Breakdown</div>
+
+<table><tr><th style="width:30px;"></th><th>Security Check</th><th>Status</th><th style="width:70px;text-align:center;">Weight</th></tr>$breakdownRows</table>
+
+<div class="page-footer-bar"><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
+
+<!-- DETAILED SECURITY STATUS -->
+<div class="page-break"></div>
+
+<div class="section-header"><span class="section-icon">&#128274;</span> Detailed Security Status</div>
+
+<div class="sec-detail-panel">
+$secDetailCards
+</div>
+
+<div class="page-footer-bar"><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
+
+<!-- MISSING PATCHES -->
+<div class="page-break"></div>
+
+<div class="section-header"><span class="section-icon">&#128259;</span> Missing Windows Updates ($($MissingPatches.Count))</div>
+
+$(if($criticalPatches -gt 0){"<div style='background:#fef5f5;border-left:4px solid #dc2626;border-radius:4px;padding:10px 14px;margin-bottom:12px;font-size:9.5pt;'><strong class='fail'>$iconFail $criticalPatches Critical</strong> and <strong class='warn'>$importantPatches Important</strong> updates are missing. Install immediately.</div>"})
+
+<table><tr><th>KB Article</th><th>Update Title</th><th>Severity</th><th style="text-align:right;">Size</th></tr>$patchRows</table>
+
+<div class="page-footer-bar"><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
+
+<!-- BACK PAGE -->
+<div class="page-break"></div>
+
+<div style="text-align:center;padding-top:60px;">
+$(if($logoDataUri){"<img src='$logoDataUri' alt='PC Plus Computing' style='width:250px;margin-bottom:30px;'/>"}else{"<div style='background:#0a1628;color:#fff;padding:16px 40px;font-size:18pt;font-weight:bold;letter-spacing:3px;border-radius:6px;margin-bottom:30px;display:inline-block;'>PC PLUS COMPUTING</div>"})
+<div style="font-size:12pt;color:#0d4b71;font-weight:600;margin-bottom:6px;">Thank you for choosing PC Plus Computing</div>
+<div style="font-size:10pt;color:#64748b;margin-bottom:30px;">Your Security, Our Priority &nbsp;|&nbsp; 30+ Years in Service &nbsp;|&nbsp; 4.9&#9733; Google Rating</div>
+
+<div class="qr-row">
+<div class="qr-item">
+$(if($qrAppointmentUri){"<img src='$qrAppointmentUri' alt='Book Appointment'/>"}else{"<div class='qr-fallback'>Book<br/>Appointment</div>"})
+<div class="qr-label">Book an Appointment</div>
+<div class="qr-sublabel">pcpluscomputing.com/appointments</div>
+</div>
+<div class="qr-item">
+$(if($qrServiceUri){"<img src='$qrServiceUri' alt='Send Info'/>"}else{"<div class='qr-fallback'>Send Us<br/>Info</div>"})
+<div class="qr-label">Send Us Your Info</div>
+<div class="qr-sublabel">Service Request Portal</div>
+</div>
+</div>
+
+<div style="margin-top:40px;padding:20px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;display:inline-block;">
+<div style="font-size:11pt;font-weight:700;color:#0a1628;margin-bottom:8px;">Get In Touch</div>
+<div style="font-size:10pt;color:#475569;">
+&#127760; $WEBSITE &nbsp;&nbsp;|&nbsp;&nbsp; &#128222; $PHONE
+</div>
+</div>
+
+<div style="margin-top:40px;font-size:8pt;color:#94a3b8;">
+Security Audit Report generated $date<br/>
+Technician: $($Params.TechName) &nbsp;|&nbsp; Device: $($SystemInfo.ComputerName)
+</div>
+</div>
+
+</body></html>
 "@
     return $html
 }
@@ -1674,7 +1930,7 @@ $xaml = @"
 
         <!-- FOOTER -->
         <Border Grid.Row="2" Background="#0d1f3c">
-            <TextBlock Text="PC Plus Computing | pcpluscomputing.com | 604-760-1662 | v1.0.0" Foreground="#666" FontSize="10" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            <TextBlock Text="PC Plus Computing | pcpluscomputing.com | 604-760-1662 | 236-500-2700 | v1.0.0" Foreground="#666" FontSize="10" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
     </Grid>
 </Window>
@@ -1913,6 +2169,33 @@ $xaml = @"
         }
         Set-Status "Reports saved to: $($p.OutputFolder)" 100
         Start-Process explorer.exe -ArgumentList $p.OutputFolder
+
+        # Offer to email the report
+        $emailResult = [System.Windows.MessageBox]::Show($window, "Reports saved successfully!`n`nWould you like to open your email client to send the report to the customer?", "Email Report?", "YesNo", "Question")
+        if ($emailResult -eq "Yes") {
+            # Determine which PDF to reference
+            $pdfToEmail = ""
+            if ($DoHW -and (Test-Path $hwPDFPath)) { $pdfToEmail = $hwPDFPath }
+            elseif ($DoSec -and (Test-Path $secPDFPath)) { $pdfToEmail = $secPDFPath }
+            elseif ($DoHW -and (Test-Path $hwHTMLPath)) { $pdfToEmail = $hwHTMLPath }
+            elseif ($DoSec -and (Test-Path $secHTMLPath)) { $pdfToEmail = $secHTMLPath }
+
+            # Copy path to clipboard for easy attachment
+            if ($pdfToEmail) {
+                try { [System.Windows.Clipboard]::SetText($pdfToEmail) } catch {}
+            }
+
+            $subjectText = "PC Plus Computing - Diagnostic Report for $($p.CustomerName)"
+            $bodyText = "Hello,`n`nPlease find attached the diagnostic report for $($p.CustomerName) - $($Global:DiagResults.SystemInfo.ComputerName).`n`nGenerated on $(Get-Date -Format 'MMMM dd, yyyy').`n`nBest regards,`n$($p.TechName)`nPC Plus Computing`n$WEBSITE | $PHONE"
+            $encodedSubject = [Uri]::EscapeDataString($subjectText)
+            $encodedBody = [Uri]::EscapeDataString($bodyText)
+            try {
+                Start-Process "mailto:?subject=$encodedSubject&body=$encodedBody"
+                Set-Status "Email client opened. Report path copied to clipboard - paste when attaching file." 100
+            } catch {
+                Set-Status "Could not open email client. Report path copied to clipboard." 100
+            }
+        }
     }
 
     $window.FindName("btnHWReport").Add_Click({ & $generateReports $true $false })
