@@ -1304,11 +1304,19 @@ $xaml = @"
 
     $tools = Get-ToolStatus
 
-    # Helper to update UI
+    # Helper to update UI - forces repaint
     function Set-Status { param([string]$Msg, [int]$Pct = -1)
         $txtStatus.Text = $Msg
         if ($Pct -ge 0) { $progressBar.Value = $Pct }
-        [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke([System.Action]{}, [System.Windows.Threading.DispatcherPriority]::Background)
+        $window.Title = "PC Plus 360 - $Msg"
+        Write-DebugLog "STATUS: $Msg ($Pct%)"
+        # Force WPF to repaint
+        $frame = New-Object System.Windows.Threading.DispatcherFrame
+        [System.Windows.Threading.Dispatcher]::CurrentDispatcher.BeginInvoke(
+            [System.Windows.Threading.DispatcherPriority]::Background,
+            [System.Action]{ $frame.Continue = $false }
+        )
+        [System.Windows.Threading.Dispatcher]::PushFrame($frame)
     }
 
     function Get-Params {
@@ -1407,55 +1415,79 @@ $xaml = @"
 
     # QUICK DIAGNOSTIC
     $window.FindName("btnQuick").Add_Click({
-        $p = Get-Params; if (-not $p) { return }
-        Set-Status "Quick Diagnostic: Collecting system info..." 5
-        $Global:DiagResults.SystemInfo = Get-FullSystemInfo
-        Set-Status "Quick Diagnostic: Security scan..." 25
-        $Global:DiagResults.Security = Get-FullSecurityInfo
-        Set-Status "Quick Diagnostic: Network analysis..." 45
-        $Global:DiagResults.Network = Get-NetworkDiagnostics
-        Set-Status "Quick Diagnostic: Software inventory..." 55
-        $Global:DiagResults.Software = Get-SoftwareInventory
-        Set-Status "Quick Diagnostic: Checking updates..." 65
-        $Global:DiagResults.Patches = Get-MissingPatchesList
-        Set-Status "Quick Diagnostic: Performance snapshot..." 75
-        $Global:DiagResults.Performance = Get-PerformanceSnapshot
-        Set-Status "Quick Diagnostic: License keys..." 85
-        $Global:DiagResults.LicenseKeys = Get-LicenseKeys
-        Set-Status "Quick Diagnostic: Calculating scores..." 95
-        $Global:DiagResults.Scoring = Calculate-Score $Global:DiagResults.Security $Global:DiagResults.Patches
-        $Global:DiagResults.StressResults = @{}
-        Set-Status "Quick Diagnostic complete! HW Score based on SMART/device status. Click Generate Reports to save PDFs." 100
+        try {
+            $p = Get-Params; if (-not $p) { return }
+            $window.FindName("btnQuick").IsEnabled = $false
+            $window.FindName("btnFull").IsEnabled = $false
+            Set-Status "Quick Diagnostic: Collecting system info..." 5
+            $Global:DiagResults.SystemInfo = Get-FullSystemInfo
+            Set-Status "Quick Diagnostic: Security scan..." 25
+            $Global:DiagResults.Security = Get-FullSecurityInfo
+            Set-Status "Quick Diagnostic: Network analysis..." 45
+            $Global:DiagResults.Network = Get-NetworkDiagnostics
+            Set-Status "Quick Diagnostic: Software inventory..." 55
+            $Global:DiagResults.Software = Get-SoftwareInventory
+            Set-Status "Quick Diagnostic: Checking updates..." 65
+            $Global:DiagResults.Patches = Get-MissingPatchesList
+            Set-Status "Quick Diagnostic: Performance snapshot..." 75
+            $Global:DiagResults.Performance = Get-PerformanceSnapshot
+            Set-Status "Quick Diagnostic: License keys..." 85
+            $Global:DiagResults.LicenseKeys = Get-LicenseKeys
+            Set-Status "Quick Diagnostic: Calculating scores..." 95
+            $Global:DiagResults.Scoring = Calculate-Score $Global:DiagResults.Security $Global:DiagResults.Patches
+            $Global:DiagResults.StressResults = @{}
+            Set-Status "DONE! Quick Diagnostic complete. Click Generate Reports to save PDFs." 100
+            [System.Windows.MessageBox]::Show("Quick Diagnostic complete!`n`nClick 'Hardware Report', 'Security Report', or 'Both Reports' to generate PDFs.", "Diagnostic Complete", "OK", "Information")
+        } catch {
+            Write-DebugLog "Quick Diagnostic ERROR: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
+            Set-Status "ERROR: $($_.Exception.Message)" 0
+            [System.Windows.MessageBox]::Show("Error during Quick Diagnostic:`n`n$($_.Exception.Message)", "Error", "OK", "Error")
+        } finally {
+            $window.FindName("btnQuick").IsEnabled = $true
+            $window.FindName("btnFull").IsEnabled = $true
+        }
     })
 
     # FULL DIAGNOSTIC
     $window.FindName("btnFull").Add_Click({
-        $p = Get-Params; if (-not $p) { return }
-        Set-Status "Full Diagnostic: Collecting system info..." 3
-        $Global:DiagResults.SystemInfo = Get-FullSystemInfo
-        Set-Status "Full Diagnostic: Security scan..." 10
-        $Global:DiagResults.Security = Get-FullSecurityInfo
-        Set-Status "Full Diagnostic: Network analysis..." 20
-        $Global:DiagResults.Network = Get-NetworkDiagnostics
-        Set-Status "Full Diagnostic: Software inventory..." 28
-        $Global:DiagResults.Software = Get-SoftwareInventory
-        Set-Status "Full Diagnostic: Checking updates..." 35
-        $Global:DiagResults.Patches = Get-MissingPatchesList
-        Set-Status "Full Diagnostic: Performance snapshot..." 40
-        $Global:DiagResults.Performance = Get-PerformanceSnapshot
-        Set-Status "Full Diagnostic: License keys..." 45
-        $Global:DiagResults.LicenseKeys = Get-LicenseKeys
-        Set-Status "Full Diagnostic: CPU stress test (120s)..." 50
-        $Global:DiagResults.CPUStress = Start-CPUStressTest -DurationSeconds 120
-        Set-Status "Full Diagnostic: RAM test (120s)..." 70
-        $Global:DiagResults.RAMStress = Start-RAMStressTest -DurationSeconds 120
-        Set-Status "Full Diagnostic: Disk benchmark..." 85
-        $Global:DiagResults.DiskBench = Start-DiskBenchmark -FileSizeMB 512
-        Set-Status "Full Diagnostic: Calculating scores..." 95
-        $Global:DiagResults.Scoring = Calculate-Score $Global:DiagResults.Security $Global:DiagResults.Patches
-        $Global:DiagResults.StressResults = @{ CPU = $Global:DiagResults.CPUStress; RAM = $Global:DiagResults.RAMStress; Disk = $Global:DiagResults.DiskBench }
-        $cs = $Global:DiagResults.CPUStress; $rs = $Global:DiagResults.RAMStress; $ds = $Global:DiagResults.DiskBench
-        Set-Status "Full Diagnostic complete! CPU: $(if($cs.Passed){'PASS'}else{'FAIL'}), RAM: $(if($rs.Passed){'PASS'}else{'FAIL'}), Disk: W=$($ds.SeqWriteMBps)/$($ds.SeqReadMBps) MB/s. Generate Reports now." 100
+        try {
+            $p = Get-Params; if (-not $p) { return }
+            $window.FindName("btnQuick").IsEnabled = $false
+            $window.FindName("btnFull").IsEnabled = $false
+            Set-Status "Full Diagnostic: Collecting system info..." 3
+            $Global:DiagResults.SystemInfo = Get-FullSystemInfo
+            Set-Status "Full Diagnostic: Security scan..." 10
+            $Global:DiagResults.Security = Get-FullSecurityInfo
+            Set-Status "Full Diagnostic: Network analysis..." 20
+            $Global:DiagResults.Network = Get-NetworkDiagnostics
+            Set-Status "Full Diagnostic: Software inventory..." 28
+            $Global:DiagResults.Software = Get-SoftwareInventory
+            Set-Status "Full Diagnostic: Checking updates..." 35
+            $Global:DiagResults.Patches = Get-MissingPatchesList
+            Set-Status "Full Diagnostic: Performance snapshot..." 40
+            $Global:DiagResults.Performance = Get-PerformanceSnapshot
+            Set-Status "Full Diagnostic: License keys..." 45
+            $Global:DiagResults.LicenseKeys = Get-LicenseKeys
+            Set-Status "Full Diagnostic: CPU stress test (120s)..." 50
+            $Global:DiagResults.CPUStress = Start-CPUStressTest -DurationSeconds 120
+            Set-Status "Full Diagnostic: RAM test (120s)..." 70
+            $Global:DiagResults.RAMStress = Start-RAMStressTest -DurationSeconds 120
+            Set-Status "Full Diagnostic: Disk benchmark..." 85
+            $Global:DiagResults.DiskBench = Start-DiskBenchmark -FileSizeMB 512
+            Set-Status "Full Diagnostic: Calculating scores..." 95
+            $Global:DiagResults.Scoring = Calculate-Score $Global:DiagResults.Security $Global:DiagResults.Patches
+            $Global:DiagResults.StressResults = @{ CPU = $Global:DiagResults.CPUStress; RAM = $Global:DiagResults.RAMStress; Disk = $Global:DiagResults.DiskBench }
+            $cs = $Global:DiagResults.CPUStress; $rs = $Global:DiagResults.RAMStress; $ds = $Global:DiagResults.DiskBench
+            Set-Status "DONE! CPU: $(if($cs.Passed){'PASS'}else{'FAIL'}), RAM: $(if($rs.Passed){'PASS'}else{'FAIL'}), Disk: W=$($ds.SeqWriteMBps)/$($ds.SeqReadMBps) MB/s" 100
+            [System.Windows.MessageBox]::Show("Full Diagnostic complete!`n`nCPU: $(if($cs.Passed){'PASS'}else{'FAIL'})`nRAM: $(if($rs.Passed){'PASS'}else{'FAIL'})`nDisk: W=$($ds.SeqWriteMBps) / R=$($ds.SeqReadMBps) MB/s`n`nClick Generate Reports to save PDFs.", "Diagnostic Complete", "OK", "Information")
+        } catch {
+            Write-DebugLog "Full Diagnostic ERROR: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
+            Set-Status "ERROR: $($_.Exception.Message)" 0
+            [System.Windows.MessageBox]::Show("Error during Full Diagnostic:`n`n$($_.Exception.Message)", "Error", "OK", "Error")
+        } finally {
+            $window.FindName("btnQuick").IsEnabled = $true
+            $window.FindName("btnFull").IsEnabled = $true
+        }
     })
 
     # REPORT GENERATION
