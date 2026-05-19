@@ -979,7 +979,7 @@ function Build-HardwareReport {
 $html = @"
 <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><title>Hardware Diagnostic Report - $($Params.CustomerName)</title>
 <style>
-@page { size: letter; margin: 0.5in 0.6in 0.7in 0.6in; }
+@page { size: letter; margin: 0.5in 0.6in 0.9in 0.6in; }
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family: 'Segoe UI', -apple-system, Tahoma, sans-serif; font-size: 9.5pt; color: #1e293b; line-height: 1.6; background: #fff; }
 h1,h2,h3,h4 { margin:0; }
@@ -989,9 +989,18 @@ h1,h2,h3,h4 { margin:0; }
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .page-break { page-break-before: always; }
     .no-break { page-break-inside: avoid; }
-    .page-footer { position: fixed; bottom: 0; left: 0; right: 0; }
 }
 .page-break { page-break-before: always; }
+
+/* Fixed print footer - repeats on every page */
+.print-footer {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    padding: 6px 0; border-top: 1.5px solid #0d4b71;
+    text-align: center; font-size: 7.5pt; color: #94a3b8;
+    background: #fff;
+}
+.print-footer strong { color: #0d4b71; font-size: 7.5pt; }
+.print-footer .report-name { color: #475569; }
 .no-break { page-break-inside: avoid; }
 
 /* ── Cover page ── */
@@ -1124,6 +1133,10 @@ tr:hover td { background: #eaf7fc; }
 .info-pair .val { color: #1e293b; }
 </style></head><body>
 
+<div class="print-footer">
+<span class="report-name">Hardware Diagnostic Report</span> &nbsp;|&nbsp; <strong>$COMPANY</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE
+</div>
+
 <!-- ══════════════════════════ COVER PAGE ══════════════════════════ -->
 <div class="cover">
 <div class="cover-logo">$logoHTML</div>
@@ -1196,7 +1209,6 @@ $(if($stressHTML){"
 <table><tr><th>Test</th><th>Result</th><th>Details</th><th>Temps</th></tr>$stressHTML</table>
 "})
 
-<div class="page-footer-bar"><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
 
 <!-- ══════════════════════════ SYSTEM INFORMATION ══════════════════════════ -->
 <div class="page-break"></div>
@@ -1236,7 +1248,6 @@ $(if($stressHTML){"
 
 $(if($monitorRows){"<div class='sub-header'>Monitors</div><table><tr><th>Model</th><th>Manufacturer</th><th>Serial</th><th>Year</th></tr>$monitorRows</table>"})
 
-<div class="page-footer-bar"><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
 
 <!-- ══════════════════════════ STORAGE HEALTH ══════════════════════════ -->
 <div class="page-break"></div>
@@ -1256,7 +1267,6 @@ $(if($tempRows){"
 
 $batteryHTML
 
-<div class="page-footer-bar"><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
 
 <!-- ══════════════════════════ DEVICE MANAGER ══════════════════════════ -->
 <div class="page-break"></div>
@@ -1277,7 +1287,6 @@ $(if($printerRows){"<div class='sub-header'>Printers</div><table><tr><th>Name</t
 </table>
 $(if($Network.OpenPorts.Count -gt 0){"<div class='sub-header'>Listening Ports</div><table><tr><th>Port</th><th>Address</th><th>Process</th></tr>$(($Network.OpenPorts | ForEach-Object {"<tr><td>$($_.Port)</td><td>$($_.Address)</td><td>$($_.Process)</td></tr>"}) -join "`n")</table>"})
 
-<div class="page-footer-bar"><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
 
 <!-- ══════════════════════════ PERFORMANCE ══════════════════════════ -->
 <div class="page-break"></div>
@@ -1307,14 +1316,12 @@ $(if($Network.OpenPorts.Count -gt 0){"<div class='sub-header'>Listening Ports</d
 <div class="sub-header">Top Memory Consumers</div>
 <table><tr><th>Process</th><th>RAM Usage</th></tr>$topProcRows</table>
 
-<div class="page-footer-bar"><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
 
 <!-- ══════════════════════════ STRESS TEST RESULTS ══════════════════════════ -->
 $(if($stressHTML){"
 <div class='page-break'></div>
 <div class='section-header'><span class='section-icon'>&#128293;</span> Stress Test Results</div>
 <table><tr><th>Test</th><th>Result</th><th>Details</th><th>Temps / Info</th></tr>$stressHTML</table>
-<div class='page-footer-bar'><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
 "})
 
 <!-- ══════════════════════════ LICENSE KEYS & CREDENTIALS ══════════════════════════ -->
@@ -1337,7 +1344,6 @@ $(if($adobeKeyRows){"<div class='sub-header'>Adobe Products</div><table><tr><th>
 <div class="sub-header">Saved WiFi Networks</div>
 <table><tr><th>Network (SSID)</th><th>Password</th><th>Security</th></tr>$wifiRows</table>
 
-<div class="page-footer-bar"><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
 
 <!-- ══════════════════════════ TECHNICIAN NOTES ══════════════════════════ -->
 $techNotes
@@ -1351,7 +1357,6 @@ $techNotes
 <div class="sub-header">Startup Programs ($($Software.StartupPrograms.Count))</div>
 <table><tr><th>Name</th><th>Location</th></tr>$(($Software.StartupPrograms | ForEach-Object {"<tr><td>$($_.Name)</td><td style='font-size:8pt;word-break:break-all;'>$($_.Location)</td></tr>"}) -join "`n")</table>
 
-<div class="page-footer-bar"><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
 
 <!-- ══════════════════════════ BACK PAGE ══════════════════════════ -->
 <div class="page-break"></div>
@@ -1506,7 +1511,7 @@ function Build-SecurityReport {
 $html = @"
 <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><title>Security Audit Report - $($Params.CustomerName)</title>
 <style>
-@page { size: letter; margin: 0.5in 0.6in 0.7in 0.6in; }
+@page { size: letter; margin: 0.5in 0.6in 0.9in 0.6in; }
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family: 'Segoe UI', -apple-system, Tahoma, sans-serif; font-size: 9.5pt; color: #1e293b; line-height: 1.6; background: #fff; }
 h1,h2,h3,h4 { margin:0; }
@@ -1518,6 +1523,16 @@ h1,h2,h3,h4 { margin:0; }
     .no-break { page-break-inside: avoid; }
 }
 .page-break { page-break-before: always; }
+
+/* Fixed print footer - repeats on every page */
+.print-footer {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    padding: 6px 0; border-top: 1.5px solid #0d4b71;
+    text-align: center; font-size: 7.5pt; color: #94a3b8;
+    background: #fff;
+}
+.print-footer strong { color: #0d4b71; font-size: 7.5pt; }
+.print-footer .report-name { color: #475569; }
 .no-break { page-break-inside: avoid; }
 
 /* Cover page */
@@ -1627,6 +1642,10 @@ tr:hover td { background: #eaf7fc; }
 .page-footer-bar strong { color: #0d4b71; }
 </style></head><body>
 
+<div class="print-footer">
+<span class="report-name">Security Audit Report</span> &nbsp;|&nbsp; <strong>$COMPANY</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE
+</div>
+
 <!-- COVER PAGE -->
 <div class="cover">
 <div>$logoHTML</div>
@@ -1709,7 +1728,6 @@ $recsHTML
 </div>"
 })
 
-<div class="page-footer-bar"><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
 
 <!-- SCORE BREAKDOWN -->
 <div class="page-break"></div>
@@ -1718,7 +1736,6 @@ $recsHTML
 
 <table><tr><th style="width:30px;"></th><th>Security Check</th><th>Status</th><th style="width:70px;text-align:center;">Weight</th></tr>$breakdownRows</table>
 
-<div class="page-footer-bar"><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
 
 <!-- DETAILED SECURITY STATUS -->
 <div class="page-break"></div>
@@ -1729,7 +1746,6 @@ $recsHTML
 $secDetailCards
 </div>
 
-<div class="page-footer-bar"><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
 
 <!-- MISSING PATCHES -->
 <div class="page-break"></div>
@@ -1740,7 +1756,6 @@ $(if($criticalPatches -gt 0){"<div style='background:#fef5f5;border-left:4px sol
 
 <table><tr><th>KB Article</th><th>Update Title</th><th>Severity</th><th style="text-align:right;">Size</th></tr>$patchRows</table>
 
-<div class="page-footer-bar"><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
 
 <!-- BACK PAGE -->
 <div class="page-break"></div>
@@ -1788,7 +1803,7 @@ function Convert-ToPDF {
     foreach ($p in @("${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe","$env:ProgramFiles\Google\Chrome\Application\chrome.exe","$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe")) { if (Test-Path $p) { $browsers += $p; break } }
     foreach ($b in $browsers) {
         try {
-            $args = "--headless --disable-gpu --no-sandbox --print-to-pdf=`"$PDFPath`" --print-to-pdf-no-header --run-all-compositor-stages-before-draw --disable-extensions `"file:///$($HTMLPath.Replace('\','/'))`""
+            $args = "--headless --disable-gpu --no-sandbox --print-to-pdf=`"$PDFPath`" --print-to-pdf-no-header --no-pdf-header-footer --run-all-compositor-stages-before-draw --disable-extensions `"file:///$($HTMLPath.Replace('\','/'))`""
             Start-Process -FilePath $b -ArgumentList $args -PassThru -WindowStyle Hidden -Wait | Out-Null
             if (Test-Path $PDFPath) { return $true }
         } catch { continue }
