@@ -1321,8 +1321,12 @@ $xaml = @"
 
     function Get-Params {
         if ([string]::IsNullOrWhiteSpace($txtCustomer.Text)) {
-            [System.Windows.MessageBox]::Show("Customer Name is required.", "Validation", "OK", "Warning"); return $null
+            Write-DebugLog "Validation failed: Customer Name is empty"
+            [System.Windows.MessageBox]::Show($window, "Please enter a Customer Name in the first field.", "Customer Name Required", "OK", "Warning")
+            $txtCustomer.Focus()
+            return $null
         }
+        Write-DebugLog "Params OK: Customer=$($txtCustomer.Text.Trim())"
         return @{ CustomerName = $txtCustomer.Text.Trim(); ContactName = $txtContact.Text.Trim(); TechName = $txtTech.Text.Trim(); TechNotes = $txtNotes.Text.Trim(); OutputFolder = $Global:ReportsDir }
     }
 
@@ -1409,7 +1413,7 @@ $xaml = @"
         if (Test-Path $debloatScript) {
             Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$debloatScript`"" -Verb RunAs
         } else {
-            [System.Windows.MessageBox]::Show("PCPlus-Debloat.ps1 not found in $Global:ScriptDir", "Not Found", "OK", "Warning")
+            [System.Windows.MessageBox]::Show($window, "PCPlus-Debloat.ps1 not found in $Global:ScriptDir", "Not Found", "OK", "Warning")
         }
     })
 
@@ -1437,11 +1441,11 @@ $xaml = @"
             $Global:DiagResults.Scoring = Calculate-Score $Global:DiagResults.Security $Global:DiagResults.Patches
             $Global:DiagResults.StressResults = @{}
             Set-Status "DONE! Quick Diagnostic complete. Click Generate Reports to save PDFs." 100
-            [System.Windows.MessageBox]::Show("Quick Diagnostic complete!`n`nClick 'Hardware Report', 'Security Report', or 'Both Reports' to generate PDFs.", "Diagnostic Complete", "OK", "Information")
+            [System.Windows.MessageBox]::Show($window, "Quick Diagnostic complete!`n`nClick 'Hardware Report', 'Security Report', or 'Both Reports' to generate PDFs.", "Diagnostic Complete", "OK", "Information")
         } catch {
             Write-DebugLog "Quick Diagnostic ERROR: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
             Set-Status "ERROR: $($_.Exception.Message)" 0
-            [System.Windows.MessageBox]::Show("Error during Quick Diagnostic:`n`n$($_.Exception.Message)", "Error", "OK", "Error")
+            [System.Windows.MessageBox]::Show($window, "Error during Quick Diagnostic:`n`n$($_.Exception.Message)", "Error", "OK", "Error")
         } finally {
             $window.FindName("btnQuick").IsEnabled = $true
             $window.FindName("btnFull").IsEnabled = $true
@@ -1479,11 +1483,11 @@ $xaml = @"
             $Global:DiagResults.StressResults = @{ CPU = $Global:DiagResults.CPUStress; RAM = $Global:DiagResults.RAMStress; Disk = $Global:DiagResults.DiskBench }
             $cs = $Global:DiagResults.CPUStress; $rs = $Global:DiagResults.RAMStress; $ds = $Global:DiagResults.DiskBench
             Set-Status "DONE! CPU: $(if($cs.Passed){'PASS'}else{'FAIL'}), RAM: $(if($rs.Passed){'PASS'}else{'FAIL'}), Disk: W=$($ds.SeqWriteMBps)/$($ds.SeqReadMBps) MB/s" 100
-            [System.Windows.MessageBox]::Show("Full Diagnostic complete!`n`nCPU: $(if($cs.Passed){'PASS'}else{'FAIL'})`nRAM: $(if($rs.Passed){'PASS'}else{'FAIL'})`nDisk: W=$($ds.SeqWriteMBps) / R=$($ds.SeqReadMBps) MB/s`n`nClick Generate Reports to save PDFs.", "Diagnostic Complete", "OK", "Information")
+            [System.Windows.MessageBox]::Show($window, "Full Diagnostic complete!`n`nCPU: $(if($cs.Passed){'PASS'}else{'FAIL'})`nRAM: $(if($rs.Passed){'PASS'}else{'FAIL'})`nDisk: W=$($ds.SeqWriteMBps) / R=$($ds.SeqReadMBps) MB/s`n`nClick Generate Reports to save PDFs.", "Diagnostic Complete", "OK", "Information")
         } catch {
             Write-DebugLog "Full Diagnostic ERROR: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
             Set-Status "ERROR: $($_.Exception.Message)" 0
-            [System.Windows.MessageBox]::Show("Error during Full Diagnostic:`n`n$($_.Exception.Message)", "Error", "OK", "Error")
+            [System.Windows.MessageBox]::Show($window, "Error during Full Diagnostic:`n`n$($_.Exception.Message)", "Error", "OK", "Error")
         } finally {
             $window.FindName("btnQuick").IsEnabled = $true
             $window.FindName("btnFull").IsEnabled = $true
@@ -1494,7 +1498,7 @@ $xaml = @"
     $generateReports = {
         param([bool]$DoHW, [bool]$DoSec)
         $p = Get-Params; if (-not $p) { return }
-        if (-not $Global:DiagResults.SystemInfo) { [System.Windows.MessageBox]::Show("Run a diagnostic first (Quick or Full).", "No Data", "OK", "Warning"); return }
+        if (-not $Global:DiagResults.SystemInfo) { [System.Windows.MessageBox]::Show($window, "Run a diagnostic first (Quick or Full).", "No Data", "OK", "Warning"); return }
         $safeName = $p.CustomerName -replace '[\\/:*?"<>|]','_'
         $safeDev = $Global:DiagResults.SystemInfo.ComputerName -replace '[\\/:*?"<>|]','_'
         $ds = Get-Date -Format "yyyy-MM-dd"
