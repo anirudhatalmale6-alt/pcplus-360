@@ -759,14 +759,89 @@ function Build-HardwareReport {
     $hwColor = switch ($hwGrade) { "A"{"#27ae60"} "B"{"#27ae60"} "C"{"#f39c12"} "D"{"#f39c12"} "F"{"#e74c3c"} }
     $dashOffset = 283 - (283 * $hwScore / 100)
 
+    # Load logo as base64 data URI
+    $logoDataUri = ""
+    $logoPath = Join-Path $Global:ScriptDir "logo-base64.txt"
+    if (Test-Path $logoPath) {
+        try {
+            $logoB64 = (Get-Content $logoPath -Raw).Trim()
+            $logoDataUri = "data:image/png;base64,$logoB64"
+        } catch { $logoDataUri = "" }
+    }
+    $logoHTML = if ($logoDataUri) {
+        "<img src='$logoDataUri' alt='PC Plus Computing' style='width:350px;max-width:90%;margin-bottom:30px;'/>"
+    } else {
+        "<div style='background:#0a1628;color:#fff;padding:20px 50px;font-size:22pt;font-weight:bold;letter-spacing:3px;border-radius:6px;margin-bottom:30px;'>PC PLUS COMPUTING</div>"
+    }
+
+    # Category sub-scores for executive summary
+    # Storage Health
+    $storageScore = 100
+    foreach ($d in $SystemInfo.SMART) { if ($d.Health -ne "Healthy") { $storageScore -= 25 } }
+    foreach ($d in $SystemInfo.Disks) { if ($d.UsedPct -gt 90) { $storageScore -= 20 } elseif ($d.UsedPct -gt 75) { $storageScore -= 10 } }
+    if ($StressResults.Disk -and -not $StressResults.Disk.Passed) { $storageScore -= 20 }
+    $storageScore = [math]::Max($storageScore, 0)
+    # CPU & Memory
+    $cpuMemScore = 100
+    if ($StressResults.CPU -and -not $StressResults.CPU.Passed) { $cpuMemScore -= 35 }
+    if ($StressResults.RAM -and -not $StressResults.RAM.Passed) { $cpuMemScore -= 40 }
+    if ($Performance.CPUPercent -gt 90) { $cpuMemScore -= 10 }
+    if ($Performance.RAMPercent -gt 90) { $cpuMemScore -= 10 }
+    $cpuMemScore = [math]::Max($cpuMemScore, 0)
+    # Thermal
+    $thermalScore = 100
+    foreach ($t in $SystemInfo.Temperatures) { if ($t.TempC -gt 80) { $thermalScore -= 25 } elseif ($t.TempC -gt 60) { $thermalScore -= 10 } }
+    $thermalScore = [math]::Max($thermalScore, 0)
+    # Battery
+    $batteryScore = if ($SystemInfo.Battery.Present -and $SystemInfo.Battery.HealthPct -gt 0) { $SystemInfo.Battery.HealthPct } else { -1 }
+    # Devices
+    $deviceScore = 100
+    if ($SystemInfo.DeviceErrors.Count -gt 0) { $deviceScore -= ($SystemInfo.DeviceErrors.Count * 10) }
+    $deviceScore = [math]::Max($deviceScore, 0)
+
+    # Helper: color for a sub-score
+    function Get-ScoreColor($s) { if ($s -ge 80) { "#16a34a" } elseif ($s -ge 60) { "#f59e0b" } else { "#dc2626" } }
+    function Get-ScoreGrade($s) { if ($s -ge 90){"A"} elseif($s -ge 80){"B"} elseif($s -ge 70){"C"} elseif($s -ge 60){"D"} else{"F"} }
+
+    # Build key findings
+    $keyFindings = @()
+    if ($hwIssues.Count -eq 0) { $keyFindings += "All hardware components are functioning within normal parameters." }
+    foreach ($d in $SystemInfo.SMART) { if ($d.Health -ne "Healthy") { $keyFindings += "Storage drive '$($d.Model)' is reporting $($d.Health) status and may need replacement." } }
+    foreach ($d in $SystemInfo.Disks) { if ($d.UsedPct -gt 90) { $keyFindings += "Drive $($d.Drive) is nearly full at $($d.UsedPct)% used, which can degrade performance." } }
+    if ($SystemInfo.DeviceErrors.Count -gt 0) { $keyFindings += "$($SystemInfo.DeviceErrors.Count) device(s) in Device Manager are reporting errors and may need driver updates." }
+    if ($SystemInfo.Battery.Present -and $SystemInfo.Battery.HealthPct -gt 0 -and $SystemInfo.Battery.HealthPct -lt 50) { $keyFindings += "Battery health is at $($SystemInfo.Battery.HealthPct)% - replacement recommended for reliable portable use." }
+    if ($StressResults.CPU -and -not $StressResults.CPU.Passed) { $keyFindings += "The CPU failed its stress test, which may indicate overheating or hardware instability." }
+    if ($StressResults.RAM -and -not $StressResults.RAM.Passed) { $keyFindings += "RAM stress test detected errors - one or more memory modules may be faulty." }
+    if ($StressResults.CPU -and $StressResults.CPU.Passed -and $StressResults.RAM -and $StressResults.RAM.Passed) { $keyFindings += "CPU and RAM both passed stress testing with no errors detected." }
+    if ($SystemInfo.Temperatures.Count -gt 0) {
+        $maxTemp = ($SystemInfo.Temperatures | Measure-Object -Property TempC -Maximum).Maximum
+        if ($maxTemp -gt 80) { $keyFindings += "Maximum temperature reading is ${maxTemp}C, which is in the critical range." }
+        elseif ($maxTemp -gt 60) { $keyFindings += "Temperatures are slightly elevated (peak ${maxTemp}C) - ensure proper airflow and clean dust filters." }
+        else { $keyFindings += "All temperature readings are within safe operating ranges." }
+    }
+    $keyFindings = $keyFindings | Select-Object -First 5
+
+    # Build recommendations
+    $recommendations = @()
+    foreach ($d in $SystemInfo.SMART) { if ($d.Health -ne "Healthy") { $recommendations += "Replace the failing '$($d.Model)' drive and restore data from backup." } }
+    foreach ($d in $SystemInfo.Disks) { if ($d.UsedPct -gt 90) { $recommendations += "Free up space on drive $($d.Drive) or upgrade to a larger drive." } }
+    if ($SystemInfo.DeviceErrors.Count -gt 0) { $recommendations += "Update or reinstall drivers for the $($SystemInfo.DeviceErrors.Count) device(s) showing errors." }
+    if ($SystemInfo.Battery.Present -and $SystemInfo.Battery.HealthPct -gt 0 -and $SystemInfo.Battery.HealthPct -lt 50) { $recommendations += "Replace the battery to restore reliable portable operation." }
+    if ($StressResults.CPU -and -not $StressResults.CPU.Passed) { $recommendations += "Clean CPU heatsink and reapply thermal paste; test again to rule out hardware failure." }
+    if ($StressResults.RAM -and -not $StressResults.RAM.Passed) { $recommendations += "Run individual stick testing to isolate the faulty RAM module and replace it." }
+    if ($recommendations.Count -eq 0) { $recommendations += "Continue regular maintenance: keep Windows updated, run periodic diagnostics, and maintain clean airflow." }
+
     # Build RAM rows
     $ramRows = ($SystemInfo.RAMSticks | ForEach-Object { "<tr><td>$($_.Slot)</td><td>$($_.CapacityGB) GB</td><td>$($_.Speed)</td><td>$($_.Type)</td><td>$($_.Manufacturer)</td><td>$($_.PartNumber)</td></tr>" }) -join "`n"
     # GPU rows
     $gpuRows = ($SystemInfo.GPUs | ForEach-Object { "<tr><td>$($_.Name)</td><td>$(if($_.VRAM_MB -gt 0){"$($_.VRAM_MB) MB"}else{"Shared"})</td><td>$($_.DriverVer)</td><td>$($_.DriverDate)</td><td>$($_.Resolution)</td></tr>" }) -join "`n"
     # SMART rows
     $smartRows = ($SystemInfo.SMART | ForEach-Object { $c=if($_.Health -eq 'Healthy'){'pass'}else{'fail'}; "<tr><td>$($_.Model)</td><td>$($_.MediaType)</td><td>$($_.BusType)</td><td>$($_.SizeGB) GB</td><td class='$c'>$($_.Health)</td><td>$($_.PowerOnHours)</td><td>$($_.Temperature)</td><td>$($_.ReadErrors)</td><td>$($_.Wear)</td></tr>" }) -join "`n"
-    # Disk rows
-    $diskRows = ($SystemInfo.Disks | ForEach-Object { $c=if($_.UsedPct -gt 90){'fail'}elseif($_.UsedPct -gt 75){'warn'}else{'pass'}; "<tr><td>$($_.Drive)</td><td>$($_.Size) GB</td><td>$($_.Free) GB</td><td class='$c'>$($_.UsedPct)%</td></tr>" }) -join "`n"
+    # Disk rows with progress bars
+    $diskRowsDetailed = ($SystemInfo.Disks | ForEach-Object {
+        $c = if($_.UsedPct -gt 90){'#dc2626'}elseif($_.UsedPct -gt 75){'#f59e0b'}else{'#16a34a'}
+        "<tr><td>$($_.Drive)</td><td>$($_.Size) GB</td><td>$($_.Free) GB</td><td style='width:35%;'><div style='display:flex;align-items:center;gap:8px;'><div class='progress-track'><div class='progress-fill' style='width:$($_.UsedPct)%;background:$c;'></div></div><span style='color:$c;font-weight:600;white-space:nowrap;'>$($_.UsedPct)%</span></div></td></tr>"
+    }) -join "`n"
     # Monitor rows
     $monitorRows = ($SystemInfo.Monitors | ForEach-Object { "<tr><td>$($_.Model)</td><td>$($_.Manufacturer)</td><td>$($_.Serial)</td><td>$($_.Year)</td></tr>" }) -join "`n"
     # Printer rows
@@ -789,28 +864,41 @@ function Build-HardwareReport {
     }
     # Hardware issues
     $issuesHTML = if ($hwIssues.Count -gt 0) {
-        ($hwIssues | ForEach-Object { "<div style='padding:8px 12px;margin:4px 0;background:#fef5f5;border-left:4px solid #e74c3c;border-radius:4px;'><span class='fail'>$iconFail</span> $_</div>" }) -join "`n"
-    } else { "<div style='padding:12px;background:#eafaf1;border-left:4px solid #27ae60;border-radius:4px;'><span class='pass'>$iconPass</span> <strong>No hardware issues detected.</strong></div>" }
+        ($hwIssues | ForEach-Object { "<div style='padding:8px 12px;margin:4px 0;background:#fef5f5;border-left:4px solid #dc2626;border-radius:4px;'><span class='fail'>$iconFail</span> $_</div>" }) -join "`n"
+    } else { "<div style='padding:12px;background:#eafaf1;border-left:4px solid #16a34a;border-radius:4px;'><span class='pass'>$iconPass</span> <strong>No hardware issues detected.</strong></div>" }
     # Device errors
     $devErrHTML = if ($SystemInfo.DeviceErrors.Count -gt 0) {
-        "<div class='sub-header' style='color:#e74c3c;'>Device Manager Errors ($($SystemInfo.DeviceErrors.Count))</div><table><tr><th>Device</th><th>Class</th><th>Error</th></tr>" +
+        "<div class='sub-header' style='color:#dc2626;'>Device Manager Errors ($($SystemInfo.DeviceErrors.Count))</div><table><tr><th>Device</th><th>Class</th><th>Error</th></tr>" +
         (($SystemInfo.DeviceErrors | ForEach-Object { "<tr><td class='fail'>$($_.Device)</td><td>$($_.Class)</td><td class='fail'>$($_.Error)</td></tr>" }) -join "`n") + "</table>"
-    } else { "<div class='sub-header' style='color:#27ae60;'>Device Manager - All Clear</div><p style='padding:8px;background:#eafaf1;border-radius:4px;'><span class='pass'>$iconPass</span> All devices functioning properly.</p>" }
+    } else { "<div class='sub-header' style='color:#16a34a;'>Device Manager - All Clear</div><p style='padding:8px;background:#eafaf1;border-radius:4px;'><span class='pass'>$iconPass</span> All devices functioning properly.</p>" }
     # Battery
     $batteryHTML = ""
     if ($SystemInfo.Battery.Present) {
         $bhClass = if($SystemInfo.Battery.HealthPct -ge 80){"pass"}elseif($SystemInfo.Battery.HealthPct -ge 50){"warn"}else{"fail"}
+        $bhColor = if($SystemInfo.Battery.HealthPct -ge 80){"#16a34a"}elseif($SystemInfo.Battery.HealthPct -ge 50){"#f59e0b"}else{"#dc2626"}
+        $bhPct = $SystemInfo.Battery.HealthPct
         $batteryHTML = @"
 <div class="sub-header">Battery Health</div>
+<div style="display:flex;align-items:center;gap:20px;margin-bottom:12px;">
+<div style="text-align:center;">
+<svg viewBox="0 0 100 100" width="80" height="80">
+<circle cx="50" cy="50" r="40" fill="none" stroke="#e5e7eb" stroke-width="8"/>
+<circle cx="50" cy="50" r="40" fill="none" stroke="$bhColor" stroke-width="8" stroke-dasharray="251" stroke-dashoffset="$([math]::Round(251 - (251 * $bhPct / 100)))" transform="rotate(-90 50 50)" stroke-linecap="round"/>
+<text x="50" y="55" text-anchor="middle" font-size="18" font-weight="bold" fill="$bhColor">$bhPct%</text>
+</svg>
+</div>
+<div style="flex:1;">
 <table><tr><th style="width:35%;">Property</th><th>Value</th></tr>
 <tr><td>Status</td><td>$($SystemInfo.Battery.Status)</td></tr>
 <tr><td>Current Charge</td><td>$($SystemInfo.Battery.Charge)%</td></tr>
-<tr><td>Battery Health</td><td class='$bhClass'>$($SystemInfo.Battery.HealthPct)%</td></tr>
+<tr><td>Battery Health</td><td class='$bhClass' style="font-size:11pt;">$($SystemInfo.Battery.HealthPct)%</td></tr>
 <tr><td>Design Capacity</td><td>$($SystemInfo.Battery.DesignCap) mWh</td></tr>
 <tr><td>Full Charge Capacity</td><td>$($SystemInfo.Battery.FullCap) mWh</td></tr>
 <tr><td>Cycle Count</td><td>$($SystemInfo.Battery.CycleCount)</td></tr>
 <tr><td>Estimated Runtime</td><td>$($SystemInfo.Battery.Runtime)</td></tr>
 </table>
+</div>
+</div>
 "@
     }
     # License keys
@@ -830,164 +918,467 @@ function Build-HardwareReport {
     $topProcRows = ($Software.TopRAM | ForEach-Object { "<tr><td>$($_.Name)</td><td>$($_.RAM_MB) MB</td></tr>" }) -join "`n"
     # Installed software
     $swRows = ($Software.Installed | ForEach-Object { "<tr><td>$($_.Name)</td><td>$($_.Version)</td><td>$($_.Publisher)</td></tr>" }) -join "`n"
-    # Temperature
+    # Temperature rows with color coding
     $tempRows = if ($SystemInfo.Temperatures.Count -gt 0) {
-        ($SystemInfo.Temperatures | ForEach-Object { $tc=if($_.TempC -gt 80){"fail"}elseif($_.TempC -gt 60){"warn"}else{"pass"}; "<tr><td>$($_.Zone)</td><td class='$tc'>$($_.TempC)C</td><td class='$tc'>$($_.TempF)F</td></tr>" }) -join "`n"
+        ($SystemInfo.Temperatures | ForEach-Object {
+            $tc = if($_.TempC -gt 80){"fail"}elseif($_.TempC -gt 60){"warn"}else{"pass"}
+            $tColor = if($_.TempC -gt 80){"#dc2626"}elseif($_.TempC -gt 60){"#f59e0b"}else{"#16a34a"}
+            $tPct = [math]::Min([math]::Round($_.TempC / 100 * 100), 100)
+            "<tr><td>$($_.Zone)</td><td class='$tc'>$($_.TempC)&deg;C</td><td class='$tc'>$($_.TempF)&deg;F</td><td style='width:30%;'><div class='progress-track'><div class='progress-fill' style='width:$tPct%;background:$tColor;'></div></div></td></tr>"
+        }) -join "`n"
     } else { "" }
     # Technician notes field
-    $techNotes = if ($Params.TechNotes) { "<div class='section-header'>Technician Notes</div><div style='padding:16px;background:#f8f9fa;border:1px solid #ddd;border-radius:4px;min-height:60px;white-space:pre-wrap;'>$([System.Web.HttpUtility]::HtmlEncode($Params.TechNotes))</div>" } else { "" }
+    $techNotes = if ($Params.TechNotes) { "<div class='section-header'>Technician Notes</div><div style='padding:16px 20px;background:#f8fafc;border:1px solid #d1d5db;border-radius:8px;min-height:60px;white-space:pre-wrap;font-size:10pt;line-height:1.7;margin-bottom:16px;'>$([System.Web.HttpUtility]::HtmlEncode($Params.TechNotes))</div>" } else { "" }
+
+    # Build key findings HTML
+    $findingsHTML = ($keyFindings | ForEach-Object { "<li style='margin-bottom:6px;'>$_</li>" }) -join "`n"
+    # Build recommendations HTML
+    $recsHTML = ""
+    for ($i = 0; $i -lt $recommendations.Count; $i++) {
+        $recsHTML += "<li style='margin-bottom:6px;'><strong>$($i+1).</strong> $($recommendations[$i])</li>`n"
+    }
+
+    # Build category score cards for executive summary
+    function Build-MiniDonut($score, $label) {
+        $color = if ($score -ge 80) { "#16a34a" } elseif ($score -ge 60) { "#f59e0b" } else { "#dc2626" }
+        $offset = [math]::Round(251 - (251 * $score / 100))
+        $grade = if ($score -ge 90){"A"} elseif($score -ge 80){"B"} elseif($score -ge 70){"C"} elseif($score -ge 60){"D"} else{"F"}
+        return @"
+<div class="score-card">
+<svg viewBox="0 0 100 100" width="72" height="72">
+<circle cx="50" cy="50" r="40" fill="none" stroke="#e5e7eb" stroke-width="7"/>
+<circle cx="50" cy="50" r="40" fill="none" stroke="$color" stroke-width="7" stroke-dasharray="251" stroke-dashoffset="$offset" transform="rotate(-90 50 50)" stroke-linecap="round"/>
+<text x="50" y="56" text-anchor="middle" font-size="22" font-weight="bold" fill="$color">$grade</text>
+</svg>
+<div class="score-card-label">$label</div>
+<div class="score-card-value" style="color:$color;">$score / 100</div>
+</div>
+"@
+    }
+
+    $storageCard = Build-MiniDonut $storageScore "Storage Health"
+    $cpuMemCard = Build-MiniDonut $cpuMemScore "CPU &amp; Memory"
+    $thermalCard = Build-MiniDonut $thermalScore "Thermal"
+    $deviceCard = Build-MiniDonut $deviceScore "Devices"
+    $batteryCard = if ($batteryScore -ge 0) { Build-MiniDonut $batteryScore "Battery" } else { "" }
+
+    # Performance bars
+    $cpuBarColor = if($Performance.CPUPercent -gt 90){"#dc2626"}elseif($Performance.CPUPercent -gt 70){"#f59e0b"}else{"#16a34a"}
+    $ramBarColor = if($Performance.RAMPercent -gt 90){"#dc2626"}elseif($Performance.RAMPercent -gt 70){"#f59e0b"}else{"#16a34a"}
+
+    # RAM slots progress bar
+    $ramSlotPct = if ($SystemInfo.RAMSlots.Total -gt 0) { [math]::Round($SystemInfo.RAMSlots.Used / $SystemInfo.RAMSlots.Total * 100) } else { 0 }
 
 $html = @"
 <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><title>Hardware Diagnostic Report - $($Params.CustomerName)</title>
 <style>
-@page { size: letter; margin: 0.6in 0.7in; }
-* { margin:0;padding:0;box-sizing:border-box; }
-body { font-family:'Segoe UI',Tahoma,sans-serif;font-size:10pt;color:#333;line-height:1.5;background:#fff; }
-.page-break { page-break-before:always; }
-.cover { height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;page-break-after:always; }
-.cover-logo { background:#0a1628;color:#fff;padding:20px 50px;font-size:22pt;font-weight:bold;letter-spacing:3px;border-radius:6px;margin-bottom:40px; }
-.cover-title { font-size:26pt;font-weight:300;color:#0a1628;margin-bottom:8px;letter-spacing:2px; }
-.cover-subtitle { font-size:13pt;color:#666;margin-bottom:30px; }
-.cover .meta { font-size:11pt;color:#555;margin:4px 0; }
-.section-header { background:#0a1628;color:#fff;padding:10px 18px;font-size:13pt;font-weight:600;margin:25px 0 12px 0;border-radius:4px; }
-.sub-header { color:#2596be;font-size:11pt;font-weight:600;margin:18px 0 8px 0;padding-bottom:4px;border-bottom:2px solid #2596be; }
-table { width:100%;border-collapse:collapse;margin-bottom:16px;font-size:9.5pt; }
-th { background:#0a1628;color:#fff;padding:8px 10px;text-align:left;font-weight:600;font-size:9pt;text-transform:uppercase; }
-td { padding:7px 10px;border-bottom:1px solid #e8e8e8;vertical-align:top; }
-tr:nth-child(even) td { background:#f8f9fa; }
-.pass { color:#27ae60;font-weight:600; } .fail { color:#e74c3c;font-weight:600; } .warn { color:#f39c12;font-weight:600; }
-.summary-grid { display:flex;gap:16px;margin:16px 0; }
-.summary-box { flex:1;text-align:center;padding:16px;border-radius:6px;border:1px solid #e0e0e0; }
-.summary-box .number { font-size:28pt;font-weight:bold;display:block; }
-.summary-box .label { font-size:9pt;color:#666;text-transform:uppercase; }
-.report-footer { margin-top:30px;padding:16px 0;border-top:2px solid #0a1628;text-align:center;font-size:9pt;color:#888; }
-.report-footer strong { color:#0a1628; }
-@media print { .page-break{page-break-before:always;} body{-webkit-print-color-adjust:exact;print-color-adjust:exact;} }
+@page { size: letter; margin: 0.5in 0.6in 0.7in 0.6in; }
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: 'Segoe UI', -apple-system, Tahoma, sans-serif; font-size: 9.5pt; color: #1e293b; line-height: 1.6; background: #fff; }
+h1,h2,h3,h4 { margin:0; }
+
+/* Print handling */
+@media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .page-break { page-break-before: always; }
+    .no-break { page-break-inside: avoid; }
+    .page-footer { position: fixed; bottom: 0; left: 0; right: 0; }
+}
+.page-break { page-break-before: always; }
+.no-break { page-break-inside: avoid; }
+
+/* ── Cover page ── */
+.cover {
+    height: 100vh; display: flex; flex-direction: column; justify-content: center;
+    align-items: center; text-align: center; page-break-after: always;
+    background: linear-gradient(180deg, #ffffff 0%, #f0f7fb 50%, #eaf7fc 100%);
+    position: relative;
+}
+.cover::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 6px;
+    background: linear-gradient(90deg, #0d4b71, #2596be, #0d4b71);
+}
+.cover-logo img { width: 350px; max-width: 90%; margin-bottom: 24px; }
+.cover-fallback { background: #0a1628; color: #fff; padding: 20px 50px; font-size: 22pt; font-weight: bold; letter-spacing: 3px; border-radius: 6px; margin-bottom: 24px; }
+.cover-title { font-size: 24pt; font-weight: 700; color: #0a1628; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 6px; }
+.cover-subtitle { font-size: 11pt; color: #64748b; margin-bottom: 28px; font-weight: 400; letter-spacing: 0.5px; }
+.cover-donut { margin: 10px 0 6px 0; }
+.cover-grade-label { font-size: 13pt; font-weight: 700; margin-top: 6px; margin-bottom: 28px; }
+.cover-meta { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px 36px; display: inline-block; text-align: left; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+.cover-meta p { font-size: 10.5pt; color: #475569; margin: 5px 0; }
+.cover-meta strong { color: #0a1628; min-width: 100px; display: inline-block; }
+.cover-footer { position: absolute; bottom: 30px; text-align: center; width: 100%; }
+.cover-footer .company-url { font-size: 11pt; color: #0d4b71; font-weight: 600; letter-spacing: 0.5px; }
+.cover-footer .tagline { font-size: 8.5pt; color: #94a3b8; margin-top: 4px; }
+
+/* ── Section headers ── */
+.section-header {
+    background: linear-gradient(135deg, #0a1628 0%, #0d4b71 100%);
+    color: #fff; padding: 10px 20px; font-size: 12pt; font-weight: 600;
+    margin: 24px 0 14px 0; border-radius: 6px; letter-spacing: 0.5px;
+    display: flex; align-items: center; gap: 10px;
+}
+.section-header .section-icon { font-size: 14pt; opacity: 0.85; }
+.sub-header {
+    color: #0d4b71; font-size: 10.5pt; font-weight: 700; margin: 18px 0 8px 0;
+    padding-bottom: 5px; border-bottom: 2px solid #2596be; letter-spacing: 0.3px;
+}
+
+/* ── Tables ── */
+table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 9pt; }
+th {
+    background: #0d4b71; color: #fff; padding: 7px 10px; text-align: left;
+    font-weight: 600; font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.5px;
+}
+td { padding: 6px 10px; border-bottom: 1px solid #e2e8f0; vertical-align: middle; }
+tr:nth-child(even) td { background: #f8fafc; }
+tr:hover td { background: #eaf7fc; }
+.pass { color: #16a34a; font-weight: 600; }
+.fail { color: #dc2626; font-weight: 600; }
+.warn { color: #f59e0b; font-weight: 600; }
+
+/* ── Progress bars ── */
+.progress-track {
+    background: #e5e7eb; border-radius: 6px; height: 10px; flex: 1; overflow: hidden;
+}
+.progress-fill {
+    height: 100%; border-radius: 6px; transition: width 0.3s;
+}
+.progress-lg .progress-track { height: 14px; border-radius: 7px; }
+.progress-lg .progress-fill { border-radius: 7px; }
+
+/* ── Score cards (executive summary) ── */
+.score-cards {
+    display: flex; gap: 12px; margin: 14px 0; flex-wrap: wrap; justify-content: center;
+}
+.score-card {
+    flex: 1; min-width: 100px; max-width: 140px; text-align: center; padding: 12px 8px;
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.score-card-label { font-size: 8pt; color: #64748b; text-transform: uppercase; font-weight: 600; margin-top: 4px; letter-spacing: 0.3px; }
+.score-card-value { font-size: 9pt; font-weight: 700; margin-top: 2px; }
+
+/* ── Findings & recommendations ── */
+.findings-box {
+    background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;
+    padding: 16px 20px; margin: 12px 0;
+}
+.findings-box h3 { font-size: 10.5pt; color: #0d4b71; margin-bottom: 8px; font-weight: 700; }
+.findings-box ul { margin: 0; padding-left: 18px; }
+.findings-box li { font-size: 9.5pt; color: #334155; line-height: 1.6; }
+.recs-box {
+    background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px;
+    padding: 16px 20px; margin: 12px 0;
+}
+.recs-box h3 { font-size: 10.5pt; color: #92400e; margin-bottom: 8px; font-weight: 700; }
+.recs-box ol { margin: 0; padding-left: 18px; }
+.recs-box li { font-size: 9.5pt; color: #451a03; line-height: 1.6; }
+
+/* ── Summary strip ── */
+.summary-strip {
+    display: flex; gap: 10px; margin: 14px 0;
+}
+.summary-chip {
+    flex: 1; text-align: center; padding: 12px 8px; background: #f8fafc;
+    border: 1px solid #e2e8f0; border-radius: 8px;
+}
+.summary-chip .chip-val { font-size: 18pt; font-weight: 700; color: #0a1628; display: block; }
+.summary-chip .chip-lbl { font-size: 7.5pt; color: #64748b; text-transform: uppercase; font-weight: 600; letter-spacing: 0.3px; }
+
+/* ── QR placeholder boxes ── */
+.qr-row { display: flex; justify-content: center; gap: 40px; margin: 20px 0; }
+.qr-box {
+    width: 100px; height: 100px; border: 2px dashed #94a3b8; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    font-size: 7.5pt; color: #94a3b8; line-height: 1.3;
+}
+
+/* ── Repeated page footer ── */
+.page-footer-bar {
+    margin-top: 30px; padding: 10px 0; border-top: 2px solid #0d4b71;
+    text-align: center; font-size: 8pt; color: #94a3b8;
+}
+.page-footer-bar strong { color: #0d4b71; }
+
+/* ── Confidential banner ── */
+.confidential-banner {
+    background: #fef2f2; border: 1px solid #fca5a5; border-radius: 6px;
+    padding: 8px 14px; font-size: 8.5pt; color: #991b1b; margin-bottom: 14px;
+    display: flex; align-items: center; gap: 8px;
+}
+.confidential-banner .lock-icon { font-size: 12pt; }
+
+/* ── Info pair rows ── */
+.info-grid { display: flex; flex-wrap: wrap; gap: 0; }
+.info-pair { width: 50%; display: flex; padding: 6px 10px; border-bottom: 1px solid #e2e8f0; font-size: 9pt; }
+.info-pair:nth-child(4n+3), .info-pair:nth-child(4n+4) { background: #f8fafc; }
+.info-pair .lbl { color: #64748b; font-weight: 600; min-width: 130px; }
+.info-pair .val { color: #1e293b; }
 </style></head><body>
 
+<!-- ══════════════════════════ COVER PAGE ══════════════════════════ -->
 <div class="cover">
-<div class="cover-logo">PC PLUS COMPUTING</div>
+<div class="cover-logo">$logoHTML</div>
 <div class="cover-title">HARDWARE DIAGNOSTIC REPORT</div>
 <div class="cover-subtitle">Comprehensive Hardware Assessment &amp; Stress Testing</div>
-<svg viewBox="0 0 100 100" width="180" height="180">
-<circle cx="50" cy="50" r="45" fill="none" stroke="#e0e0e0" stroke-width="8"/>
-<circle cx="50" cy="50" r="45" fill="none" stroke="$hwColor" stroke-width="8" stroke-dasharray="283" stroke-dashoffset="$dashOffset" transform="rotate(-90 50 50)" stroke-linecap="round"/>
-<text x="50" y="45" text-anchor="middle" font-size="22" font-weight="bold" fill="$hwColor">$hwScore</text>
-<text x="50" y="62" text-anchor="middle" font-size="14" font-weight="bold" fill="$hwColor">$hwGrade</text>
-</svg>
-<p class="meta" style="font-size:14pt;color:$hwColor;font-weight:bold;margin-top:10px;">Hardware Health: $hwScore / 100 - Grade $hwGrade</p>
-<div style="margin-top:30px;">
-<p class="meta"><strong>Customer:</strong> $($Params.CustomerName)</p>
-$(if($Params.ContactName){"<p class='meta'><strong>Contact:</strong> $($Params.ContactName)</p>"})
-<p class="meta"><strong>Device:</strong> $($SystemInfo.ComputerName)</p>
-<p class="meta"><strong>Date:</strong> $date</p>
-<p class="meta"><strong>Technician:</strong> $($Params.TechName)</p>
-</div></div>
 
-<div class="page-break"></div>
-<div class="section-header">Hardware Health Summary</div>
-<div class="summary-grid">
-<div class="summary-box" style="border-color:$hwColor;"><span class="number" style="color:$hwColor;">$hwScore</span><span class="label">Health Score</span></div>
-<div class="summary-box"><span class="number">$($SystemInfo.SMART.Count)</span><span class="label">Storage Devices</span></div>
-<div class="summary-box"><span class="number">$($SystemInfo.RAMTotal) GB</span><span class="label">Total RAM</span></div>
-<div class="summary-box"><span class="number">$($SystemInfo.DeviceErrors.Count)</span><span class="label">Device Errors</span></div>
+<div class="cover-donut">
+<svg viewBox="0 0 120 120" width="200" height="200">
+<circle cx="60" cy="60" r="50" fill="none" stroke="#e5e7eb" stroke-width="10"/>
+<circle cx="60" cy="60" r="50" fill="none" stroke="$hwColor" stroke-width="10" stroke-dasharray="314" stroke-dashoffset="$([math]::Round(314 - (314 * $hwScore / 100)))" transform="rotate(-90 60 60)" stroke-linecap="round"/>
+<text x="60" y="68" text-anchor="middle" font-size="36" font-weight="bold" fill="$hwColor">$hwGrade</text>
+</svg>
 </div>
+<div class="cover-grade-label" style="color:$hwColor;">$hwScore / 100</div>
+
+<div class="cover-meta">
+<p><strong>Customer:</strong> $($Params.CustomerName)</p>
+$(if($Params.ContactName){"<p><strong>Contact:</strong> $($Params.ContactName)</p>"})
+<p><strong>Device:</strong> $($SystemInfo.ComputerName)</p>
+<p><strong>Date:</strong> $date</p>
+<p><strong>Technician:</strong> $($Params.TechName)</p>
+</div>
+
+<div class="cover-footer">
+<div class="company-url">$WEBSITE | $PHONE</div>
+<div class="tagline">Your Security, Our Priority &nbsp;|&nbsp; 30+ Years in Service &nbsp;|&nbsp; 4.9&#9733; Google Rating</div>
+</div>
+</div>
+
+<!-- ══════════════════════════ EXECUTIVE SUMMARY ══════════════════════════ -->
+<div class="page-break"></div>
+
+<div class="section-header"><span class="section-icon">&#128202;</span> Executive Summary</div>
+
+<div style="display:flex;align-items:center;gap:24px;margin:14px 0;">
+<div style="text-align:center;">
+<svg viewBox="0 0 100 100" width="100" height="100">
+<circle cx="50" cy="50" r="40" fill="none" stroke="#e5e7eb" stroke-width="8"/>
+<circle cx="50" cy="50" r="40" fill="none" stroke="$hwColor" stroke-width="8" stroke-dasharray="251" stroke-dashoffset="$([math]::Round(251 - (251 * $hwScore / 100)))" transform="rotate(-90 50 50)" stroke-linecap="round"/>
+<text x="50" y="46" text-anchor="middle" font-size="20" font-weight="bold" fill="$hwColor">$hwGrade</text>
+<text x="50" y="62" text-anchor="middle" font-size="11" fill="#64748b">$hwScore / 100</text>
+</svg>
+<div style="font-size:8pt;color:#64748b;font-weight:600;margin-top:4px;">OVERALL HEALTH</div>
+</div>
+<div style="flex:1;">
+<div class="score-cards">
+$storageCard
+$cpuMemCard
+$thermalCard
+$deviceCard
+$batteryCard
+</div>
+</div>
+</div>
+
+<div class="findings-box no-break">
+<h3>&#128270; Key Findings</h3>
+<ul>$findingsHTML</ul>
+</div>
+
+<div class="recs-box no-break">
+<h3>&#9881; Top Recommendations</h3>
+<ol>$recsHTML</ol>
+</div>
+
 $issuesHTML
 
-$(if($stressHTML){"<div class='sub-header'>Stress Test Results</div><table><tr><th>Test</th><th>Result</th><th>Details</th><th>Temps</th></tr>$stressHTML</table>"})
+$(if($stressHTML){"
+<div class='sub-header'>Stress Test Results</div>
+<table><tr><th>Test</th><th>Result</th><th>Details</th><th>Temps</th></tr>$stressHTML</table>
+"})
 
+<div class="page-footer-bar"><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
+
+<!-- ══════════════════════════ SYSTEM INFORMATION ══════════════════════════ -->
 <div class="page-break"></div>
-<div class="section-header">System Information</div>
+
+<div class="section-header"><span class="section-icon">&#128187;</span> System Information</div>
 <table><tr><th style="width:35%;">Property</th><th>Value</th></tr>
-<tr><td>Computer Name</td><td>$($SystemInfo.ComputerName)</td></tr>
+<tr><td>Computer Name</td><td><strong>$($SystemInfo.ComputerName)</strong></td></tr>
 <tr><td>Manufacturer / Model</td><td>$($SystemInfo.Manufacturer) $($SystemInfo.Model)</td></tr>
-<tr><td>Serial Number</td><td>$($SystemInfo.Serial)</td></tr>
-<tr><td>OS</td><td>$($SystemInfo.OSVersion) (Build $($SystemInfo.OSBuild))</td></tr>
+<tr><td>Serial Number</td><td style="font-family:Consolas,monospace;letter-spacing:0.5px;">$($SystemInfo.Serial)</td></tr>
+<tr><td>Operating System</td><td>$($SystemInfo.OSVersion) (Build $($SystemInfo.OSBuild))</td></tr>
 <tr><td>Architecture</td><td>$($SystemInfo.Architecture)</td></tr>
 <tr><td>CPU</td><td>$($SystemInfo.CPUModel)</td></tr>
 <tr><td>Cores / Threads</td><td>$($SystemInfo.CPUCores) / $($SystemInfo.CPUThreads)</td></tr>
 <tr><td>RAM</td><td>$($SystemInfo.RAMTotal) GB total / $($SystemInfo.RAMFree) GB free</td></tr>
 <tr><td>Uptime</td><td>$($SystemInfo.Uptime)</td></tr>
-<tr><td>Network</td><td>$($SystemInfo.Domain)</td></tr>
+<tr><td>Domain / Workgroup</td><td>$($SystemInfo.Domain)</td></tr>
 </table>
 
 <div class="sub-header">Motherboard &amp; BIOS</div>
 <table><tr><th style="width:35%;">Property</th><th>Value</th></tr>
 <tr><td>Motherboard</td><td>$($SystemInfo.Board.Manufacturer) $($SystemInfo.Board.Product)</td></tr>
-<tr><td>Board Serial</td><td>$($SystemInfo.Board.Serial)</td></tr>
-<tr><td>BIOS</td><td>$($SystemInfo.BIOS.Vendor) - $($SystemInfo.BIOS.Version)</td></tr>
+<tr><td>Board Serial</td><td style="font-family:Consolas,monospace;">$($SystemInfo.Board.Serial)</td></tr>
+<tr><td>BIOS Vendor</td><td>$($SystemInfo.BIOS.Vendor)</td></tr>
+<tr><td>BIOS Version</td><td>$($SystemInfo.BIOS.Version)</td></tr>
 <tr><td>BIOS Date</td><td>$($SystemInfo.BIOS.Date)</td></tr>
 </table>
 
-<div class="sub-header">Memory (RAM) - $($SystemInfo.RAMSlots.Used)/$($SystemInfo.RAMSlots.Total) slots$(if($SystemInfo.RAMSlots.Empty -gt 0){" ($($SystemInfo.RAMSlots.Empty) empty)"})</div>
-<table><tr><th>Slot</th><th>Size</th><th>Speed</th><th>Type</th><th>Manufacturer</th><th>Part</th></tr>$ramRows</table>
+<div class="sub-header">Memory (RAM) &mdash; $($SystemInfo.RAMSlots.Used) of $($SystemInfo.RAMSlots.Total) slots used$(if($SystemInfo.RAMSlots.Empty -gt 0){" ($($SystemInfo.RAMSlots.Empty) available)"})</div>
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+<div class="progress-track progress-lg" style="flex:1;height:14px;"><div class="progress-fill" style="width:$ramSlotPct%;background:#2596be;height:14px;"></div></div>
+<span style="font-size:9pt;color:#0d4b71;font-weight:600;">$($SystemInfo.RAMSlots.Used) / $($SystemInfo.RAMSlots.Total)</span>
+</div>
+<table><tr><th>Slot</th><th>Size</th><th>Speed</th><th>Type</th><th>Manufacturer</th><th>Part Number</th></tr>$ramRows</table>
 
 <div class="sub-header">Graphics</div>
 <table><tr><th>GPU</th><th>VRAM</th><th>Driver</th><th>Driver Date</th><th>Resolution</th></tr>$gpuRows</table>
 
 $(if($monitorRows){"<div class='sub-header'>Monitors</div><table><tr><th>Model</th><th>Manufacturer</th><th>Serial</th><th>Year</th></tr>$monitorRows</table>"})
 
+<div class="page-footer-bar"><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
+
+<!-- ══════════════════════════ STORAGE HEALTH ══════════════════════════ -->
 <div class="page-break"></div>
-<div class="section-header">Storage Health (SMART)</div>
+
+<div class="section-header"><span class="section-icon">&#128190;</span> Storage Health</div>
+
+<div class="sub-header">S.M.A.R.T. Status</div>
 <table><tr><th>Model</th><th>Type</th><th>Bus</th><th>Size</th><th>Health</th><th>Power-On Hrs</th><th>Temp</th><th>Read Errors</th><th>Wear</th></tr>$smartRows</table>
 
-<div class="sub-header">Drive Space</div>
-<table><tr><th>Drive</th><th>Capacity</th><th>Free</th><th>Used</th></tr>$diskRows</table>
+<div class="sub-header">Drive Space Usage</div>
+<table><tr><th>Drive</th><th>Capacity</th><th>Free</th><th>Used</th></tr>$diskRowsDetailed</table>
+
+$(if($tempRows){"
+<div class='sub-header'>Temperature Readings</div>
+<table><tr><th>Sensor</th><th>Celsius</th><th>Fahrenheit</th><th>Level</th></tr>$tempRows</table>
+"})
 
 $batteryHTML
 
-$(if($tempRows){"<div class='sub-header'>Temperature Readings</div><table><tr><th>Sensor</th><th>Celsius</th><th>Fahrenheit</th></tr>$tempRows</table>"})
+<div class="page-footer-bar"><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
 
+<!-- ══════════════════════════ DEVICE MANAGER ══════════════════════════ -->
+<div class="page-break"></div>
+
+<div class="section-header"><span class="section-icon">&#128268;</span> Device Manager</div>
 $devErrHTML
 
 $(if($printerRows){"<div class='sub-header'>Printers</div><table><tr><th>Name</th><th>Port</th><th>Driver</th><th>Default</th></tr>$printerRows</table>"})
 
-<div class="page-break"></div>
-<div class="section-header">Network</div>
-<table><tr><th>Adapter</th><th>IP</th><th>MAC</th><th>DNS</th><th>Speed</th></tr>$netRows</table>
+<!-- ══════════════════════════ NETWORK ══════════════════════════ -->
+<div class="section-header"><span class="section-icon">&#127760;</span> Network</div>
+<table><tr><th>Adapter</th><th>IP Address</th><th>MAC Address</th><th>DNS</th><th>Speed</th></tr>$netRows</table>
 <table><tr><th style="width:30%;">Property</th><th>Value</th></tr>
 <tr><td>WiFi SSID</td><td>$($Network.WiFi.SSID)</td></tr>
 <tr><td>Public IP</td><td>$($Network.PublicIP)</td></tr>
-<tr><td>DNS Response</td><td>$(if($Network.DNSTest.Success){"$($Network.DNSTest.ResponseMs) ms"}else{"Failed"})</td></tr>
-<tr><td>Internet</td><td>$(if($Network.InternetTest.Success){"Connected ($($Network.InternetTest.ResponseMs) ms)"}else{"<span class='fail'>No Connection</span>"})</td></tr>
+<tr><td>DNS Response</td><td>$(if($Network.DNSTest.Success){"$($Network.DNSTest.ResponseMs) ms"}else{"<span class='fail'>Failed</span>"})</td></tr>
+<tr><td>Internet Connectivity</td><td>$(if($Network.InternetTest.Success){"<span class='pass'>Connected ($($Network.InternetTest.ResponseMs) ms)</span>"}else{"<span class='fail'>No Connection</span>"})</td></tr>
 </table>
 $(if($Network.OpenPorts.Count -gt 0){"<div class='sub-header'>Listening Ports</div><table><tr><th>Port</th><th>Address</th><th>Process</th></tr>$(($Network.OpenPorts | ForEach-Object {"<tr><td>$($_.Port)</td><td>$($_.Address)</td><td>$($_.Process)</td></tr>"}) -join "`n")</table>"})
 
-<div class="page-break"></div>
-<div class="section-header">Performance</div>
-<table><tr><th style="width:40%;">Metric</th><th>Value</th></tr>
-<tr><td>CPU Usage</td><td>$($Performance.CPUPercent)%</td></tr>
-<tr><td>RAM Usage</td><td>$($Performance.RAMPercent)%</td></tr>
-<tr><td>Running Processes</td><td>$($Software.ProcessCount)</td></tr>
-<tr><td>Running Services</td><td>$($Software.RunningServices)</td></tr>
-</table>
-<div class="sub-header">Top Memory Consumers</div>
-<table><tr><th>Process</th><th>RAM</th></tr>$topProcRows</table>
+<div class="page-footer-bar"><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
 
+<!-- ══════════════════════════ PERFORMANCE ══════════════════════════ -->
 <div class="page-break"></div>
-<div class="section-header">License Keys &amp; Credentials</div>
-<p style="color:#888;font-size:8.5pt;margin-bottom:12px;">CONFIDENTIAL - Store securely.</p>
+
+<div class="section-header"><span class="section-icon">&#9889;</span> Performance</div>
+
+<div class="summary-strip">
+<div class="summary-chip"><span class="chip-val">$($Performance.CPUPercent)%</span><span class="chip-lbl">CPU Usage</span></div>
+<div class="summary-chip"><span class="chip-val">$($Performance.RAMPercent)%</span><span class="chip-lbl">RAM Usage</span></div>
+<div class="summary-chip"><span class="chip-val">$($Software.ProcessCount)</span><span class="chip-lbl">Processes</span></div>
+<div class="summary-chip"><span class="chip-val">$($Software.RunningServices)</span><span class="chip-lbl">Services</span></div>
+</div>
+
+<div style="margin:12px 0;">
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+<span style="min-width:90px;font-size:9pt;font-weight:600;color:#334155;">CPU Usage</span>
+<div class="progress-track progress-lg" style="flex:1;"><div class="progress-fill" style="width:$($Performance.CPUPercent)%;background:$cpuBarColor;"></div></div>
+<span style="min-width:40px;font-size:9pt;font-weight:600;color:$cpuBarColor;">$($Performance.CPUPercent)%</span>
+</div>
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+<span style="min-width:90px;font-size:9pt;font-weight:600;color:#334155;">RAM Usage</span>
+<div class="progress-track progress-lg" style="flex:1;"><div class="progress-fill" style="width:$($Performance.RAMPercent)%;background:$ramBarColor;"></div></div>
+<span style="min-width:40px;font-size:9pt;font-weight:600;color:$ramBarColor;">$($Performance.RAMPercent)%</span>
+</div>
+</div>
+
+<div class="sub-header">Top Memory Consumers</div>
+<table><tr><th>Process</th><th>RAM Usage</th></tr>$topProcRows</table>
+
+<div class="page-footer-bar"><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
+
+<!-- ══════════════════════════ STRESS TEST RESULTS ══════════════════════════ -->
+$(if($stressHTML){"
+<div class='page-break'></div>
+<div class='section-header'><span class='section-icon'>&#128293;</span> Stress Test Results</div>
+<table><tr><th>Test</th><th>Result</th><th>Details</th><th>Temps / Info</th></tr>$stressHTML</table>
+<div class='page-footer-bar'><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
+"})
+
+<!-- ══════════════════════════ LICENSE KEYS & CREDENTIALS ══════════════════════════ -->
+<div class="page-break"></div>
+
+<div class="section-header"><span class="section-icon">&#128272;</span> License Keys &amp; Credentials</div>
+<div class="confidential-banner">
+<span class="lock-icon">&#128274;</span>
+<span><strong>CONFIDENTIAL</strong> &mdash; This section contains sensitive information. Store securely and do not share publicly.</span>
+</div>
+
 <div class="sub-header">Windows Product Key</div>
 <table><tr><th>Source</th><th>Key</th></tr>$winKeyRows</table>
+
 <div class="sub-header">Microsoft Office</div>
 <table><tr><th>Product</th><th>Key</th></tr>$officeKeyRows</table>
-$(if($adobeKeyRows){"<div class='sub-header'>Adobe Products</div><table><tr><th>Product</th><th>Key</th></tr>$adobeKeyRows</table>"})
-<div class="sub-header">Saved WiFi Networks</div>
-<table><tr><th>Network</th><th>Password</th><th>Security</th></tr>$wifiRows</table>
 
+$(if($adobeKeyRows){"<div class='sub-header'>Adobe Products</div><table><tr><th>Product</th><th>Key</th></tr>$adobeKeyRows</table>"})
+
+<div class="sub-header">Saved WiFi Networks</div>
+<table><tr><th>Network (SSID)</th><th>Password</th><th>Security</th></tr>$wifiRows</table>
+
+<div class="page-footer-bar"><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
+
+<!-- ══════════════════════════ TECHNICIAN NOTES ══════════════════════════ -->
 $techNotes
 
+<!-- ══════════════════════════ INSTALLED SOFTWARE ══════════════════════════ -->
 <div class="page-break"></div>
-<div class="section-header">Installed Software ($($Software.Installed.Count))</div>
+
+<div class="section-header"><span class="section-icon">&#128230;</span> Installed Software ($($Software.Installed.Count))</div>
 <table><tr><th>Name</th><th>Version</th><th>Publisher</th></tr>$swRows</table>
 
 <div class="sub-header">Startup Programs ($($Software.StartupPrograms.Count))</div>
-<table><tr><th>Name</th><th>Location</th></tr>$(($Software.StartupPrograms | ForEach-Object {"<tr><td>$($_.Name)</td><td>$($_.Location)</td></tr>"}) -join "`n")</table>
+<table><tr><th>Name</th><th>Location</th></tr>$(($Software.StartupPrograms | ForEach-Object {"<tr><td>$($_.Name)</td><td style='font-size:8pt;word-break:break-all;'>$($_.Location)</td></tr>"}) -join "`n")</table>
 
-<div class="report-footer">
-<p><strong>$COMPANY</strong></p><p>$WEBSITE | $PHONE</p>
-<p style="margin-top:8px;font-size:8pt;">Hardware Diagnostic Report generated $date | Technician: $($Params.TechName)</p>
-</div></body></html>
+<div class="page-footer-bar"><strong>PC Plus Computing</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE</div>
+
+<!-- ══════════════════════════ BACK PAGE ══════════════════════════ -->
+<div class="page-break"></div>
+
+<div style="text-align:center;padding-top:60px;">
+$(if($logoDataUri){"<img src='$logoDataUri' alt='PC Plus Computing' style='width:250px;margin-bottom:30px;'/>"}else{"<div style='background:#0a1628;color:#fff;padding:16px 40px;font-size:18pt;font-weight:bold;letter-spacing:3px;border-radius:6px;margin-bottom:30px;display:inline-block;'>PC PLUS COMPUTING</div>"})
+<div style="font-size:12pt;color:#0d4b71;font-weight:600;margin-bottom:6px;">Thank you for choosing PC Plus Computing</div>
+<div style="font-size:10pt;color:#64748b;margin-bottom:30px;">Your Security, Our Priority &nbsp;|&nbsp; 30+ Years in Service &nbsp;|&nbsp; 4.9&#9733; Google Rating</div>
+
+<div class="qr-row">
+<div>
+<div class="qr-box">Book<br/>Appointment</div>
+<div style="font-size:7.5pt;color:#64748b;margin-top:4px;">Scan to book online</div>
+</div>
+<div>
+<div class="qr-box">Send Us<br/>Info</div>
+<div style="font-size:7.5pt;color:#64748b;margin-top:4px;">Scan to share files</div>
+</div>
+</div>
+
+<div style="margin-top:40px;padding:20px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;display:inline-block;">
+<div style="font-size:11pt;font-weight:700;color:#0a1628;margin-bottom:8px;">Get In Touch</div>
+<div style="font-size:10pt;color:#475569;">
+&#127760; $WEBSITE &nbsp;&nbsp;|&nbsp;&nbsp; &#128222; $PHONE
+</div>
+</div>
+
+<div style="margin-top:40px;font-size:8pt;color:#94a3b8;">
+Hardware Diagnostic Report generated $date<br/>
+Technician: $($Params.TechName) &nbsp;|&nbsp; Device: $($SystemInfo.ComputerName)
+</div>
+</div>
+
+</body></html>
 "@
     return $html
 }
