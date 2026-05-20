@@ -1283,7 +1283,7 @@ function Get-ThermalSnapshot {
         }
     }
 
-    Write-DiagLog "Thermal: CPUTemp=$($results.CPUTemp)C, CPULoad=$cpuLoad%, Overheat=$($results.OverheatDetected)"
+    Write-DiagLog "Thermal: CPUTemp=$($results.CPUTemp)C, CPULoad=${cpuLoad}%, Overheat=$($results.OverheatDetected)"
     return $results
 }
 
@@ -1454,7 +1454,7 @@ function Get-DiskFragmentation {
             MediaType = $mediaType
             Note = if ($mediaType -eq "SSD") { "SSD - defrag not recommended, use TRIM instead" } else { $null }
         }
-        Write-DiagLog "Fragmentation $letter`: $fragPercent% fragmented, NeedsDefrag=$needsDefrag"
+        Write-DiagLog "Fragmentation ${letter}: ${fragPercent}% fragmented, NeedsDefrag=$needsDefrag"
     }
     return $results
 }
@@ -1711,7 +1711,7 @@ function Get-SSDLifeReport {
             Grade = $grade
         }
 
-        Write-DiagLog "Drive: $($d.Model), Health=$healthStatus, Wear=$wear%, Life=$lifeRemaining%, PowerOn=$powerOnHours hrs, Grade=$grade"
+        Write-DiagLog "Drive: $($d.Model), Health=$healthStatus, Wear=${wear}%, Life=${lifeRemaining}%, PowerOn=$powerOnHours hrs, Grade=$grade"
     }
 
     return $results
@@ -1861,7 +1861,7 @@ function Get-FileSystemHealth {
             DirtyBit = $dirty
             ChkdskResult = $chkdsk
         }
-        Write-DiagLog "FileSystem $letter: Free=$freePercent%, Dirty=$dirty, Chkdsk=$chkdsk"
+        Write-DiagLog "FileSystem ${letter}: Free=${freePercent}%, Dirty=$dirty, Chkdsk=$chkdsk"
     }
     return $results
 }
@@ -4271,7 +4271,7 @@ function Get-BenchmarkPercentile {
         $result.BestScore          = ($scores | Measure-Object -Maximum).Maximum
         $result.WorstScore         = ($scores | Measure-Object -Minimum).Minimum
 
-        Write-DiagLog "Percentile result: $percentile% (better than $betterThan of $($scores.Count) similar systems)"
+        Write-DiagLog "Percentile result: ${percentile}% (better than $betterThan of $($scores.Count) similar systems)"
     } catch {
         Write-DiagLog "Error calculating percentile: $($_.Exception.Message)" "WARN"
     }
