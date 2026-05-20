@@ -568,17 +568,50 @@ function Get-PerformanceSnapshot {
 # BUILT-IN STRESS TESTS
 # ─────────────────────────────────────────────────────────────────────────────
 
+function Get-FanInfo {
+    Invoke-Safe {
+        $fans = @()
+        Get-CimInstance Win32_Fan -ErrorAction Stop | ForEach-Object {
+            $fans += @{ Name = $_.Name; Status = $_.Status; Speed = $_.DesiredSpeed }
+        }
+        if ($fans.Count -eq 0) {
+            Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction Stop | ForEach-Object {
+                $fans += @{ Name = $_.InstanceName; Status = "Active"; Speed = "N/A" }
+            }
+        }
+        $fans
+    } @()
+}
+
 function Start-CPUStressTest {
     param([int]$DurationSeconds = 60)
     Write-DiagLog "Starting CPU stress test ($DurationSeconds seconds)..."
     $threadCount = [Environment]::ProcessorCount
-    $results = @{ Threads = $threadCount; Duration = $DurationSeconds; StartTemp = "N/A"; EndTemp = "N/A"; MaxTemp = "N/A"; Passed = $true; Errors = @() }
+    $results = @{
+        Threads = $threadCount; Duration = $DurationSeconds
+        StartTemp = "N/A"; EndTemp = "N/A"; MaxTemp = "N/A"; MinTemp = "N/A"; AvgTemp = "N/A"; RecoveryTemp = "N/A"
+        TempLog = @(); Passed = $true; Errors = @()
+        StartClock = "N/A"; MinClock = "N/A"; MaxClock = "N/A"; BaseClock = "N/A"
+        ThrottleDetected = $false; Iterations = 0; ComputeErrors = 0
+        FanSpeedStart = "N/A"; FanSpeedPeak = "N/A"
+    }
 
+    # Get baseline readings
     $results.StartTemp = Invoke-Safe {
         $t = Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction Stop | Select-Object -First 1
         [math]::Round(($t.CurrentTemperature / 10) - 273.15, 1)
     } "N/A"
+    $cpuInfo = Invoke-Safe { Get-CimInstance Win32_Processor -ErrorAction Stop | Select-Object -First 1 } $null
+    if ($cpuInfo) {
+        $results.BaseClock = $cpuInfo.MaxClockSpeed
+        $results.StartClock = $cpuInfo.CurrentClockSpeed
+    }
+    $results.FanSpeedStart = Invoke-Safe {
+        $fan = Get-CimInstance Win32_Fan -ErrorAction Stop | Select-Object -First 1
+        if ($fan -and $fan.DesiredSpeed) { $fan.DesiredSpeed } else { "N/A" }
+    } "N/A"
 
+    # Start stress worker jobs
     $jobs = @()
     $endTime = (Get-Date).AddSeconds($DurationSeconds)
     for ($i = 0; $i -lt $threadCount; $i++) {
@@ -586,14 +619,12 @@ function Start-CPUStressTest {
             param($end)
             $errors = 0; $iterations = 0
             while ((Get-Date) -lt $end) {
-                # Prime number sieve stress
                 $n = 100000; $primes = @($true) * ($n + 1)
                 for ($p = 2; $p * $p -le $n; $p++) {
                     if ($primes[$p]) { for ($m = $p * $p; $m -le $n; $m += $p) { $primes[$m] = $false } }
                 }
-                # Verify known prime count (9592 primes below 100000)
                 $count = ($primes | Where-Object { $_ }) | Measure-Object | Select-Object -ExpandProperty Count
-                $count -= 2 # subtract indices 0 and 1
+                $count -= 2
                 if ($count -ne 9592) { $errors++ }
                 $iterations++
             }
@@ -601,8 +632,29 @@ function Start-CPUStressTest {
         } -ArgumentList $endTime
     }
 
-    # Wait for completion
-    $jobs | Wait-Job -Timeout ($DurationSeconds + 30) | Out-Null
+    # Monitor temperature and clock speed during stress
+    $tempLog = @(); $clockSpeeds = @(); $fanSpeeds = @()
+    $startTime = Get-Date
+    while ((Get-Date) -lt $endTime) {
+        Start-Sleep -Seconds 5
+        $elapsed = [math]::Round(((Get-Date) - $startTime).TotalSeconds)
+        $temp = Invoke-Safe {
+            $t = Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction Stop | Select-Object -First 1
+            [math]::Round(($t.CurrentTemperature / 10) - 273.15, 1)
+        } $null
+        $clock = Invoke-Safe { (Get-CimInstance Win32_Processor -ErrorAction Stop | Select-Object -First 1).CurrentClockSpeed } $null
+        $fan = Invoke-Safe {
+            $f = Get-CimInstance Win32_Fan -ErrorAction Stop | Select-Object -First 1
+            if ($f -and $f.DesiredSpeed) { $f.DesiredSpeed } else { $null }
+        } $null
+        if ($temp) { $tempLog += @{ Time = $elapsed; TempC = $temp } }
+        if ($clock) { $clockSpeeds += $clock }
+        if ($fan) { $fanSpeeds += $fan }
+        Write-DiagLog "  Stress monitor: ${elapsed}s - Temp:${temp}C Clock:${clock}MHz"
+    }
+
+    # Collect job results
+    $jobs | Wait-Job -Timeout 30 | Out-Null
     $totalIterations = 0; $totalErrors = 0
     foreach ($j in $jobs) {
         $r = Receive-Job $j -ErrorAction SilentlyContinue
@@ -610,15 +662,41 @@ function Start-CPUStressTest {
         Remove-Job $j -Force -ErrorAction SilentlyContinue
     }
 
+    # End readings
     $results.EndTemp = Invoke-Safe {
         $t = Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction Stop | Select-Object -First 1
         [math]::Round(($t.CurrentTemperature / 10) - 273.15, 1)
     } "N/A"
 
+    # Recovery - wait 15 seconds then check temp
+    Write-DiagLog "Waiting 15s for cooling recovery measurement..."
+    Start-Sleep -Seconds 15
+    $results.RecoveryTemp = Invoke-Safe {
+        $t = Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction Stop | Select-Object -First 1
+        [math]::Round(($t.CurrentTemperature / 10) - 273.15, 1)
+    } "N/A"
+
+    # Calculate stats
+    $results.TempLog = $tempLog
+    if ($tempLog.Count -gt 0) {
+        $temps = $tempLog | ForEach-Object { $_.TempC }
+        $results.MaxTemp = ($temps | Measure-Object -Maximum).Maximum
+        $results.MinTemp = ($temps | Measure-Object -Minimum).Minimum
+        $results.AvgTemp = [math]::Round(($temps | Measure-Object -Average).Average, 1)
+    }
+    if ($clockSpeeds.Count -gt 0) {
+        $results.MinClock = ($clockSpeeds | Measure-Object -Minimum).Minimum
+        $results.MaxClock = ($clockSpeeds | Measure-Object -Maximum).Maximum
+        if ($results.BaseClock -ne "N/A" -and $results.BaseClock -gt 0 -and $results.MinClock -lt ($results.BaseClock * 0.8)) {
+            $results.ThrottleDetected = $true
+        }
+    }
+    if ($fanSpeeds.Count -gt 0) { $results.FanSpeedPeak = ($fanSpeeds | Measure-Object -Maximum).Maximum }
+
     $results.Iterations = $totalIterations
     $results.ComputeErrors = $totalErrors
-    $results.Passed = $totalErrors -eq 0
-    Write-DiagLog "CPU stress: $totalIterations iterations, $totalErrors errors, Passed=$($results.Passed)"
+    $results.Passed = ($totalErrors -eq 0) -and (-not $results.ThrottleDetected)
+    Write-DiagLog "CPU stress: $totalIterations iters, $totalErrors errors, MaxTemp=$($results.MaxTemp), Throttle=$($results.ThrottleDetected), Passed=$($results.Passed)"
     return $results
 }
 
@@ -704,6 +782,84 @@ function Start-DiskBenchmark {
     return $results
 }
 
+function Start-GPUStressTest {
+    param([int]$DurationSeconds = 60)
+    Write-DiagLog "Starting GPU stress test ($DurationSeconds seconds)..."
+    $results = @{
+        Duration = $DurationSeconds; Passed = $true; GPUName = "N/A"
+        StartTemp = "N/A"; EndTemp = "N/A"; MaxTemp = "N/A"
+        TempLog = @(); ThrottleDetected = $false; Method = "Compute"
+    }
+
+    $gpu = Invoke-Safe { Get-CimInstance Win32_VideoController -ErrorAction Stop | Where-Object { $_.AdapterRAM -gt 0 } | Select-Object -First 1 } $null
+    if ($gpu) { $results.GPUName = $gpu.Name }
+
+    # Try to get GPU temp from WMI (works on some systems)
+    $results.StartTemp = Invoke-Safe {
+        $t = Get-CimInstance -Namespace root/cimv2 -ClassName Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory -ErrorAction Stop
+        "N/A"
+    } "N/A"
+
+    # GPU stress via .NET DirectX compute or GDI+ fallback
+    $endTime = (Get-Date).AddSeconds($DurationSeconds)
+    $startTime = Get-Date
+    $iterations = 0; $errors = 0; $tempLog = @()
+
+    try {
+        Add-Type -AssemblyName System.Drawing
+        while ((Get-Date) -lt $endTime) {
+            # GDI+ rendering stress - creates GPU load via bitmap operations
+            $bmp = New-Object System.Drawing.Bitmap(2048, 2048)
+            $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+            for ($i = 0; $i -lt 50; $i++) {
+                $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb((Get-Random -Max 256),(Get-Random -Max 256),(Get-Random -Max 256)))
+                $g.FillEllipse($brush, (Get-Random -Max 1800), (Get-Random -Max 1800), (Get-Random -Min 50 -Max 500), (Get-Random -Min 50 -Max 500))
+                $pen = New-Object System.Drawing.Pen($brush.Color, (Get-Random -Min 1 -Max 10))
+                $g.DrawLine($pen, (Get-Random -Max 2048), (Get-Random -Max 2048), (Get-Random -Max 2048), (Get-Random -Max 2048))
+                $brush.Dispose(); $pen.Dispose()
+            }
+            # Matrix transform stress
+            $matrix = New-Object System.Drawing.Drawing2D.Matrix
+            $matrix.Rotate((Get-Random -Max 360))
+            $matrix.Scale(1.5, 1.5)
+            $g.Transform = $matrix
+            $g.DrawImage($bmp, 0, 0)
+            $matrix.Dispose()
+            $g.Dispose(); $bmp.Dispose()
+            $iterations++
+
+            # Log temp every 5 iterations
+            if ($iterations % 5 -eq 0) {
+                $elapsed = [math]::Round(((Get-Date) - $startTime).TotalSeconds)
+                $temp = Invoke-Safe {
+                    $t = Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction Stop | Select-Object -First 1
+                    [math]::Round(($t.CurrentTemperature / 10) - 273.15, 1)
+                } $null
+                if ($temp) { $tempLog += @{ Time = $elapsed; TempC = $temp } }
+            }
+        }
+    } catch {
+        $errors++
+        Write-DiagLog "GPU stress error: $($_.Exception.Message)" "WARN"
+    }
+
+    $results.EndTemp = Invoke-Safe {
+        $t = Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction Stop | Select-Object -First 1
+        [math]::Round(($t.CurrentTemperature / 10) - 273.15, 1)
+    } "N/A"
+
+    $results.TempLog = $tempLog
+    if ($tempLog.Count -gt 0) {
+        $temps = $tempLog | ForEach-Object { $_.TempC }
+        $results.MaxTemp = ($temps | Measure-Object -Maximum).Maximum
+    }
+    $results.Iterations = $iterations
+    $results.Passed = $errors -eq 0
+    Write-DiagLog "GPU stress: $iterations rendering iterations, $errors errors, MaxTemp=$($results.MaxTemp), Passed=$($results.Passed)"
+    return $results
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SECURITY SCORING
 # ─────────────────────────────────────────────────────────────────────────────
@@ -753,6 +909,7 @@ function Build-HardwareReport {
     if ($StressResults.CPU -and -not $StressResults.CPU.Passed) { $hwScore -= 20; $hwIssues += "CPU stress test FAILED" }
     if ($StressResults.RAM -and -not $StressResults.RAM.Passed) { $hwScore -= 25; $hwIssues += "RAM stress test FAILED" }
     if ($StressResults.Disk -and -not $StressResults.Disk.Passed) { $hwScore -= 15; $hwIssues += "Disk benchmark FAILED" }
+    if ($StressResults.GPU -and -not $StressResults.GPU.Passed) { $hwScore -= 10; $hwIssues += "GPU stress test FAILED" }
     foreach ($d in $SystemInfo.Disks) { if ($d.UsedPct -gt 90) { $hwScore -= 10; $hwIssues += "Drive $($d.Drive) nearly full ($($d.UsedPct)%)" } }
     $hwScore = [math]::Max($hwScore, 0)
     $hwGrade = if ($hwScore -ge 90){"A"} elseif ($hwScore -ge 80){"B"} elseif ($hwScore -ge 70){"C"} elseif ($hwScore -ge 60){"D"} else {"F"}
@@ -871,7 +1028,8 @@ function Build-HardwareReport {
     $stressHTML = ""
     if ($StressResults.CPU) {
         $cpuClass = if($StressResults.CPU.Passed){"pass"}else{"fail"}
-        $stressHTML += "<tr><td>CPU Stress Test</td><td class='$cpuClass'>$(if($StressResults.CPU.Passed){"$iconPass PASSED"}else{"$iconFail FAILED"})</td><td>$($StressResults.CPU.Threads) threads, $($StressResults.CPU.Duration)s, $($StressResults.CPU.Iterations) iterations</td><td>Start: $($StressResults.CPU.StartTemp)C / End: $($StressResults.CPU.EndTemp)C</td></tr>`n"
+        $throttleWarn = if($StressResults.CPU.ThrottleDetected){"<br/><span class='fail'>$iconWarn THROTTLING DETECTED</span>"}else{""}
+        $stressHTML += "<tr><td>CPU Stress Test</td><td class='$cpuClass'>$(if($StressResults.CPU.Passed){"$iconPass PASSED"}else{"$iconFail FAILED"})$throttleWarn</td><td>$($StressResults.CPU.Threads) threads, $($StressResults.CPU.Duration)s, $($StressResults.CPU.Iterations) iterations</td><td>Start: $($StressResults.CPU.StartTemp)C / Peak: $($StressResults.CPU.MaxTemp)C / End: $($StressResults.CPU.EndTemp)C<br/>Recovery: $($StressResults.CPU.RecoveryTemp)C (15s cooldown)</td></tr>`n"
     }
     if ($StressResults.RAM) {
         $ramClass = if($StressResults.RAM.Passed){"pass"}else{"fail"}
@@ -880,6 +1038,10 @@ function Build-HardwareReport {
     if ($StressResults.Disk) {
         $dkClass = if($StressResults.Disk.Passed){"pass"}else{"fail"}
         $stressHTML += "<tr><td>Disk Benchmark</td><td class='$dkClass'>$(if($StressResults.Disk.Passed){"$iconPass PASSED"}else{"$iconFail FAILED"})</td><td>Write: $($StressResults.Disk.SeqWriteMBps) MB/s | Read: $($StressResults.Disk.SeqReadMBps) MB/s</td><td>$($StressResults.Disk.FileSizeMB) MB test file</td></tr>`n"
+    }
+    if ($StressResults.GPU) {
+        $gpuClass = if($StressResults.GPU.Passed){"pass"}else{"fail"}
+        $stressHTML += "<tr><td>GPU Stress Test</td><td class='$gpuClass'>$(if($StressResults.GPU.Passed){"$iconPass PASSED"}else{"$iconFail FAILED"})</td><td>$($StressResults.GPU.GPUName), $($StressResults.GPU.Iterations) render cycles</td><td>Max Temp: $($StressResults.GPU.MaxTemp)C</td></tr>`n"
     }
     # Hardware issues
     $issuesHTML = if ($hwIssues.Count -gt 0) {
@@ -1199,6 +1361,26 @@ $(if($stressHTML){"
 <div class='sub-header'>Stress Test Results</div>
 <table><tr><th>Test</th><th>Result</th><th>Details</th><th>Temps</th></tr>$stressHTML</table>
 "})
+
+$(if($StressResults.CPU -and $StressResults.CPU.TempLog.Count -gt 0){
+$thermalPoints = ($StressResults.CPU.TempLog | ForEach-Object { "$($_.Time)s:$($_.TempC)C" }) -join " -> "
+@"
+<div class='sub-header'>Thermal Timeline (CPU Stress)</div>
+<div style='padding:10px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:14px;'>
+<div style='display:flex;gap:20px;margin-bottom:10px;'>
+<div><strong>Start:</strong> $($StressResults.CPU.StartTemp)C</div>
+<div><strong>Peak:</strong> <span style='color:$(if([double]$StressResults.CPU.MaxTemp -gt 80){"#dc2626"}elseif([double]$StressResults.CPU.MaxTemp -gt 60){"#f59e0b"}else{"#16a34a"})'>$($StressResults.CPU.MaxTemp)C</span></div>
+<div><strong>End:</strong> $($StressResults.CPU.EndTemp)C</div>
+<div><strong>Recovery (15s):</strong> $($StressResults.CPU.RecoveryTemp)C</div>
+<div><strong>Average:</strong> $($StressResults.CPU.AvgTemp)C</div>
+</div>
+<div style='font-size:8pt;color:#64748b;'>$thermalPoints</div>
+$(if($StressResults.CPU.ThrottleDetected){"<div style='margin-top:8px;padding:8px;background:#fef5f5;border-left:4px solid #dc2626;border-radius:4px;'><span class='fail'>$iconWarn</span> <strong>Thermal Throttling Detected</strong> - CPU clock dropped below 80% of base frequency during stress. Check cooling system.</div>"})
+$(if($StressResults.CPU.BaseClock -ne 'N/A'){"<div style='margin-top:6px;font-size:8.5pt;'><strong>Clock Speed:</strong> Base: $($StressResults.CPU.BaseClock) MHz | Min during stress: $($StressResults.CPU.MinClock) MHz | Max: $($StressResults.CPU.MaxClock) MHz</div>"})
+$(if($StressResults.CPU.FanSpeedStart -ne 'N/A'){"<div style='margin-top:4px;font-size:8.5pt;'><strong>Fan Speed:</strong> Start: $($StressResults.CPU.FanSpeedStart) RPM | Peak: $($StressResults.CPU.FanSpeedPeak) RPM</div>"})
+</div>
+"@
+})
 
 <!-- ══════════════════════════ SYSTEM INFORMATION ══════════════════════════ -->
 <div class="page-break"></div>
@@ -2082,11 +2264,19 @@ $xaml = @"
             $Global:DiagResults.Patches = Get-MissingPatchesList
             Set-Status "Quick Diagnostic: Performance snapshot..." 75
             $Global:DiagResults.Performance = Get-PerformanceSnapshot
-            Set-Status "Quick Diagnostic: License keys..." 85
+            Set-Status "Quick Diagnostic: License keys..." 80
             $Global:DiagResults.LicenseKeys = Get-LicenseKeys
-            Set-Status "Quick Diagnostic: Calculating scores..." 95
+            Set-Status "Quick Diagnostic: CPU stress test (60s)..." 82
+            $Global:DiagResults.CPUStress = Start-CPUStressTest -DurationSeconds 60
+            Set-Status "Quick Diagnostic: RAM test (60s)..." 87
+            $Global:DiagResults.RAMStress = Start-RAMStressTest -DurationSeconds 60
+            Set-Status "Quick Diagnostic: Disk benchmark (256MB)..." 92
+            $Global:DiagResults.DiskBench = Start-DiskBenchmark -FileSizeMB 256
+            Set-Status "Quick Diagnostic: GPU test (30s)..." 95
+            $Global:DiagResults.GPUStress = Start-GPUStressTest -DurationSeconds 30
+            Set-Status "Quick Diagnostic: Calculating scores..." 98
             $Global:DiagResults.Scoring = Calculate-Score $Global:DiagResults.Security $Global:DiagResults.Patches
-            $Global:DiagResults.StressResults = @{}
+            $Global:DiagResults.StressResults = @{ CPU = $Global:DiagResults.CPUStress; RAM = $Global:DiagResults.RAMStress; Disk = $Global:DiagResults.DiskBench; GPU = $Global:DiagResults.GPUStress }
             Set-Status "DONE! Quick Diagnostic complete. Click Generate Reports to save PDFs." 100
             [System.Windows.MessageBox]::Show($window, "Quick Diagnostic complete!`n`nClick 'Hardware Report', 'Security Report', or 'Both Reports' to generate PDFs.", "Diagnostic Complete", "OK", "Information")
         } catch {
@@ -2123,14 +2313,16 @@ $xaml = @"
             $Global:DiagResults.CPUStress = Start-CPUStressTest -DurationSeconds 120
             Set-Status "Full Diagnostic: RAM test (120s)..." 70
             $Global:DiagResults.RAMStress = Start-RAMStressTest -DurationSeconds 120
-            Set-Status "Full Diagnostic: Disk benchmark..." 85
+            Set-Status "Full Diagnostic: Disk benchmark..." 82
             $Global:DiagResults.DiskBench = Start-DiskBenchmark -FileSizeMB 512
+            Set-Status "Full Diagnostic: GPU stress test (60s)..." 88
+            $Global:DiagResults.GPUStress = Start-GPUStressTest -DurationSeconds 60
             Set-Status "Full Diagnostic: Calculating scores..." 95
             $Global:DiagResults.Scoring = Calculate-Score $Global:DiagResults.Security $Global:DiagResults.Patches
-            $Global:DiagResults.StressResults = @{ CPU = $Global:DiagResults.CPUStress; RAM = $Global:DiagResults.RAMStress; Disk = $Global:DiagResults.DiskBench }
-            $cs = $Global:DiagResults.CPUStress; $rs = $Global:DiagResults.RAMStress; $ds = $Global:DiagResults.DiskBench
-            Set-Status "DONE! CPU: $(if($cs.Passed){'PASS'}else{'FAIL'}), RAM: $(if($rs.Passed){'PASS'}else{'FAIL'}), Disk: W=$($ds.SeqWriteMBps)/$($ds.SeqReadMBps) MB/s" 100
-            [System.Windows.MessageBox]::Show($window, "Full Diagnostic complete!`n`nCPU: $(if($cs.Passed){'PASS'}else{'FAIL'})`nRAM: $(if($rs.Passed){'PASS'}else{'FAIL'})`nDisk: W=$($ds.SeqWriteMBps) / R=$($ds.SeqReadMBps) MB/s`n`nClick Generate Reports to save PDFs.", "Diagnostic Complete", "OK", "Information")
+            $Global:DiagResults.StressResults = @{ CPU = $Global:DiagResults.CPUStress; RAM = $Global:DiagResults.RAMStress; Disk = $Global:DiagResults.DiskBench; GPU = $Global:DiagResults.GPUStress }
+            $cs = $Global:DiagResults.CPUStress; $rs = $Global:DiagResults.RAMStress; $ds = $Global:DiagResults.DiskBench; $gs = $Global:DiagResults.GPUStress
+            Set-Status "DONE! CPU: $(if($cs.Passed){'PASS'}else{'FAIL'}), RAM: $(if($rs.Passed){'PASS'}else{'FAIL'}), GPU: $(if($gs.Passed){'PASS'}else{'FAIL'}), Disk: W=$($ds.SeqWriteMBps)/$($ds.SeqReadMBps) MB/s" 100
+            [System.Windows.MessageBox]::Show($window, "Full Diagnostic complete!`n`nCPU: $(if($cs.Passed){'PASS'}else{'FAIL'})`nRAM: $(if($rs.Passed){'PASS'}else{'FAIL'})`nGPU: $(if($gs.Passed){'PASS'}else{'FAIL'})`nDisk: W=$($ds.SeqWriteMBps) / R=$($ds.SeqReadMBps) MB/s`n`nClick Generate Reports to save PDFs.", "Diagnostic Complete", "OK", "Information")
         } catch {
             Write-DebugLog "Full Diagnostic ERROR: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
             Set-Status "ERROR: $($_.Exception.Message)" 0
