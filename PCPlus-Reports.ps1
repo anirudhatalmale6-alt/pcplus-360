@@ -599,6 +599,8 @@ $(if($bannerHwOwnUri){"<div style='text-align:center;margin-bottom:15px;'><img s
 <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px;">
 <table style="width:100%;font-size:10pt;border:none;margin:0;">
 <tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;width:110px;">Customer:</td><td style="border:none;padding:4px 8px;color:#0a1628;font-weight:700;">$($Params.CustomerName)</td></tr>
+$(if($Params.CustomerPhone){"<tr><td style='border:none;padding:4px 8px;color:#64748b;font-weight:600;'>Phone:</td><td style='border:none;padding:4px 8px;color:#0a1628;'>$($Params.CustomerPhone)</td></tr>"})
+$(if($Params.CustomerEmail){"<tr><td style='border:none;padding:4px 8px;color:#64748b;font-weight:600;'>Email:</td><td style='border:none;padding:4px 8px;color:#0a1628;'>$($Params.CustomerEmail)</td></tr>"})
 $(if($Params.ContactName){"<tr><td style='border:none;padding:4px 8px;color:#64748b;font-weight:600;'>Contact:</td><td style='border:none;padding:4px 8px;color:#0a1628;'>$($Params.ContactName)</td></tr>"})
 <tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Device:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$($SystemInfo.ComputerName)</td></tr>
 <tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Date:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$date</td></tr>
@@ -1401,6 +1403,8 @@ $(if($bannerSecOwnUri){"<div style='text-align:center;margin-bottom:15px;'><img 
 <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px;">
 <table style="width:100%;font-size:10pt;border:none;margin:0;">
 <tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;width:110px;">Customer:</td><td style="border:none;padding:4px 8px;color:#0a1628;font-weight:700;">$($Params.CustomerName)</td></tr>
+$(if($Params.CustomerPhone){"<tr><td style='border:none;padding:4px 8px;color:#64748b;font-weight:600;'>Phone:</td><td style='border:none;padding:4px 8px;color:#0a1628;'>$($Params.CustomerPhone)</td></tr>"})
+$(if($Params.CustomerEmail){"<tr><td style='border:none;padding:4px 8px;color:#64748b;font-weight:600;'>Email:</td><td style='border:none;padding:4px 8px;color:#0a1628;'>$($Params.CustomerEmail)</td></tr>"})
 $(if($Params.ContactName){"<tr><td style='border:none;padding:4px 8px;color:#64748b;font-weight:600;'>Contact:</td><td style='border:none;padding:4px 8px;color:#0a1628;'>$($Params.ContactName)</td></tr>"})
 <tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Device:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$($SystemInfo.ComputerName)</td></tr>
 <tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Date:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$date</td></tr>
@@ -1851,7 +1855,7 @@ th { background: #f1f5f9; padding: 8px 12px; text-align: left; font-size: 9.5pt;
     </div>
 
     <div class="meta">
-        <div><strong>Prepared for:</strong> $($Params.CustomerName)</div>
+        <div><strong>Prepared for:</strong> $($Params.CustomerName)$(if($Params.CustomerPhone){" | $($Params.CustomerPhone)"})$(if($Params.CustomerEmail){" | $($Params.CustomerEmail)"})</div>
         <div><strong>Computer:</strong> $($SystemInfo.ComputerName)</div>
         <div><strong>Date:</strong> $(Get-Date -Format 'MMMM dd, yyyy')</div>
     </div>
@@ -2020,7 +2024,7 @@ tr:nth-child(even) { background:#f8fafc; }
 
     <div style="text-align:center;font-size:14pt;font-weight:700;color:#0d4b71;margin-bottom:4px;">WEAR &amp; TEAR LIFECYCLE REPORT</div>
     <div style="text-align:center;font-size:9pt;color:#64748b;margin-bottom:16px;">
-        Customer: $($Params.CustomerName) | Computer: $($SystemInfo.ComputerName) | Date: $date
+        Customer: $($Params.CustomerName)$(if($Params.CustomerPhone){" | Ph: $($Params.CustomerPhone)"})$(if($Params.CustomerEmail){" | $($Params.CustomerEmail)"}) | Computer: $($SystemInfo.ComputerName) | Date: $date
     </div>
 
     <div class="title-bar">
@@ -2790,6 +2794,8 @@ function Build-GamingPCReport {
 
     # ── Safe accessors ──────────────────────────────────────────────────────
     $customerName   = if ($Params.CustomerName)    { $Params.CustomerName }   else { "Customer" }
+    $customerPhone  = if ($Params.CustomerPhone)   { $Params.CustomerPhone }  else { "" }
+    $customerEmail  = if ($Params.CustomerEmail)   { $Params.CustomerEmail }  else { "" }
     $techName       = if ($Params.TechName)        { $Params.TechName }       else { "Technician" }
     $contactName    = if ($Params.ContactName)     { $Params.ContactName }    else { "" }
 
@@ -3351,6 +3357,8 @@ $logoHTML
 <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px;">
 <table style="width:100%;font-size:10pt;border:none;margin:0;">
 <tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;width:110px;">Customer:</td><td style="border:none;padding:4px 8px;color:#0a1628;font-weight:700;">$customerName</td></tr>
+$(if($customerPhone){"<tr><td style='border:none;padding:4px 8px;color:#64748b;font-weight:600;'>Phone:</td><td style='border:none;padding:4px 8px;color:#0a1628;'>$customerPhone</td></tr>"})
+$(if($customerEmail){"<tr><td style='border:none;padding:4px 8px;color:#64748b;font-weight:600;'>Email:</td><td style='border:none;padding:4px 8px;color:#0a1628;'>$customerEmail</td></tr>"})
 $(if($contactName){"<tr><td style='border:none;padding:4px 8px;color:#64748b;font-weight:600;'>Contact:</td><td style='border:none;padding:4px 8px;color:#0a1628;'>$contactName</td></tr>"})
 <tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Device:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$compName</td></tr>
 <tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Date:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$date</td></tr>
@@ -3542,10 +3550,12 @@ function Build-GamingPerformanceReport {
     $iconPass = "&#10004;"; $iconFail = "&#10008;"; $iconWarn = "&#9888;"
 
     # ── Safe accessors ──────────────────────────────────────────────────────
-    $customerName = if ($Params.CustomerName) { $Params.CustomerName } else { "Customer" }
-    $techName     = if ($Params.TechName)     { $Params.TechName }     else { "Technician" }
-    $contactName  = if ($Params.ContactName)  { $Params.ContactName }  else { "" }
-    $techNotes    = if ($Params.TechNotes)    { $Params.TechNotes }    else { "" }
+    $customerName  = if ($Params.CustomerName)  { $Params.CustomerName }  else { "Customer" }
+    $customerPhone = if ($Params.CustomerPhone) { $Params.CustomerPhone } else { "" }
+    $customerEmail = if ($Params.CustomerEmail) { $Params.CustomerEmail } else { "" }
+    $techName      = if ($Params.TechName)      { $Params.TechName }      else { "Technician" }
+    $contactName   = if ($Params.ContactName)   { $Params.ContactName }   else { "" }
+    $techNotes     = if ($Params.TechNotes)     { $Params.TechNotes }     else { "" }
 
     $cpuModel  = if ($SystemInfo.CPUModel)    { $SystemInfo.CPUModel }   else { "Unknown CPU" }
     $ramTotal  = if ($SystemInfo.RAMTotal)     { $SystemInfo.RAMTotal }   else { 0 }
@@ -4292,6 +4302,8 @@ $logoHTML
 <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px;">
 <table style="width:100%;font-size:10pt;border:none;margin:0;">
 <tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;width:110px;">Customer:</td><td style="border:none;padding:4px 8px;color:#0a1628;font-weight:700;">$customerName</td></tr>
+$(if($customerPhone){"<tr><td style='border:none;padding:4px 8px;color:#64748b;font-weight:600;'>Phone:</td><td style='border:none;padding:4px 8px;color:#0a1628;'>$customerPhone</td></tr>"})
+$(if($customerEmail){"<tr><td style='border:none;padding:4px 8px;color:#64748b;font-weight:600;'>Email:</td><td style='border:none;padding:4px 8px;color:#0a1628;'>$customerEmail</td></tr>"})
 $(if($contactName){"<tr><td style='border:none;padding:4px 8px;color:#64748b;font-weight:600;'>Contact:</td><td style='border:none;padding:4px 8px;color:#0a1628;'>$contactName</td></tr>"})
 <tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Device:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$compName</td></tr>
 <tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Date:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$date</td></tr>
@@ -4731,10 +4743,12 @@ function Build-LCDDisplayReport {
     $iconPass = "&#10004;"; $iconFail = "&#10008;"; $iconWarn = "&#9888;"
 
     # ── Safe accessors ──
-    $customerName = if ($Params.CustomerName) { $Params.CustomerName } else { "Customer" }
-    $techName     = if ($Params.TechName)     { $Params.TechName }     else { "Technician" }
-    $contactName  = if ($Params.ContactName)  { $Params.ContactName }  else { "" }
-    $techNotes    = if ($Params.TechNotes)    { $Params.TechNotes }    else { "" }
+    $customerName  = if ($Params.CustomerName)  { $Params.CustomerName }  else { "Customer" }
+    $customerPhone = if ($Params.CustomerPhone) { $Params.CustomerPhone } else { "" }
+    $customerEmail = if ($Params.CustomerEmail) { $Params.CustomerEmail } else { "" }
+    $techName      = if ($Params.TechName)      { $Params.TechName }      else { "Technician" }
+    $contactName   = if ($Params.ContactName)   { $Params.ContactName }   else { "" }
+    $techNotes     = if ($Params.TechNotes)     { $Params.TechNotes }     else { "" }
 
     $sys   = $LCDData.System
     $mon   = $LCDData.Monitor
@@ -4977,6 +4991,8 @@ $logoHTML
 <div class="info-card">
 <table style="width:100%;font-size:10pt;border:none;margin:0;">
 <tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;width:110px;">Customer:</td><td style="border:none;padding:4px 8px;color:#0a1628;font-weight:700;">$customerName</td></tr>
+$(if($customerPhone){"<tr><td style='border:none;padding:4px 8px;color:#64748b;font-weight:600;'>Phone:</td><td style='border:none;padding:4px 8px;color:#0a1628;'>$customerPhone</td></tr>"})
+$(if($customerEmail){"<tr><td style='border:none;padding:4px 8px;color:#64748b;font-weight:600;'>Email:</td><td style='border:none;padding:4px 8px;color:#0a1628;'>$customerEmail</td></tr>"})
 $(if($contactName){"<tr><td style='border:none;padding:4px 8px;color:#64748b;font-weight:600;'>Contact:</td><td style='border:none;padding:4px 8px;color:#0a1628;'>$contactName</td></tr>"})
 <tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Device:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$compName</td></tr>
 <tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Model:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$($sys.Manufacturer) $($sys.Model)</td></tr>

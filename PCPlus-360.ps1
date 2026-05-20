@@ -136,8 +136,8 @@ function Show-Launcher {
 $xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="PC Plus 360 Hardware Diagnostic Suite" Height="720" Width="960"
-        WindowStartupLocation="CenterScreen" ResizeMode="CanMinimize"
+        Title="PC Plus 360 Hardware Diagnostic Suite" Height="720" Width="960" MinHeight="600" MinWidth="800"
+        WindowStartupLocation="CenterScreen" ResizeMode="CanResizeWithGrip"
         Background="#eef4f8" FontFamily="Segoe UI">
     <Window.Resources>
         <Style x:Key="FlatBtn" TargetType="Button">
@@ -309,20 +309,28 @@ $xaml = @"
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
                             <StackPanel Grid.Column="0" Margin="0,0,6,0">
                                 <TextBlock Text="CUSTOMER NAME *" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa" Margin="0,0,0,2"/>
                                 <TextBox x:Name="txtCustomer" FontSize="12" Padding="6,4" Background="#f6f9fb" Foreground="#1a2b3c" BorderBrush="#d8e8f0"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1" Margin="3,0,3,0">
+                                <TextBlock Text="PHONE" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa" Margin="0,0,0,2"/>
+                                <TextBox x:Name="txtPhone" FontSize="12" Padding="6,4" Background="#f6f9fb" Foreground="#1a2b3c" BorderBrush="#d8e8f0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Margin="6,0,0,0">
+                                <TextBlock Text="EMAIL" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa" Margin="0,0,0,2"/>
+                                <TextBox x:Name="txtEmail" FontSize="12" Padding="6,4" Background="#f6f9fb" Foreground="#1a2b3c" BorderBrush="#d8e8f0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,6,6,0">
                                 <TextBlock Text="CONTACT NAME" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa" Margin="0,0,0,2"/>
                                 <TextBox x:Name="txtContact" FontSize="12" Padding="6,4" Background="#f6f9fb" Foreground="#1a2b3c" BorderBrush="#d8e8f0"/>
                             </StackPanel>
-                            <StackPanel Grid.Column="2" Margin="6,0,0,0">
+                            <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="3,6,0,0">
                                 <TextBlock Text="TECHNICIAN" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa" Margin="0,0,0,2"/>
                                 <TextBox x:Name="txtTech" Text="Paul" FontSize="12" Padding="6,4" Background="#f6f9fb" Foreground="#1a2b3c" BorderBrush="#d8e8f0"/>
                             </StackPanel>
-                            <StackPanel Grid.Row="1" Grid.ColumnSpan="3" Margin="0,6,0,0">
+                            <StackPanel Grid.Row="2" Grid.ColumnSpan="3" Margin="0,6,0,0">
                                 <TextBlock Text="NOTES (optional - appears in report)" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa" Margin="0,0,0,2"/>
                                 <TextBox x:Name="txtNotes" FontSize="11" Padding="6,4" Height="32" Background="#f6f9fb" Foreground="#1a2b3c" BorderBrush="#d8e8f0" AcceptsReturn="True" TextWrapping="Wrap"/>
                             </StackPanel>
@@ -533,6 +541,8 @@ $xaml = @"
 
     # Get controls
     $txtCustomer = $window.FindName("txtCustomer")
+    $txtPhone = $window.FindName("txtPhone")
+    $txtEmail = $window.FindName("txtEmail")
     $txtContact = $window.FindName("txtContact")
     $txtTech = $window.FindName("txtTech")
     $txtNotes = $window.FindName("txtNotes")
@@ -596,7 +606,7 @@ $xaml = @"
             return $null
         }
         Write-DebugLog "Params OK: Customer=$($txtCustomer.Text.Trim())"
-        return @{ CustomerName = $txtCustomer.Text.Trim(); ContactName = $txtContact.Text.Trim(); TechName = $txtTech.Text.Trim(); TechNotes = $txtNotes.Text.Trim(); OutputFolder = $Global:ReportsDir }
+        return @{ CustomerName = $txtCustomer.Text.Trim(); CustomerPhone = $txtPhone.Text.Trim(); CustomerEmail = $txtEmail.Text.Trim(); ContactName = $txtContact.Text.Trim(); TechName = $txtTech.Text.Trim(); TechNotes = $txtNotes.Text.Trim(); OutputFolder = $Global:ReportsDir }
     }
 
     function Update-SystemInfo {
