@@ -788,6 +788,11 @@ function Build-HardwareReport {
     if (Test-Path $bstPath) { try { $bannerSecTopUri = "data:image/jpeg;base64,$((Get-Content $bstPath -Raw).Trim())" } catch {} }
     if (Test-Path $bsbPath) { try { $bannerSecBottomUri = "data:image/jpeg;base64,$((Get-Content $bsbPath -Raw).Trim())" } catch {} }
 
+    # Load hardware report's own banner
+    $bannerHwOwnUri = ""
+    $bhoPath = Join-Path $Global:ScriptDir "banner-hardware-top.txt"
+    if (Test-Path $bhoPath) { try { $bannerHwOwnUri = "data:image/jpeg;base64,$((Get-Content $bhoPath -Raw).Trim())" } catch {} }
+
     # Category sub-scores for executive summary
     # Storage Health
     $storageScore = 100
@@ -1010,30 +1015,6 @@ h1,h2,h3,h4 { margin:0; }
 .print-footer .report-name { color: #475569; }
 .no-break { page-break-inside: avoid; }
 
-/* ── Cover page ── */
-.cover {
-    height: 100vh; display: flex; flex-direction: column; justify-content: center;
-    align-items: center; text-align: center; page-break-after: always;
-    background: linear-gradient(180deg, #ffffff 0%, #f0f7fb 50%, #eaf7fc 100%);
-    position: relative;
-}
-.cover::before {
-    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 6px;
-    background: linear-gradient(90deg, #0d4b71, #2596be, #0d4b71);
-}
-.cover-logo img { width: 350px; max-width: 90%; margin-bottom: 24px; }
-.cover-fallback { background: #0a1628; color: #fff; padding: 20px 50px; font-size: 22pt; font-weight: bold; letter-spacing: 3px; border-radius: 6px; margin-bottom: 24px; }
-.cover-title { font-size: 24pt; font-weight: 700; color: #0a1628; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 6px; }
-.cover-subtitle { font-size: 11pt; color: #64748b; margin-bottom: 28px; font-weight: 400; letter-spacing: 0.5px; }
-.cover-donut { margin: 10px 0 6px 0; }
-.cover-grade-label { font-size: 13pt; font-weight: 700; margin-top: 6px; margin-bottom: 28px; }
-.cover-meta { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px 36px; display: inline-block; text-align: left; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
-.cover-meta p { font-size: 10.5pt; color: #475569; margin: 5px 0; }
-.cover-meta strong { color: #0a1628; min-width: 100px; display: inline-block; }
-.cover-footer { position: absolute; bottom: 30px; text-align: center; width: 100%; }
-.cover-footer .company-url { font-size: 11pt; color: #0d4b71; font-weight: 600; letter-spacing: 0.5px; }
-.cover-footer .tagline { font-size: 8.5pt; color: #94a3b8; margin-top: 4px; }
-
 /* ── Section headers ── */
 .section-header {
     background: linear-gradient(135deg, #0a1628 0%, #0d4b71 100%);
@@ -1147,32 +1128,33 @@ tr:hover td { background: #eaf7fc; }
 </div>
 
 <!-- ══════════════════════════ COVER PAGE ══════════════════════════ -->
-<div class="cover">
-<div class="cover-logo">$logoHTML</div>
-<div class="cover-title">HARDWARE DIAGNOSTIC REPORT</div>
-<div class="cover-subtitle">Comprehensive Hardware Assessment &amp; Stress Testing</div>
+<div style="page-break-after:always;">
+$(if($bannerHwOwnUri){"<div style='text-align:center;margin-bottom:15px;'><img src='$bannerHwOwnUri' alt='PC Plus Hardware Test' style='width:100%;border-radius:8px;'/></div>"})
 
-<div class="cover-donut">
-<svg viewBox="0 0 120 120" width="200" height="200">
-<circle cx="60" cy="60" r="50" fill="none" stroke="#e5e7eb" stroke-width="10"/>
-<circle cx="60" cy="60" r="50" fill="none" stroke="$hwColor" stroke-width="10" stroke-dasharray="314" stroke-dashoffset="$([math]::Round(314 - (314 * $hwScore / 100)))" transform="rotate(-90 60 60)" stroke-linecap="round"/>
-<text x="60" y="68" text-anchor="middle" font-size="36" font-weight="bold" fill="$hwColor">$hwGrade</text>
+<div style="display:flex;gap:20px;align-items:center;margin:15px 0;">
+<div style="flex:1;">
+<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px;">
+<table style="width:100%;font-size:10pt;border:none;margin:0;">
+<tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;width:110px;">Customer:</td><td style="border:none;padding:4px 8px;color:#0a1628;font-weight:700;">$($Params.CustomerName)</td></tr>
+$(if($Params.ContactName){"<tr><td style='border:none;padding:4px 8px;color:#64748b;font-weight:600;'>Contact:</td><td style='border:none;padding:4px 8px;color:#0a1628;'>$($Params.ContactName)</td></tr>"})
+<tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Device:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$($SystemInfo.ComputerName)</td></tr>
+<tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Date:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$date</td></tr>
+<tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Technician:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$($Params.TechName)</td></tr>
+</table>
+</div>
+</div>
+<div style="text-align:center;">
+<svg viewBox="0 0 100 100" width="130" height="130">
+<circle cx="50" cy="50" r="45" fill="none" stroke="#e5e7eb" stroke-width="8"/>
+<circle cx="50" cy="50" r="45" fill="none" stroke="$hwColor" stroke-width="8" stroke-dasharray="283" stroke-dashoffset="$dashOffset" transform="rotate(-90 50 50)" stroke-linecap="round"/>
+<text x="50" y="46" text-anchor="middle" font-size="20" font-weight="bold" fill="$hwColor">$hwGrade</text>
+<text x="50" y="62" text-anchor="middle" font-size="10" fill="#64748b">$hwScore / 100</text>
 </svg>
+<div style="font-size:9pt;color:$hwColor;font-weight:700;margin-top:4px;">Overall Health</div>
 </div>
-<div class="cover-grade-label" style="color:$hwColor;">$hwScore / 100</div>
-
-<div class="cover-meta">
-<p><strong>Customer:</strong> $($Params.CustomerName)</p>
-$(if($Params.ContactName){"<p><strong>Contact:</strong> $($Params.ContactName)</p>"})
-<p><strong>Device:</strong> $($SystemInfo.ComputerName)</p>
-<p><strong>Date:</strong> $date</p>
-<p><strong>Technician:</strong> $($Params.TechName)</p>
 </div>
 
-<div class="cover-footer">
-<div class="company-url">$WEBSITE | $PHONE</div>
-<div class="tagline">Your Security, Our Priority &nbsp;|&nbsp; 30+ Years in Service &nbsp;|&nbsp; 4.9&#9733; Google Rating</div>
-</div>
+$(if($bannerSecTopUri){"<div style='text-align:center;margin-top:15px;'><img src='$bannerSecTopUri' alt='PC Plus Security Audit' style='width:100%;border-radius:8px;'/></div>"})
 </div>
 
 <!-- ══════════════════════════ EXECUTIVE SUMMARY ══════════════════════════ -->
@@ -1217,8 +1199,6 @@ $(if($stressHTML){"
 <div class='sub-header'>Stress Test Results</div>
 <table><tr><th>Test</th><th>Result</th><th>Details</th><th>Temps</th></tr>$stressHTML</table>
 "})
-
-$(if($bannerSecTopUri){"<div class='promo-banner'><img src='$bannerSecTopUri' alt='PC Plus Security Audit'/></div>"})
 
 <!-- ══════════════════════════ SYSTEM INFORMATION ══════════════════════════ -->
 <div class="page-break"></div>
@@ -1445,6 +1425,11 @@ function Build-SecurityReport {
     if (Test-Path $bhtPath) { try { $bannerHwTopUri = "data:image/jpeg;base64,$((Get-Content $bhtPath -Raw).Trim())" } catch {} }
     if (Test-Path $bhbPath) { try { $bannerHwBottomUri = "data:image/jpeg;base64,$((Get-Content $bhbPath -Raw).Trim())" } catch {} }
 
+    # Load security report's own banner
+    $bannerSecOwnUri = ""
+    $bsoPath = Join-Path $Global:ScriptDir "banner-security-top.txt"
+    if (Test-Path $bsoPath) { try { $bannerSecOwnUri = "data:image/jpeg;base64,$((Get-Content $bsoPath -Raw).Trim())" } catch {} }
+
     # Breakdown rows
     $breakdownRows = ($Scoring.Breakdown | ForEach-Object {
         $ic = if($_.Passed){"<span class='pass'>$iconPass</span>"}else{"<span class='fail'>$iconFail</span>"}
@@ -1553,27 +1538,6 @@ h1,h2,h3,h4 { margin:0; }
 .print-footer .report-name { color: #475569; }
 .no-break { page-break-inside: avoid; }
 
-/* Cover page */
-.cover {
-    height: 100vh; display: flex; flex-direction: column; justify-content: center;
-    align-items: center; text-align: center; page-break-after: always;
-    background: linear-gradient(180deg, #ffffff 0%, #f0f7fb 50%, #eaf7fc 100%);
-    position: relative;
-}
-.cover::before {
-    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 6px;
-    background: linear-gradient(90deg, #0d4b71, #2596be, #0d4b71);
-}
-.cover-title { font-size: 24pt; font-weight: 700; color: #0a1628; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 6px; }
-.cover-subtitle { font-size: 11pt; color: #64748b; margin-bottom: 28px; font-weight: 400; letter-spacing: 0.5px; }
-.cover-grade-label { font-size: 13pt; font-weight: 700; margin-top: 6px; margin-bottom: 28px; }
-.cover-meta { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px 36px; display: inline-block; text-align: left; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
-.cover-meta p { font-size: 10.5pt; color: #475569; margin: 5px 0; }
-.cover-meta strong { color: #0a1628; min-width: 100px; display: inline-block; }
-.cover-footer { position: absolute; bottom: 30px; text-align: center; width: 100%; }
-.cover-footer .company-url { font-size: 11pt; color: #0d4b71; font-weight: 600; letter-spacing: 0.5px; }
-.cover-footer .tagline { font-size: 8.5pt; color: #94a3b8; margin-top: 4px; }
-
 /* Section headers */
 .section-header {
     background: linear-gradient(135deg, #0a1628 0%, #0d4b71 100%);
@@ -1667,32 +1631,33 @@ tr:hover td { background: #eaf7fc; }
 </div>
 
 <!-- COVER PAGE -->
-<div class="cover">
-<div>$logoHTML</div>
-<div class="cover-title">SECURITY AUDIT REPORT</div>
-<div class="cover-subtitle">Comprehensive Security Assessment &amp; Compliance Audit</div>
+<div style="page-break-after:always;">
+$(if($bannerSecOwnUri){"<div style='text-align:center;margin-bottom:15px;'><img src='$bannerSecOwnUri' alt='PC Plus Security Audit' style='width:100%;border-radius:8px;'/></div>"})
 
-<div style="margin: 10px 0 6px 0;">
-<svg viewBox="0 0 120 120" width="200" height="200">
-<circle cx="60" cy="60" r="50" fill="none" stroke="#e5e7eb" stroke-width="10"/>
-<circle cx="60" cy="60" r="50" fill="none" stroke="$($Scoring.Color)" stroke-width="10" stroke-dasharray="314" stroke-dashoffset="$([math]::Round(314 - (314 * $Scoring.Score / 100)))" transform="rotate(-90 60 60)" stroke-linecap="round"/>
-<text x="60" y="68" text-anchor="middle" font-size="36" font-weight="bold" fill="$($Scoring.Color)">$($Scoring.Grade)</text>
+<div style="display:flex;gap:20px;align-items:center;margin:15px 0;">
+<div style="flex:1;">
+<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px;">
+<table style="width:100%;font-size:10pt;border:none;margin:0;">
+<tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;width:110px;">Customer:</td><td style="border:none;padding:4px 8px;color:#0a1628;font-weight:700;">$($Params.CustomerName)</td></tr>
+$(if($Params.ContactName){"<tr><td style='border:none;padding:4px 8px;color:#64748b;font-weight:600;'>Contact:</td><td style='border:none;padding:4px 8px;color:#0a1628;'>$($Params.ContactName)</td></tr>"})
+<tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Device:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$($SystemInfo.ComputerName)</td></tr>
+<tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Date:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$date</td></tr>
+<tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Technician:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$($Params.TechName)</td></tr>
+</table>
+</div>
+</div>
+<div style="text-align:center;">
+<svg viewBox="0 0 100 100" width="130" height="130">
+<circle cx="50" cy="50" r="45" fill="none" stroke="#e5e7eb" stroke-width="8"/>
+<circle cx="50" cy="50" r="45" fill="none" stroke="$($Scoring.Color)" stroke-width="8" stroke-dasharray="283" stroke-dashoffset="$dashOffset" transform="rotate(-90 50 50)" stroke-linecap="round"/>
+<text x="50" y="46" text-anchor="middle" font-size="20" font-weight="bold" fill="$($Scoring.Color)">$($Scoring.Grade)</text>
+<text x="50" y="62" text-anchor="middle" font-size="10" fill="#64748b">$($Scoring.Score) / 100</text>
 </svg>
+<div style="font-size:9pt;color:$($Scoring.Color);font-weight:700;margin-top:4px;">Security Score</div>
 </div>
-<div class="cover-grade-label" style="color:$($Scoring.Color);">$($Scoring.Score) / 100</div>
-
-<div class="cover-meta">
-<p><strong>Customer:</strong> $($Params.CustomerName)</p>
-$(if($Params.ContactName){"<p><strong>Contact:</strong> $($Params.ContactName)</p>"})
-<p><strong>Device:</strong> $($SystemInfo.ComputerName)</p>
-<p><strong>Date:</strong> $date</p>
-<p><strong>Technician:</strong> $($Params.TechName)</p>
 </div>
 
-<div class="cover-footer">
-<div class="company-url">$WEBSITE | $PHONE</div>
-<div class="tagline">Your Security, Our Priority &nbsp;|&nbsp; 30+ Years in Service &nbsp;|&nbsp; 4.9&#9733; Google Rating</div>
-</div>
+$(if($bannerHwTopUri){"<div style='text-align:center;margin-top:15px;'><img src='$bannerHwTopUri' alt='PC Plus Hardware Test' style='width:100%;border-radius:8px;'/></div>"})
 </div>
 
 <!-- EXECUTIVE SUMMARY -->
@@ -1747,8 +1712,6 @@ $recsHTML
 <div style='font-size:9.5pt;color:#334155;margin-top:4px;'>This system meets all security baseline requirements.</div>
 </div>"
 })
-
-$(if($bannerHwTopUri){"<div class='promo-banner'><img src='$bannerHwTopUri' alt='PC Plus Hardware Test'/></div>"})
 
 <!-- SCORE BREAKDOWN -->
 <div class="page-break"></div>
