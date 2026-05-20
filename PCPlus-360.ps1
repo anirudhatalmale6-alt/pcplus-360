@@ -7,7 +7,7 @@
     Runs from USB drive with no installation required.
 .NOTES
     Company:  PC Plus Computing
-    Version:  1.0.2
+    Version:  2.0.0
     Requires: PowerShell 5.1+, Windows 10/11, Administrator privileges
 #>
 
@@ -83,7 +83,7 @@ $Global:LogLines = [System.Collections.ArrayList]::new()
 $COMPANY      = "PC Plus Computing"
 $PHONE        = "604-760-1662 | 236-500-2700"
 $WEBSITE      = "pcpluscomputing.com"
-$VERSION      = "1.2.0"
+$VERSION      = "2.0.0"
 
 if (-not (Test-Path $Global:ReportsDir)) { New-Item -Path $Global:ReportsDir -ItemType Directory -Force | Out-Null }
 if (-not (Test-Path $Global:ToolsDir)) { New-Item -Path $Global:ToolsDir -ItemType Directory -Force | Out-Null }
@@ -565,6 +565,496 @@ function Get-PerformanceSnapshot {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# CRASH / STABILITY HISTORY (Event Log Analysis)
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Get-CrashStabilityHistory {
+    param([int]$DaysBack = 90)
+    Write-DiagLog "Analyzing crash and stability history ($DaysBack days)..."
+    $results = @{
+        BSODs = @(); KernelPower = @(); UnexpectedShutdowns = @()
+        DiskErrors = @(); NTFSErrors = @(); WHEAErrors = @(); DriverCrashes = @()
+        TotalBSODs = 0; TotalUnexpected = 0; TotalDiskErrors = 0; TotalWHEA = 0
+        StabilityRating = "Excellent"; RiskLevel = "Low"
+    }
+    $startDate = (Get-Date).AddDays(-$DaysBack)
+
+    $results.BSODs = Invoke-Safe {
+        $events = @()
+        Get-WinEvent -FilterHashtable @{LogName='System';Id=1001;StartTime=$startDate} -MaxEvents 50 -ErrorAction Stop | ForEach-Object {
+            $events += @{ Time = $_.TimeCreated.ToString("yyyy-MM-dd HH:mm"); BugCheck = ($_.Message -split "`n" | Select-Object -First 3) -join " " }
+        }
+        $events
+    } @()
+
+    $results.KernelPower = Invoke-Safe {
+        $events = @()
+        Get-WinEvent -FilterHashtable @{LogName='System';Id=41;ProviderName='Microsoft-Windows-Kernel-Power';StartTime=$startDate} -MaxEvents 50 -ErrorAction Stop | ForEach-Object {
+            $events += @{ Time = $_.TimeCreated.ToString("yyyy-MM-dd HH:mm"); Message = ($_.Message -split "`n" | Select-Object -First 2) -join " " }
+        }
+        $events
+    } @()
+
+    $results.UnexpectedShutdowns = Invoke-Safe {
+        $events = @()
+        Get-WinEvent -FilterHashtable @{LogName='System';Id=6008;StartTime=$startDate} -MaxEvents 50 -ErrorAction Stop | ForEach-Object {
+            $events += @{ Time = $_.TimeCreated.ToString("yyyy-MM-dd HH:mm"); Message = $_.Message }
+        }
+        $events
+    } @()
+
+    $results.DiskErrors = Invoke-Safe {
+        $events = @()
+        Get-WinEvent -FilterHashtable @{LogName='System';Id=7,51,129,153;StartTime=$startDate} -MaxEvents 50 -ErrorAction Stop | ForEach-Object {
+            $events += @{ Time = $_.TimeCreated.ToString("yyyy-MM-dd HH:mm"); Id = $_.Id; Message = ($_.Message -split "`n" | Select-Object -First 1) }
+        }
+        $events
+    } @()
+
+    $results.NTFSErrors = Invoke-Safe {
+        $events = @()
+        Get-WinEvent -FilterHashtable @{LogName='System';Id=55;StartTime=$startDate} -MaxEvents 20 -ErrorAction Stop | ForEach-Object {
+            $events += @{ Time = $_.TimeCreated.ToString("yyyy-MM-dd HH:mm"); Message = ($_.Message -split "`n" | Select-Object -First 1) }
+        }
+        $events
+    } @()
+
+    $results.WHEAErrors = Invoke-Safe {
+        $events = @()
+        Get-WinEvent -FilterHashtable @{LogName='System';ProviderName='Microsoft-Windows-WHEA-Logger';StartTime=$startDate} -MaxEvents 50 -ErrorAction Stop | ForEach-Object {
+            $events += @{ Time = $_.TimeCreated.ToString("yyyy-MM-dd HH:mm"); Id = $_.Id; Message = ($_.Message -split "`n" | Select-Object -First 1) }
+        }
+        $events
+    } @()
+
+    $results.DriverCrashes = Invoke-Safe {
+        $events = @()
+        Get-WinEvent -FilterHashtable @{LogName='System';Level=1,2;StartTime=$startDate} -MaxEvents 30 -ErrorAction Stop | Where-Object {
+            $_.Message -match "driver|crash|fault|exception"
+        } | ForEach-Object {
+            $events += @{ Time = $_.TimeCreated.ToString("yyyy-MM-dd HH:mm"); Source = $_.ProviderName; Message = ($_.Message -split "`n" | Select-Object -First 1) }
+        }
+        $events
+    } @()
+
+    $results.TotalBSODs = $results.BSODs.Count
+    $results.TotalUnexpected = $results.KernelPower.Count + $results.UnexpectedShutdowns.Count
+    $results.TotalDiskErrors = $results.DiskErrors.Count + $results.NTFSErrors.Count
+    $results.TotalWHEA = $results.WHEAErrors.Count
+
+    $crashTotal = $results.TotalBSODs + $results.TotalUnexpected + $results.TotalWHEA
+    if ($crashTotal -ge 10) { $results.StabilityRating = "Critical"; $results.RiskLevel = "High" }
+    elseif ($crashTotal -ge 5) { $results.StabilityRating = "Poor"; $results.RiskLevel = "Medium-High" }
+    elseif ($crashTotal -ge 2) { $results.StabilityRating = "Fair"; $results.RiskLevel = "Medium" }
+    elseif ($crashTotal -ge 1) { $results.StabilityRating = "Good"; $results.RiskLevel = "Low" }
+    else { $results.StabilityRating = "Excellent"; $results.RiskLevel = "None" }
+
+    $results.MinidumpCount = Invoke-Safe {
+        $md = Get-ChildItem "$env:SystemRoot\Minidump\*.dmp" -ErrorAction SilentlyContinue
+        if ($md) { $md.Count } else { 0 }
+    } 0
+
+    Write-DiagLog "Stability: $($results.StabilityRating), BSODs=$($results.TotalBSODs), Unexpected=$($results.TotalUnexpected), Disk=$($results.TotalDiskErrors), WHEA=$($results.TotalWHEA)"
+    return $results
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DETAILED BATTERY REPORT
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Get-DetailedBatteryInfo {
+    Write-DiagLog "Collecting detailed battery information..."
+    $results = @{ Present = $false }
+    $bat = Invoke-Safe { Get-CimInstance Win32_Battery -ErrorAction Stop } $null
+    if (-not $bat) { return $results }
+    $results.Present = $true
+    $results.Name = $bat.Name
+    $results.Status = $bat.Status
+    $results.Charge = $bat.EstimatedChargeRemaining
+    $results.Charging = $bat.BatteryStatus -eq 2
+    $results.Runtime = if ($bat.EstimatedRunTime -and $bat.EstimatedRunTime -lt 71582788) { "$([math]::Floor($bat.EstimatedRunTime/60))h $($bat.EstimatedRunTime%60)m" } else { "AC Power" }
+
+    $results.DesignCapacity = Invoke-Safe { (Get-CimInstance -Namespace "root\WMI" -ClassName BatteryStaticData -ErrorAction Stop).DesignedCapacity } 0
+    $results.FullChargeCapacity = Invoke-Safe { (Get-CimInstance -Namespace "root\WMI" -ClassName BatteryFullChargedCapacity -ErrorAction Stop).FullChargedCapacity } 0
+    $results.HealthPct = if ($results.DesignCapacity -gt 0) { [math]::Round(($results.FullChargeCapacity / $results.DesignCapacity) * 100, 1) } else { 0 }
+    $results.CycleCount = Invoke-Safe { (Get-CimInstance -Namespace "root\WMI" -ClassName BatteryCycleCount -ErrorAction Stop).CycleCount } 0
+
+    $results.DrainRate = Invoke-Safe {
+        $st = Get-CimInstance -Namespace "root\WMI" -ClassName BatteryStatus -ErrorAction Stop | Select-Object -First 1
+        if ($st -and $st.DischargeRate -and $st.DischargeRate -gt 0 -and $st.DischargeRate -lt 100000) { "$([math]::Round($st.DischargeRate / 1000, 2))W" } else { "N/A" }
+    } "N/A"
+
+    # Generate powercfg battery report
+    $results.BatteryReportPath = Invoke-Safe {
+        $rptDir = Join-Path $Global:ReportsDir "battery"
+        if (-not (Test-Path $rptDir)) { New-Item -Path $rptDir -ItemType Directory -Force | Out-Null }
+        $rptPath = Join-Path $rptDir "battery-report.html"
+        $null = & powercfg /batteryreport /output $rptPath 2>&1
+        if (Test-Path $rptPath) { $rptPath } else { $null }
+    } $null
+
+    $healthStatus = if ($results.HealthPct -ge 80) { "Good" } elseif ($results.HealthPct -ge 50) { "Fair - Consider Replacement" } else { "Poor - Replace Soon" }
+    $results.HealthStatus = $healthStatus
+
+    Write-DiagLog "Battery: Health=$($results.HealthPct)%, Cycles=$($results.CycleCount), Status=$healthStatus"
+    return $results
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# POWER STABILITY ANALYSIS
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Get-PowerStabilityInfo {
+    Write-DiagLog "Analyzing power stability..."
+    $results = @{ PowerEvents = @(); ACAdapter = "N/A"; StabilityScore = 100 }
+    $startDate = (Get-Date).AddDays(-90)
+
+    $results.PowerEvents = Invoke-Safe {
+        $events = @()
+        Get-WinEvent -FilterHashtable @{LogName='System';ProviderName='Microsoft-Windows-Kernel-Power';StartTime=$startDate} -MaxEvents 30 -ErrorAction Stop | ForEach-Object {
+            $evType = switch ($_.Id) { 41 {"Unexpected Shutdown"}; 42 {"Sleep Entry"}; 107 {"Resume from Sleep"}; 109 {"Kernel Power Change"}; default {"Power Event $($_.Id)"} }
+            $events += @{ Time = $_.TimeCreated.ToString("yyyy-MM-dd HH:mm"); Type = $evType; Id = $_.Id }
+        }
+        $events
+    } @()
+
+    $results.ACAdapter = Invoke-Safe {
+        $bat = Get-CimInstance Win32_Battery -ErrorAction Stop
+        if ($bat) { if ($bat.BatteryStatus -eq 2) { "Charging" } elseif ($bat.BatteryStatus -eq 1) { "On Battery" } else { "AC Connected" } }
+        else { "Desktop/No Battery" }
+    } "Unknown"
+
+    $results.LastBootType = Invoke-Safe {
+        $lastBoot = Get-WinEvent -FilterHashtable @{LogName='System';Id=12;ProviderName='Microsoft-Windows-Kernel-General'} -MaxEvents 1 -ErrorAction Stop
+        if ($lastBoot) { "Normal boot at $($lastBoot.TimeCreated.ToString('yyyy-MM-dd HH:mm'))" } else { "Unknown" }
+    } "Unknown"
+
+    $unexpectedCount = ($results.PowerEvents | Where-Object { $_.Type -eq "Unexpected Shutdown" }).Count
+    if ($unexpectedCount -ge 5) { $results.StabilityScore = 40 }
+    elseif ($unexpectedCount -ge 3) { $results.StabilityScore = 60 }
+    elseif ($unexpectedCount -ge 1) { $results.StabilityScore = 80 }
+    $results.UnexpectedShutdowns = $unexpectedCount
+    $results.Rating = if ($results.StabilityScore -ge 80) { "Stable" } elseif ($results.StabilityScore -ge 60) { "Moderate Concern" } else { "Unstable - Investigate" }
+
+    Write-DiagLog "Power: $unexpectedCount unexpected shutdowns, Rating=$($results.Rating)"
+    return $results
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NETWORK SPEED TEST
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Get-NetworkSpeedTest {
+    Write-DiagLog "Running network speed test..."
+    $results = @{
+        DownloadMbps = "N/A"; UploadMbps = "N/A"; PingMs = "N/A"; Jitter = "N/A"
+        PacketLoss = "N/A"; DNSResponseMs = "N/A"; Gateway = "N/A"; GatewayPing = "N/A"
+        WiFiSignal = "N/A"; WiFiChannel = "N/A"; WiFiRadioType = "N/A"
+    }
+
+    # Gateway ping
+    $results.Gateway = Invoke-Safe {
+        $gw = (Get-NetRoute -DestinationPrefix "0.0.0.0/0" -ErrorAction Stop | Select-Object -First 1).NextHop
+        $gw
+    } "N/A"
+    if ($results.Gateway -ne "N/A") {
+        $results.GatewayPing = Invoke-Safe {
+            $p = Test-Connection -ComputerName $results.Gateway -Count 4 -ErrorAction Stop
+            "$([math]::Round(($p | Measure-Object -Property Latency -Average).Average, 0))ms"
+        } "N/A"
+    }
+
+    # DNS response time
+    $results.DNSResponseMs = Invoke-Safe {
+        $start = Get-Date; Resolve-DnsName "google.com" -Type A -ErrorAction Stop | Out-Null
+        "$([math]::Round(((Get-Date) - $start).TotalMilliseconds, 0))ms"
+    } "N/A"
+
+    # Ping test to multiple targets
+    $results.PingMs = Invoke-Safe {
+        $pings = @()
+        foreach ($target in @("8.8.8.8","1.1.1.1","208.67.222.222")) {
+            $p = Test-Connection -ComputerName $target -Count 3 -ErrorAction SilentlyContinue
+            if ($p) { $pings += ($p | Measure-Object -Property Latency -Average).Average }
+        }
+        if ($pings.Count -gt 0) { "$([math]::Round(($pings | Measure-Object -Average).Average, 0))ms" } else { "Failed" }
+    } "N/A"
+
+    # Jitter calculation
+    $results.Jitter = Invoke-Safe {
+        $p = Test-Connection -ComputerName "8.8.8.8" -Count 10 -ErrorAction Stop
+        $latencies = $p | ForEach-Object { $_.Latency }
+        $diffs = @(); for ($i=1; $i -lt $latencies.Count; $i++) { $diffs += [math]::Abs($latencies[$i] - $latencies[$i-1]) }
+        if ($diffs.Count -gt 0) { "$([math]::Round(($diffs | Measure-Object -Average).Average, 1))ms" } else { "N/A" }
+    } "N/A"
+
+    # Packet loss
+    $results.PacketLoss = Invoke-Safe {
+        $p = Test-Connection -ComputerName "8.8.8.8" -Count 20 -ErrorAction SilentlyContinue
+        $received = if ($p) { $p.Count } else { 0 }
+        $loss = [math]::Round(((20 - $received) / 20) * 100, 0)
+        "$loss%"
+    } "N/A"
+
+    # WiFi details
+    $wifiInfo = Invoke-Safe {
+        $w = netsh wlan show interfaces 2>&1; $signal = ""; $channel = ""; $radioType = ""; $rxRate = ""; $txRate = ""
+        foreach ($l in $w) {
+            if ($l -match "Signal\s+:\s+(.+)$") { $signal = $Matches[1].Trim() }
+            if ($l -match "Channel\s+:\s+(.+)$") { $channel = $Matches[1].Trim() }
+            if ($l -match "Radio type\s+:\s+(.+)$") { $radioType = $Matches[1].Trim() }
+            if ($l -match "Receive rate.*:\s+(.+)$") { $rxRate = $Matches[1].Trim() }
+            if ($l -match "Transmit rate.*:\s+(.+)$") { $txRate = $Matches[1].Trim() }
+        }
+        @{ Signal = $signal; Channel = $channel; RadioType = $radioType; RxRate = $rxRate; TxRate = $txRate }
+    } @{ Signal = "N/A"; Channel = "N/A"; RadioType = "N/A"; RxRate = "N/A"; TxRate = "N/A" }
+    $results.WiFiSignal = $wifiInfo.Signal; $results.WiFiChannel = $wifiInfo.Channel
+    $results.WiFiRadioType = $wifiInfo.RadioType; $results.WiFiRxRate = $wifiInfo.RxRate; $results.WiFiTxRate = $wifiInfo.TxRate
+
+    # Download speed test (download a known file and measure)
+    $results.DownloadMbps = Invoke-Safe {
+        $testUrl = "http://speedtest.tele2.net/10MB.zip"
+        $tmpFile = Join-Path $env:TEMP "pcplus_speedtest.bin"
+        $start = Get-Date
+        Invoke-WebRequest -Uri $testUrl -OutFile $tmpFile -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
+        $elapsed = ((Get-Date) - $start).TotalSeconds
+        $fileSize = (Get-Item $tmpFile).Length
+        Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
+        $mbps = [math]::Round(($fileSize * 8 / 1000000) / $elapsed, 1)
+        "$mbps Mbps"
+    } "N/A"
+
+    Write-DiagLog "Network: Download=$($results.DownloadMbps), Ping=$($results.PingMs), Jitter=$($results.Jitter), Loss=$($results.PacketLoss)"
+    return $results
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GAMING READINESS
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Get-GamingReadiness {
+    Write-DiagLog "Assessing gaming readiness..."
+    $results = @{ Score = 0; Tier = "Not Gaming Ready"; DirectXVersion = "N/A"; GPUName = "N/A"; VRAM_MB = 0; RefreshRate = "N/A" }
+
+    $gpu = Invoke-Safe { Get-CimInstance Win32_VideoController | Where-Object { $_.AdapterRAM -gt 0 } | Select-Object -First 1 } $null
+    if ($gpu) {
+        $results.GPUName = $gpu.Name
+        $results.VRAM_MB = [math]::Round($gpu.AdapterRAM / 1MB, 0)
+        $results.DriverVersion = $gpu.DriverVersion
+        $results.Resolution = "$($gpu.CurrentHorizontalResolution)x$($gpu.CurrentVerticalResolution)"
+        $results.RefreshRate = "$($gpu.CurrentRefreshRate) Hz"
+    }
+
+    $results.DirectXVersion = Invoke-Safe {
+        $dxKey = "HKLM:\SOFTWARE\Microsoft\DirectX"
+        $ver = (Get-ItemProperty $dxKey -ErrorAction Stop).Version
+        if ($ver) { "DirectX $ver" } else { "Unknown" }
+    } "N/A"
+
+    $cpu = Invoke-Safe { Get-CimInstance Win32_Processor | Select-Object -First 1 } $null
+    $ram = Invoke-Safe { [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 0) } 0
+
+    # Scoring: GPU VRAM, RAM, CPU cores
+    $gpuScore = 0
+    if ($results.VRAM_MB -ge 8192) { $gpuScore = 40 }
+    elseif ($results.VRAM_MB -ge 4096) { $gpuScore = 30 }
+    elseif ($results.VRAM_MB -ge 2048) { $gpuScore = 20 }
+    elseif ($results.VRAM_MB -ge 1024) { $gpuScore = 10 }
+
+    $ramScore = 0
+    if ($ram -ge 32) { $ramScore = 25 }
+    elseif ($ram -ge 16) { $ramScore = 20 }
+    elseif ($ram -ge 8) { $ramScore = 12 }
+    elseif ($ram -ge 4) { $ramScore = 5 }
+
+    $cpuScore = 0
+    if ($cpu) {
+        $results.CPUCores = $cpu.NumberOfCores; $results.CPUThreads = $cpu.NumberOfLogicalProcessors
+        $results.CPUBaseClock = $cpu.MaxClockSpeed
+        if ($cpu.NumberOfCores -ge 8 -and $cpu.MaxClockSpeed -ge 3000) { $cpuScore = 35 }
+        elseif ($cpu.NumberOfCores -ge 6 -and $cpu.MaxClockSpeed -ge 2500) { $cpuScore = 28 }
+        elseif ($cpu.NumberOfCores -ge 4 -and $cpu.MaxClockSpeed -ge 2000) { $cpuScore = 18 }
+        elseif ($cpu.NumberOfCores -ge 2) { $cpuScore = 8 }
+    }
+
+    $results.Score = $gpuScore + $ramScore + $cpuScore
+    $results.Tier = if ($results.Score -ge 80) { "High-End Gaming" }
+                    elseif ($results.Score -ge 60) { "Mid-Range Gaming" }
+                    elseif ($results.Score -ge 40) { "Entry-Level Gaming" }
+                    elseif ($results.Score -ge 20) { "Light Gaming Only" }
+                    else { "Not Gaming Ready" }
+
+    $results.GPUScoreDetail = $gpuScore; $results.RAMScoreDetail = $ramScore; $results.CPUScoreDetail = $cpuScore
+    $results.TotalRAM = $ram
+
+    Write-DiagLog "Gaming: Score=$($results.Score), Tier=$($results.Tier), GPU=$($results.GPUName), VRAM=$($results.VRAM_MB)MB"
+    return $results
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HISTORICAL TRACKING
+# ─────────────────────────────────────────────────────────────────────────────
+
+$Global:HistoryDir = "C:\PCPlus360\History"
+
+function Save-ScanHistory {
+    param($ScanData)
+    Write-DiagLog "Saving scan to history..."
+    Invoke-Safe {
+        $compName = $ScanData.SystemInfo.ComputerName
+        $serial = $ScanData.SystemInfo.Serial
+        $deviceDir = Join-Path $Global:HistoryDir ($compName -replace '[\\/:*?"<>|]','_')
+        if (-not (Test-Path $deviceDir)) { New-Item -Path $deviceDir -ItemType Directory -Force | Out-Null }
+
+        $summary = @{
+            ScanDate = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+            ComputerName = $compName; Serial = $serial
+            HardwareScore = $ScanData.HardwareScore; SecurityScore = $ScanData.SecurityScore
+            CPUModel = $ScanData.SystemInfo.CPUModel; RAMTotal = $ScanData.SystemInfo.RAMTotal
+            CPUPeakTemp = if ($ScanData.StressResults.CPU) { $ScanData.StressResults.CPU.MaxTemp } else { "N/A" }
+            GPUPeakTemp = if ($ScanData.StressResults.GPU) { $ScanData.StressResults.GPU.MaxTemp } else { "N/A" }
+            CPUStressPassed = if ($ScanData.StressResults.CPU) { $ScanData.StressResults.CPU.Passed } else { $null }
+            RAMStressPassed = if ($ScanData.StressResults.RAM) { $ScanData.StressResults.RAM.Passed } else { $null }
+            GPUStressPassed = if ($ScanData.StressResults.GPU) { $ScanData.StressResults.GPU.Passed } else { $null }
+            DiskWriteMBps = if ($ScanData.StressResults.Disk) { $ScanData.StressResults.Disk.SeqWriteMBps } else { "N/A" }
+            DiskReadMBps = if ($ScanData.StressResults.Disk) { $ScanData.StressResults.Disk.SeqReadMBps } else { "N/A" }
+            SSDHealth = ($ScanData.SystemInfo.SMART | ForEach-Object { "$($_.Model):$($_.Health)" }) -join "; "
+            SSDWear = ($ScanData.SystemInfo.SMART | ForEach-Object { "$($_.Model):$($_.Wear)" }) -join "; "
+            SSDTemp = ($ScanData.SystemInfo.SMART | ForEach-Object { "$($_.Model):$($_.Temperature)" }) -join "; "
+            BatteryHealth = if ($ScanData.Battery -and $ScanData.Battery.Present) { $ScanData.Battery.HealthPct } else { "N/A" }
+            BatteryCycles = if ($ScanData.Battery -and $ScanData.Battery.Present) { $ScanData.Battery.CycleCount } else { "N/A" }
+            CrashCount = if ($ScanData.Stability) { $ScanData.Stability.TotalBSODs + $ScanData.Stability.TotalUnexpected } else { 0 }
+            StabilityRating = if ($ScanData.Stability) { $ScanData.Stability.StabilityRating } else { "N/A" }
+            BootTime = $ScanData.SystemInfo.Uptime
+            NetworkDownload = if ($ScanData.SpeedTest) { $ScanData.SpeedTest.DownloadMbps } else { "N/A" }
+            GamingScore = if ($ScanData.Gaming) { $ScanData.Gaming.Score } else { "N/A" }
+            GamingTier = if ($ScanData.Gaming) { $ScanData.Gaming.Tier } else { "N/A" }
+            ScanMode = $ScanData.ScanMode
+        }
+
+        $fileName = "scan_$(Get-Date -Format 'yyyyMMdd_HHmmss').json"
+        $filePath = Join-Path $deviceDir $fileName
+        $summary | ConvertTo-Json -Depth 5 | Set-Content $filePath -Encoding UTF8
+        Write-DiagLog "History saved: $filePath"
+        $filePath
+    } $null
+}
+
+function Get-ScanHistory {
+    param([string]$ComputerName)
+    Write-DiagLog "Loading scan history for $ComputerName..."
+    Invoke-Safe {
+        $deviceDir = Join-Path $Global:HistoryDir ($ComputerName -replace '[\\/:*?"<>|]','_')
+        if (-not (Test-Path $deviceDir)) { return @() }
+        $scans = @()
+        Get-ChildItem $deviceDir -Filter "scan_*.json" | Sort-Object Name -Descending | Select-Object -First 20 | ForEach-Object {
+            $data = Get-Content $_.FullName -Raw | ConvertFrom-Json
+            $scans += $data
+        }
+        $scans
+    } @()
+}
+
+function Compare-ScanHistory {
+    param($Current, $Previous)
+    if (-not $Previous -or $Previous.Count -eq 0) { return $null }
+    $last = $Previous[0]
+    $comparison = @{
+        PreviousDate = $last.ScanDate; HasPrevious = $true
+        ScoreDelta = if ($Current.HardwareScore -ne "N/A" -and $last.HardwareScore -ne "N/A") { $Current.HardwareScore - $last.HardwareScore } else { 0 }
+        Trends = @()
+    }
+    # SSD health trend
+    if ($last.SSDHealth -and $Current.SSDHealth) {
+        $comparison.Trends += @{ Category = "SSD Health"; Previous = $last.SSDHealth; Current = $Current.SSDHealth }
+    }
+    # Battery trend
+    if ($last.BatteryHealth -ne "N/A" -and $Current.BatteryHealth -ne "N/A") {
+        $delta = $Current.BatteryHealth - $last.BatteryHealth
+        $dir = if ($delta -gt 0) { "Improved" } elseif ($delta -lt 0) { "Declined" } else { "Stable" }
+        $comparison.Trends += @{ Category = "Battery Health"; Previous = "$($last.BatteryHealth)%"; Current = "$($Current.BatteryHealth)%"; Direction = $dir; Delta = $delta }
+    }
+    # Temperature trend
+    if ($last.CPUPeakTemp -ne "N/A" -and $Current.CPUPeakTemp -ne "N/A") {
+        $comparison.Trends += @{ Category = "CPU Peak Temp"; Previous = "$($last.CPUPeakTemp)C"; Current = "$($Current.CPUPeakTemp)C" }
+    }
+    # Crash trend
+    if ($last.CrashCount -ne $null -and $Current.CrashCount -ne $null) {
+        $comparison.Trends += @{ Category = "Crash Events"; Previous = $last.CrashCount; Current = $Current.CrashCount }
+    }
+    # Disk performance trend
+    if ($last.DiskWriteMBps -ne "N/A" -and $Current.DiskWriteMBps -ne "N/A") {
+        $comparison.Trends += @{ Category = "Disk Write Speed"; Previous = "$($last.DiskWriteMBps) MB/s"; Current = "$($Current.DiskWriteMBps) MB/s" }
+    }
+    return $comparison
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EXPORT FUNCTIONS
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Export-ScanJSON {
+    param($ScanData, [string]$OutputFolder)
+    $safeName = $ScanData.CustomerName -replace '[\\/:*?"<>|]','_'
+    $safeDev = $ScanData.SystemInfo.ComputerName -replace '[\\/:*?"<>|]','_'
+    $ds = Get-Date -Format "yyyy-MM-dd"
+    $path = Join-Path $OutputFolder "$safeName - $safeDev - Full Data $ds.json"
+    $ScanData | ConvertTo-Json -Depth 10 | Set-Content $path -Encoding UTF8
+    Write-DiagLog "JSON exported: $path"
+    return $path
+}
+
+function Export-ScanCSV {
+    param($ScanData, [string]$OutputFolder)
+    $safeName = $ScanData.CustomerName -replace '[\\/:*?"<>|]','_'
+    $safeDev = $ScanData.SystemInfo.ComputerName -replace '[\\/:*?"<>|]','_'
+    $ds = Get-Date -Format "yyyy-MM-dd"
+    $path = Join-Path $OutputFolder "$safeName - $safeDev - Summary $ds.csv"
+    $rows = @()
+    $rows += [PSCustomObject]@{ Category="System"; Item="Computer Name"; Value=$ScanData.SystemInfo.ComputerName }
+    $rows += [PSCustomObject]@{ Category="System"; Item="Manufacturer"; Value=$ScanData.SystemInfo.Manufacturer }
+    $rows += [PSCustomObject]@{ Category="System"; Item="Model"; Value=$ScanData.SystemInfo.Model }
+    $rows += [PSCustomObject]@{ Category="System"; Item="Serial"; Value=$ScanData.SystemInfo.Serial }
+    $rows += [PSCustomObject]@{ Category="System"; Item="OS"; Value=$ScanData.SystemInfo.OSVersion }
+    $rows += [PSCustomObject]@{ Category="System"; Item="CPU"; Value=$ScanData.SystemInfo.CPUModel }
+    $rows += [PSCustomObject]@{ Category="System"; Item="RAM"; Value="$($ScanData.SystemInfo.RAMTotal) GB" }
+    $rows += [PSCustomObject]@{ Category="Score"; Item="Hardware Score"; Value=$ScanData.HardwareScore }
+    $rows += [PSCustomObject]@{ Category="Score"; Item="Security Score"; Value=$ScanData.SecurityScore }
+    if ($ScanData.StressResults.CPU) {
+        $rows += [PSCustomObject]@{ Category="Stress"; Item="CPU Test"; Value=if($ScanData.StressResults.CPU.Passed){"PASS"}else{"FAIL"} }
+        $rows += [PSCustomObject]@{ Category="Stress"; Item="CPU Peak Temp"; Value="$($ScanData.StressResults.CPU.MaxTemp)C" }
+    }
+    if ($ScanData.StressResults.RAM) { $rows += [PSCustomObject]@{ Category="Stress"; Item="RAM Test"; Value=if($ScanData.StressResults.RAM.Passed){"PASS"}else{"FAIL"} } }
+    if ($ScanData.StressResults.GPU) { $rows += [PSCustomObject]@{ Category="Stress"; Item="GPU Test"; Value=if($ScanData.StressResults.GPU.Passed){"PASS"}else{"FAIL"} } }
+    if ($ScanData.StressResults.Disk) {
+        $rows += [PSCustomObject]@{ Category="Stress"; Item="Disk Write"; Value="$($ScanData.StressResults.Disk.SeqWriteMBps) MB/s" }
+        $rows += [PSCustomObject]@{ Category="Stress"; Item="Disk Read"; Value="$($ScanData.StressResults.Disk.SeqReadMBps) MB/s" }
+    }
+    foreach ($d in $ScanData.SystemInfo.SMART) {
+        $rows += [PSCustomObject]@{ Category="Storage"; Item=$d.Model; Value="$($d.Health), Wear:$($d.Wear), Temp:$($d.Temperature)" }
+    }
+    if ($ScanData.Battery -and $ScanData.Battery.Present) {
+        $rows += [PSCustomObject]@{ Category="Battery"; Item="Health"; Value="$($ScanData.Battery.HealthPct)%" }
+        $rows += [PSCustomObject]@{ Category="Battery"; Item="Cycles"; Value=$ScanData.Battery.CycleCount }
+    }
+    if ($ScanData.Stability) {
+        $rows += [PSCustomObject]@{ Category="Stability"; Item="Rating"; Value=$ScanData.Stability.StabilityRating }
+        $rows += [PSCustomObject]@{ Category="Stability"; Item="BSODs (90 days)"; Value=$ScanData.Stability.TotalBSODs }
+    }
+    if ($ScanData.SpeedTest) {
+        $rows += [PSCustomObject]@{ Category="Network"; Item="Download"; Value=$ScanData.SpeedTest.DownloadMbps }
+        $rows += [PSCustomObject]@{ Category="Network"; Item="Ping"; Value=$ScanData.SpeedTest.PingMs }
+    }
+    if ($ScanData.Gaming) {
+        $rows += [PSCustomObject]@{ Category="Gaming"; Item="Score"; Value=$ScanData.Gaming.Score }
+        $rows += [PSCustomObject]@{ Category="Gaming"; Item="Tier"; Value=$ScanData.Gaming.Tier }
+    }
+    $rows | Export-Csv -Path $path -NoTypeInformation -Encoding UTF8
+    Write-DiagLog "CSV exported: $path"
+    return $path
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # BUILT-IN STRESS TESTS
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -898,20 +1388,66 @@ function Calculate-Score {
 # ─────────────────────────────────────────────────────────────────────────────
 
 function Build-HardwareReport {
-    param($Params, $SystemInfo, $Network, $Software, $Performance, $StressResults, $LicenseKeys)
+    param($Params, $SystemInfo, $Network, $Software, $Performance, $StressResults, $LicenseKeys, $Stability, $BatteryDetail, $PowerInfo, $SpeedTest, $Gaming, $HistoryComparison, $ScanMode)
     $date = Get-Date -Format "MMMM dd, yyyy 'at' h:mm tt"
     $iconPass = "&#10004;"; $iconFail = "&#10008;"; $iconWarn = "&#9888;"
-    # Determine hardware health score
-    $hwScore = 100; $hwIssues = @()
-    foreach ($d in $SystemInfo.SMART) { if ($d.Health -ne "Healthy") { $hwScore -= 15; $hwIssues += "Disk $($d.Model): $($d.Health)" } }
-    if ($SystemInfo.DeviceErrors.Count -gt 0) { $hwScore -= ($SystemInfo.DeviceErrors.Count * 5); $hwIssues += "$($SystemInfo.DeviceErrors.Count) Device Manager errors" }
-    if ($SystemInfo.Battery.Present -and $SystemInfo.Battery.HealthPct -gt 0 -and $SystemInfo.Battery.HealthPct -lt 50) { $hwScore -= 15; $hwIssues += "Battery health critical: $($SystemInfo.Battery.HealthPct)%" }
-    if ($StressResults.CPU -and -not $StressResults.CPU.Passed) { $hwScore -= 20; $hwIssues += "CPU stress test FAILED" }
-    if ($StressResults.RAM -and -not $StressResults.RAM.Passed) { $hwScore -= 25; $hwIssues += "RAM stress test FAILED" }
-    if ($StressResults.Disk -and -not $StressResults.Disk.Passed) { $hwScore -= 15; $hwIssues += "Disk benchmark FAILED" }
-    if ($StressResults.GPU -and -not $StressResults.GPU.Passed) { $hwScore -= 10; $hwIssues += "GPU stress test FAILED" }
-    foreach ($d in $SystemInfo.Disks) { if ($d.UsedPct -gt 90) { $hwScore -= 10; $hwIssues += "Drive $($d.Drive) nearly full ($($d.UsedPct)%)" } }
-    $hwScore = [math]::Max($hwScore, 0)
+
+    # ── WEIGHTED SCORING (Storage 25%, CPU/RAM 20%, Thermal 15%, Stability 15%, Battery 10%, Devices 10%, Network 5%) ──
+    $hwIssues = @()
+    # Storage (25%)
+    $storageScore = 100
+    foreach ($d in $SystemInfo.SMART) { if ($d.Health -ne "Healthy") { $storageScore -= 25; $hwIssues += "Disk $($d.Model): $($d.Health)" } }
+    foreach ($d in $SystemInfo.Disks) { if ($d.UsedPct -gt 90) { $storageScore -= 20; $hwIssues += "Drive $($d.Drive) nearly full ($($d.UsedPct)%)" } elseif ($d.UsedPct -gt 75) { $storageScore -= 10 } }
+    if ($StressResults.Disk -and -not $StressResults.Disk.Passed) { $storageScore -= 20; $hwIssues += "Disk benchmark FAILED" }
+    $storageScore = [math]::Max($storageScore, 0)
+    # CPU/RAM (20%)
+    $cpuMemScore = 100
+    if ($StressResults.CPU -and -not $StressResults.CPU.Passed) { $cpuMemScore -= 35; $hwIssues += "CPU stress test FAILED" }
+    if ($StressResults.RAM -and -not $StressResults.RAM.Passed) { $cpuMemScore -= 40; $hwIssues += "RAM stress test FAILED" }
+    if ($StressResults.GPU -and -not $StressResults.GPU.Passed) { $cpuMemScore -= 15; $hwIssues += "GPU stress test FAILED" }
+    if ($Performance.CPUPercent -gt 90) { $cpuMemScore -= 10 }
+    if ($Performance.RAMPercent -gt 90) { $cpuMemScore -= 10 }
+    $cpuMemScore = [math]::Max($cpuMemScore, 0)
+    # Thermal (15%)
+    $thermalScore = 100
+    foreach ($t in $SystemInfo.Temperatures) { if ($t.TempC -gt 80) { $thermalScore -= 25; $hwIssues += "High temperature: $($t.TempC)C" } elseif ($t.TempC -gt 60) { $thermalScore -= 10 } }
+    if ($StressResults.CPU -and $StressResults.CPU.ThrottleDetected) { $thermalScore -= 30; $hwIssues += "CPU thermal throttling detected" }
+    $thermalScore = [math]::Max($thermalScore, 0)
+    # Stability (15%)
+    $stabilityScore = 100
+    if ($Stability) {
+        if ($Stability.TotalBSODs -ge 5) { $stabilityScore -= 40; $hwIssues += "$($Stability.TotalBSODs) BSODs in last 90 days" }
+        elseif ($Stability.TotalBSODs -ge 1) { $stabilityScore -= ($Stability.TotalBSODs * 10) }
+        if ($Stability.TotalUnexpected -ge 5) { $stabilityScore -= 25; $hwIssues += "$($Stability.TotalUnexpected) unexpected shutdowns" }
+        elseif ($Stability.TotalUnexpected -ge 1) { $stabilityScore -= ($Stability.TotalUnexpected * 8) }
+        if ($Stability.TotalWHEA -ge 3) { $stabilityScore -= 20 }
+        if ($Stability.TotalDiskErrors -ge 5) { $stabilityScore -= 15 }
+    }
+    $stabilityScore = [math]::Max($stabilityScore, 0)
+    # Battery/Power (10%)
+    $batteryPowerScore = 100
+    if ($SystemInfo.Battery.Present -and $SystemInfo.Battery.HealthPct -gt 0) {
+        if ($SystemInfo.Battery.HealthPct -lt 40) { $batteryPowerScore = 30; $hwIssues += "Battery health critical: $($SystemInfo.Battery.HealthPct)%" }
+        elseif ($SystemInfo.Battery.HealthPct -lt 60) { $batteryPowerScore = 55 }
+        elseif ($SystemInfo.Battery.HealthPct -lt 80) { $batteryPowerScore = 75 }
+    }
+    if ($PowerInfo -and $PowerInfo.UnexpectedShutdowns -ge 3) { $batteryPowerScore -= 20 }
+    $batteryPowerScore = [math]::Max($batteryPowerScore, 0)
+    # Devices (10%)
+    $deviceScore = 100
+    if ($SystemInfo.DeviceErrors.Count -gt 0) { $deviceScore -= ($SystemInfo.DeviceErrors.Count * 10); $hwIssues += "$($SystemInfo.DeviceErrors.Count) Device Manager errors" }
+    $deviceScore = [math]::Max($deviceScore, 0)
+    # Network (5%)
+    $networkScore = 100
+    if ($SpeedTest -and $SpeedTest.PacketLoss -and $SpeedTest.PacketLoss -ne "N/A" -and $SpeedTest.PacketLoss -ne "0%") {
+        $lossVal = [int]($SpeedTest.PacketLoss -replace '%','')
+        if ($lossVal -ge 10) { $networkScore -= 40 } elseif ($lossVal -ge 5) { $networkScore -= 20 }
+    }
+    $networkScore = [math]::Max($networkScore, 0)
+
+    # Weighted total
+    $hwScore = [math]::Round(($storageScore * 0.25) + ($cpuMemScore * 0.20) + ($thermalScore * 0.15) + ($stabilityScore * 0.15) + ($batteryPowerScore * 0.10) + ($deviceScore * 0.10) + ($networkScore * 0.05))
+    $hwScore = [math]::Max([math]::Min($hwScore, 100), 0)
     $hwGrade = if ($hwScore -ge 90){"A"} elseif ($hwScore -ge 80){"B"} elseif ($hwScore -ge 70){"C"} elseif ($hwScore -ge 60){"D"} else {"F"}
     $hwColor = if ($hwGrade -eq "A" -or $hwGrade -eq "B"){"#27ae60"} elseif ($hwGrade -eq "C" -or $hwGrade -eq "D"){"#f39c12"} else {"#e74c3c"}
     $dashOffset = 283 - (283 * $hwScore / 100)
@@ -950,30 +1486,8 @@ function Build-HardwareReport {
     $bhoPath = Join-Path $Global:ScriptDir "banner-hardware-top.txt"
     if (Test-Path $bhoPath) { try { $bannerHwOwnUri = "data:image/jpeg;base64,$((Get-Content $bhoPath -Raw).Trim())" } catch {} }
 
-    # Category sub-scores for executive summary
-    # Storage Health
-    $storageScore = 100
-    foreach ($d in $SystemInfo.SMART) { if ($d.Health -ne "Healthy") { $storageScore -= 25 } }
-    foreach ($d in $SystemInfo.Disks) { if ($d.UsedPct -gt 90) { $storageScore -= 20 } elseif ($d.UsedPct -gt 75) { $storageScore -= 10 } }
-    if ($StressResults.Disk -and -not $StressResults.Disk.Passed) { $storageScore -= 20 }
-    $storageScore = [math]::Max($storageScore, 0)
-    # CPU & Memory
-    $cpuMemScore = 100
-    if ($StressResults.CPU -and -not $StressResults.CPU.Passed) { $cpuMemScore -= 35 }
-    if ($StressResults.RAM -and -not $StressResults.RAM.Passed) { $cpuMemScore -= 40 }
-    if ($Performance.CPUPercent -gt 90) { $cpuMemScore -= 10 }
-    if ($Performance.RAMPercent -gt 90) { $cpuMemScore -= 10 }
-    $cpuMemScore = [math]::Max($cpuMemScore, 0)
-    # Thermal
-    $thermalScore = 100
-    foreach ($t in $SystemInfo.Temperatures) { if ($t.TempC -gt 80) { $thermalScore -= 25 } elseif ($t.TempC -gt 60) { $thermalScore -= 10 } }
-    $thermalScore = [math]::Max($thermalScore, 0)
-    # Battery
+    # Battery score for display
     $batteryScore = if ($SystemInfo.Battery.Present -and $SystemInfo.Battery.HealthPct -gt 0) { $SystemInfo.Battery.HealthPct } else { -1 }
-    # Devices
-    $deviceScore = 100
-    if ($SystemInfo.DeviceErrors.Count -gt 0) { $deviceScore -= ($SystemInfo.DeviceErrors.Count * 10) }
-    $deviceScore = [math]::Max($deviceScore, 0)
 
     # Helper: color for a sub-score
     function Get-ScoreColor($s) { if ($s -ge 80) { "#16a34a" } elseif ($s -ge 60) { "#f59e0b" } else { "#dc2626" } }
@@ -995,7 +1509,11 @@ function Build-HardwareReport {
         elseif ($maxTemp -gt 60) { $keyFindings += "Temperatures are slightly elevated (peak ${maxTemp}C) - ensure proper airflow and clean dust filters." }
         else { $keyFindings += "All temperature readings are within safe operating ranges." }
     }
-    $keyFindings = $keyFindings | Select-Object -First 5
+    if ($Stability -and $Stability.TotalBSODs -gt 0) { $keyFindings += "$($Stability.TotalBSODs) Blue Screen of Death events recorded in the last 90 days." }
+    if ($Stability -and $Stability.TotalUnexpected -gt 0) { $keyFindings += "$($Stability.TotalUnexpected) unexpected shutdowns detected - may indicate power or hardware issues." }
+    if ($SpeedTest -and $SpeedTest.DownloadMbps -ne "N/A") { $keyFindings += "Network download speed: $($SpeedTest.DownloadMbps), Ping: $($SpeedTest.PingMs)" }
+    if ($Gaming -and $Gaming.Score -gt 0) { $keyFindings += "Gaming readiness: $($Gaming.Tier) (Score: $($Gaming.Score)/100)" }
+    $keyFindings = $keyFindings | Select-Object -First 8
 
     # Build recommendations
     $recommendations = @()
@@ -1379,6 +1897,160 @@ $(if($StressResults.CPU.ThrottleDetected){"<div style='margin-top:8px;padding:8p
 $(if($StressResults.CPU.BaseClock -ne 'N/A'){"<div style='margin-top:6px;font-size:8.5pt;'><strong>Clock Speed:</strong> Base: $($StressResults.CPU.BaseClock) MHz | Min during stress: $($StressResults.CPU.MinClock) MHz | Max: $($StressResults.CPU.MaxClock) MHz</div>"})
 $(if($StressResults.CPU.FanSpeedStart -ne 'N/A'){"<div style='margin-top:4px;font-size:8.5pt;'><strong>Fan Speed:</strong> Start: $($StressResults.CPU.FanSpeedStart) RPM | Peak: $($StressResults.CPU.FanSpeedPeak) RPM</div>"})
 </div>
+"@
+})
+
+<!-- ══════════════════════════ STABILITY HISTORY ══════════════════════════ -->
+$(if($Stability){
+$bsodRows = if ($Stability.BSODs.Count -gt 0) { ($Stability.BSODs | Select-Object -First 10 | ForEach-Object { "<tr><td class='fail'>$($_.Time)</td><td>$($_.BugCheck)</td></tr>" }) -join "`n" } else { "" }
+$kpRows = if ($Stability.KernelPower.Count -gt 0) { ($Stability.KernelPower | Select-Object -First 10 | ForEach-Object { "<tr><td class='warn'>$($_.Time)</td><td>$($_.Message)</td></tr>" }) -join "`n" } else { "" }
+$diskErrRows = if ($Stability.DiskErrors.Count -gt 0) { ($Stability.DiskErrors | Select-Object -First 10 | ForEach-Object { "<tr><td>$($_.Time)</td><td>Event $($_.Id)</td><td>$($_.Message)</td></tr>" }) -join "`n" } else { "" }
+$wheaRows = if ($Stability.WHEAErrors.Count -gt 0) { ($Stability.WHEAErrors | Select-Object -First 10 | ForEach-Object { "<tr><td class='fail'>$($_.Time)</td><td>$($_.Message)</td></tr>" }) -join "`n" } else { "" }
+$stabColor = if($Stability.StabilityRating -eq 'Excellent'){"#16a34a"}elseif($Stability.StabilityRating -eq 'Good'){"#22c55e"}elseif($Stability.StabilityRating -eq 'Fair'){"#f59e0b"}else{"#dc2626"}
+@"
+<div class='page-break'></div>
+<div class='section-header'><span class='section-icon'>&#128200;</span> Stability History (Last 90 Days)</div>
+<div style='display:flex;gap:15px;margin-bottom:14px;flex-wrap:wrap;'>
+<div class='score-card'><div style='font-size:24pt;font-weight:bold;color:$stabColor;'>$($Stability.StabilityRating)</div><div class='score-card-label'>Overall Stability</div></div>
+<div class='score-card'><div style='font-size:24pt;font-weight:bold;color:$(if($Stability.TotalBSODs -eq 0){"#16a34a"}else{"#dc2626"})'>$($Stability.TotalBSODs)</div><div class='score-card-label'>Blue Screens</div></div>
+<div class='score-card'><div style='font-size:24pt;font-weight:bold;color:$(if($Stability.TotalUnexpected -eq 0){"#16a34a"}else{"#f59e0b"})'>$($Stability.TotalUnexpected)</div><div class='score-card-label'>Unexpected Shutdowns</div></div>
+<div class='score-card'><div style='font-size:24pt;font-weight:bold;'>$($Stability.TotalDiskErrors)</div><div class='score-card-label'>Disk Errors</div></div>
+<div class='score-card'><div style='font-size:24pt;font-weight:bold;color:$(if($Stability.TotalWHEA -eq 0){"#16a34a"}else{"#dc2626"})'>$($Stability.TotalWHEA)</div><div class='score-card-label'>Hardware Errors (WHEA)</div></div>
+<div class='score-card'><div style='font-size:24pt;font-weight:bold;'>$($Stability.MinidumpCount)</div><div class='score-card-label'>Minidump Files</div></div>
+</div>
+<div style='padding:10px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:14px;'>
+<strong>Risk Level:</strong> <span style='color:$stabColor;font-weight:bold;'>$($Stability.RiskLevel)</span>
+$(if($Stability.TotalBSODs -ge 3){" | <span class='fail'>$iconFail Frequent crashes indicate potential hardware failure. Thorough testing recommended.</span>"})
+$(if($Stability.TotalDiskErrors -ge 5){" | <span class='warn'>$iconWarn Elevated disk errors may indicate drive degradation.</span>"})
+</div>
+$(if($bsodRows){"<div class='sub-header' style='color:#dc2626;'>Blue Screen Events (BugCheck)</div><table><tr><th style='width:25%;'>Date/Time</th><th>Details</th></tr>$bsodRows</table>"})
+$(if($kpRows){"<div class='sub-header' style='color:#f59e0b;'>Kernel-Power Events (Unexpected Shutdowns)</div><table><tr><th style='width:25%;'>Date/Time</th><th>Details</th></tr>$kpRows</table>"})
+$(if($diskErrRows){"<div class='sub-header'>Disk Errors</div><table><tr><th style='width:20%;'>Date/Time</th><th style='width:15%;'>Event ID</th><th>Message</th></tr>$diskErrRows</table>"})
+$(if($wheaRows){"<div class='sub-header' style='color:#dc2626;'>Hardware Errors (WHEA)</div><table><tr><th style='width:25%;'>Date/Time</th><th>Details</th></tr>$wheaRows</table>"})
+"@
+})
+
+<!-- ══════════════════════════ NETWORK SPEED TEST ══════════════════════════ -->
+$(if($SpeedTest -and $SpeedTest.DownloadMbps -ne $null){
+@"
+<div class='sub-header'><span class='section-icon'>&#127760;</span> Network Speed Test</div>
+<div style='display:flex;gap:15px;margin-bottom:14px;flex-wrap:wrap;'>
+<div class='score-card'><div style='font-size:16pt;font-weight:bold;color:#2563eb;'>$($SpeedTest.DownloadMbps)</div><div class='score-card-label'>Download Speed</div></div>
+<div class='score-card'><div style='font-size:16pt;font-weight:bold;color:#16a34a;'>$($SpeedTest.PingMs)</div><div class='score-card-label'>Ping Latency</div></div>
+<div class='score-card'><div style='font-size:16pt;font-weight:bold;'>$($SpeedTest.Jitter)</div><div class='score-card-label'>Jitter</div></div>
+<div class='score-card'><div style='font-size:16pt;font-weight:bold;color:$(if($SpeedTest.PacketLoss -eq '0%'){"#16a34a"}else{"#dc2626"})'>$($SpeedTest.PacketLoss)</div><div class='score-card-label'>Packet Loss</div></div>
+</div>
+<table><tr><th style='width:35%;'>Test</th><th>Result</th></tr>
+<tr><td>Gateway</td><td>$($SpeedTest.Gateway) (Ping: $($SpeedTest.GatewayPing))</td></tr>
+<tr><td>DNS Response</td><td>$($SpeedTest.DNSResponseMs)</td></tr>
+<tr><td>WiFi Signal</td><td>$($SpeedTest.WiFiSignal)</td></tr>
+<tr><td>WiFi Channel</td><td>$($SpeedTest.WiFiChannel)</td></tr>
+<tr><td>WiFi Radio</td><td>$($SpeedTest.WiFiRadioType)</td></tr>
+<tr><td>WiFi Receive Rate</td><td>$(if($SpeedTest.WiFiRxRate){$SpeedTest.WiFiRxRate}else{"N/A"})</td></tr>
+<tr><td>WiFi Transmit Rate</td><td>$(if($SpeedTest.WiFiTxRate){$SpeedTest.WiFiTxRate}else{"N/A"})</td></tr>
+</table>
+"@
+})
+
+<!-- ══════════════════════════ DETAILED BATTERY ══════════════════════════ -->
+$(if($BatteryDetail -and $BatteryDetail.Present){
+$bdColor = if($BatteryDetail.HealthPct -ge 80){"#16a34a"}elseif($BatteryDetail.HealthPct -ge 50){"#f59e0b"}else{"#dc2626"}
+$bdOffset = [math]::Round(251 - (251 * $BatteryDetail.HealthPct / 100))
+@"
+<div class='sub-header'><span class='section-icon'>&#128267;</span> Detailed Battery Report</div>
+<div style='display:flex;align-items:center;gap:25px;margin-bottom:14px;'>
+<div style='text-align:center;'>
+<svg viewBox='0 0 100 100' width='90' height='90'>
+<circle cx='50' cy='50' r='40' fill='none' stroke='#e5e7eb' stroke-width='8'/>
+<circle cx='50' cy='50' r='40' fill='none' stroke='$bdColor' stroke-width='8' stroke-dasharray='251' stroke-dashoffset='$bdOffset' transform='rotate(-90 50 50)' stroke-linecap='round'/>
+<text x='50' y='48' text-anchor='middle' font-size='16' font-weight='bold' fill='$bdColor'>$($BatteryDetail.HealthPct)%</text>
+<text x='50' y='64' text-anchor='middle' font-size='9' fill='#64748b'>Health</text>
+</svg>
+</div>
+<div style='flex:1;'>
+<table><tr><th style='width:35%;'>Property</th><th>Value</th></tr>
+<tr><td>Battery Name</td><td>$($BatteryDetail.Name)</td></tr>
+<tr><td>Status</td><td>$($BatteryDetail.Status) $(if($BatteryDetail.Charging){"(Charging)"}else{"(On Battery)"})</td></tr>
+<tr><td>Current Charge</td><td><strong>$($BatteryDetail.Charge)%</strong></td></tr>
+<tr><td>Health Status</td><td style='color:$bdColor;font-weight:bold;'>$($BatteryDetail.HealthStatus)</td></tr>
+<tr><td>Design Capacity</td><td>$($BatteryDetail.DesignCapacity) mWh</td></tr>
+<tr><td>Full Charge Capacity</td><td>$($BatteryDetail.FullChargeCapacity) mWh</td></tr>
+<tr><td>Battery Health</td><td style='color:$bdColor;font-weight:bold;'>$($BatteryDetail.HealthPct)%</td></tr>
+<tr><td>Cycle Count</td><td>$($BatteryDetail.CycleCount)</td></tr>
+<tr><td>Drain Rate</td><td>$($BatteryDetail.DrainRate)</td></tr>
+<tr><td>Estimated Runtime</td><td>$($BatteryDetail.Runtime)</td></tr>
+</table>
+</div>
+</div>
+$(if($BatteryDetail.HealthPct -lt 50){"<div style='padding:10px;background:#fef5f5;border-left:4px solid #dc2626;border-radius:4px;margin-bottom:12px;'><span class='fail'>$iconFail</span> <strong>Battery replacement recommended.</strong> Current capacity is below 50% of original design capacity.</div>"})
+$(if($BatteryDetail.BatteryReportPath){"<div style='font-size:8.5pt;color:#64748b;margin-bottom:12px;'>Full Windows battery report saved to: $($BatteryDetail.BatteryReportPath)</div>"})
+"@
+})
+
+<!-- ══════════════════════════ GAMING READINESS ══════════════════════════ -->
+$(if($Gaming -and $Gaming.Score -gt 0){
+$gmColor = if($Gaming.Score -ge 80){"#16a34a"}elseif($Gaming.Score -ge 60){"#2563eb"}elseif($Gaming.Score -ge 40){"#f59e0b"}else{"#dc2626"}
+$gmOffset = [math]::Round(251 - (251 * $Gaming.Score / 100))
+@"
+<div class='sub-header'><span class='section-icon'>&#127918;</span> Gaming Readiness Assessment</div>
+<div style='display:flex;align-items:center;gap:25px;margin-bottom:14px;'>
+<div style='text-align:center;'>
+<svg viewBox='0 0 100 100' width='90' height='90'>
+<circle cx='50' cy='50' r='40' fill='none' stroke='#e5e7eb' stroke-width='8'/>
+<circle cx='50' cy='50' r='40' fill='none' stroke='$gmColor' stroke-width='8' stroke-dasharray='251' stroke-dashoffset='$gmOffset' transform='rotate(-90 50 50)' stroke-linecap='round'/>
+<text x='50' y='48' text-anchor='middle' font-size='16' font-weight='bold' fill='$gmColor'>$($Gaming.Score)</text>
+<text x='50' y='64' text-anchor='middle' font-size='9' fill='#64748b'>Score</text>
+</svg>
+</div>
+<div style='flex:1;'>
+<div style='font-size:14pt;font-weight:bold;color:$gmColor;margin-bottom:8px;'>$($Gaming.Tier)</div>
+<table><tr><th style='width:35%;'>Component</th><th>Details</th><th>Score</th></tr>
+<tr><td>GPU</td><td>$($Gaming.GPUName) ($($Gaming.VRAM_MB) MB VRAM)</td><td style='color:$gmColor;font-weight:bold;'>$($Gaming.GPUScoreDetail)/40</td></tr>
+<tr><td>CPU</td><td>$(if($Gaming.CPUCores){"$($Gaming.CPUCores) cores / $($Gaming.CPUThreads) threads @ $($Gaming.CPUBaseClock) MHz"}else{"N/A"})</td><td style='color:$gmColor;font-weight:bold;'>$($Gaming.CPUScoreDetail)/35</td></tr>
+<tr><td>RAM</td><td>$($Gaming.TotalRAM) GB</td><td style='color:$gmColor;font-weight:bold;'>$($Gaming.RAMScoreDetail)/25</td></tr>
+</table>
+<table style='margin-top:8px;'><tr><th style='width:35%;'>Info</th><th>Value</th></tr>
+<tr><td>DirectX</td><td>$($Gaming.DirectXVersion)</td></tr>
+<tr><td>Resolution</td><td>$(if($Gaming.Resolution){$Gaming.Resolution}else{"N/A"})</td></tr>
+<tr><td>Refresh Rate</td><td>$($Gaming.RefreshRate)</td></tr>
+<tr><td>GPU Driver</td><td>$(if($Gaming.DriverVersion){$Gaming.DriverVersion}else{"N/A"})</td></tr>
+</table>
+</div>
+</div>
+"@
+})
+
+<!-- ══════════════════════════ POWER STABILITY ══════════════════════════ -->
+$(if($PowerInfo){
+$pwColor = if($PowerInfo.StabilityScore -ge 80){"#16a34a"}elseif($PowerInfo.StabilityScore -ge 60){"#f59e0b"}else{"#dc2626"}
+@"
+<div class='sub-header'><span class='section-icon'>&#9889;</span> Power Stability</div>
+<div style='display:flex;gap:15px;margin-bottom:14px;flex-wrap:wrap;'>
+<div class='score-card'><div style='font-size:16pt;font-weight:bold;color:$pwColor;'>$($PowerInfo.Rating)</div><div class='score-card-label'>Power Stability</div></div>
+<div class='score-card'><div style='font-size:16pt;font-weight:bold;'>$($PowerInfo.ACAdapter)</div><div class='score-card-label'>Power Source</div></div>
+<div class='score-card'><div style='font-size:16pt;font-weight:bold;color:$(if($PowerInfo.UnexpectedShutdowns -eq 0){"#16a34a"}else{"#dc2626"})'>$($PowerInfo.UnexpectedShutdowns)</div><div class='score-card-label'>Unexpected Shutdowns</div></div>
+</div>
+<div style='font-size:8.5pt;color:#64748b;margin-bottom:8px;'>$($PowerInfo.LastBootType)</div>
+$(if($PowerInfo.PowerEvents.Count -gt 0){
+$pwEvtRows = ($PowerInfo.PowerEvents | Select-Object -First 10 | ForEach-Object { "<tr><td>$($_.Time)</td><td>$($_.Type)</td></tr>" }) -join "`n"
+"<div class='sub-header'>Recent Power Events</div><table><tr><th style='width:25%;'>Date/Time</th><th>Event</th></tr>$pwEvtRows</table>"
+})
+"@
+})
+
+<!-- ══════════════════════════ HISTORICAL COMPARISON ══════════════════════════ -->
+$(if($HistoryComparison -and $HistoryComparison.HasPrevious){
+$trendRows = ($HistoryComparison.Trends | ForEach-Object {
+    $dirIcon = if($_.Direction -eq 'Improved'){"<span class='pass'>&#8593;</span>"}elseif($_.Direction -eq 'Declined'){"<span class='fail'>&#8595;</span>"}else{"<span>&#8596;</span>"}
+    "<tr><td>$($_.Category)</td><td>$($_.Previous)</td><td>$($_.Current)</td><td>$dirIcon $(if($_.Direction){$_.Direction}else{'--'})</td></tr>"
+}) -join "`n"
+@"
+<div class='page-break'></div>
+<div class='section-header'><span class='section-icon'>&#128202;</span> Historical Comparison</div>
+<div style='padding:12px;background:#eff6ff;border-left:4px solid #2563eb;border-radius:4px;margin-bottom:14px;'>
+<strong>Previous Scan:</strong> $($HistoryComparison.PreviousDate) | <strong>Score Change:</strong> <span style='color:$(if($HistoryComparison.ScoreDelta -ge 0){"#16a34a"}else{"#dc2626"});font-weight:bold;'>$(if($HistoryComparison.ScoreDelta -ge 0){"+$($HistoryComparison.ScoreDelta)"}else{$HistoryComparison.ScoreDelta})</span> points
+</div>
+$(if($trendRows){"<table><tr><th>Category</th><th>Previous</th><th>Current</th><th>Trend</th></tr>$trendRows</table>"})
 "@
 })
 
@@ -2040,15 +2712,22 @@ $xaml = @"
                 <TextBlock Text="DIAGNOSTIC MODES" Foreground="#2596be" FontSize="14" FontWeight="Bold" Margin="0,0,0,10"/>
                 <Grid Margin="0,0,0,15">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <Button x:Name="btnQuick" Grid.Column="0" Margin="0,0,8,0" Height="80" Background="#1a5276" Foreground="White" BorderThickness="0" Cursor="Hand">
-                        <StackPanel><TextBlock Text="QUICK DIAGNOSTIC" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center"/>
-                        <TextBlock Text="10-15 minutes | Inventory + SMART + Basic Tests" FontSize="11" Foreground="#aaa" HorizontalAlignment="Center"/></StackPanel>
+                    <Button x:Name="btnQuick" Grid.Column="0" Margin="0,0,6,0" Height="80" Background="#1a5276" Foreground="White" BorderThickness="0" Cursor="Hand">
+                        <StackPanel><TextBlock Text="QUICK TEST" FontSize="15" FontWeight="Bold" HorizontalAlignment="Center"/>
+                        <TextBlock Text="5-10 min" FontSize="12" Foreground="#7cb3d4" HorizontalAlignment="Center"/>
+                        <TextBlock Text="Inventory + SMART + Basic" FontSize="9" Foreground="#aaa" HorizontalAlignment="Center"/></StackPanel>
                     </Button>
-                    <Button x:Name="btnFull" Grid.Column="1" Margin="8,0,0,0" Height="80" Background="#7d3c98" Foreground="White" BorderThickness="0" Cursor="Hand">
-                        <StackPanel><TextBlock Text="FULL DIAGNOSTIC" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center"/>
-                        <TextBlock Text="30-60 min | Everything + Stress Tests" FontSize="11" Foreground="#aaa" HorizontalAlignment="Center"/></StackPanel>
+                    <Button x:Name="btnStandard" Grid.Column="1" Margin="3,0,3,0" Height="80" Background="#7d3c98" Foreground="White" BorderThickness="0" Cursor="Hand">
+                        <StackPanel><TextBlock Text="STANDARD TEST" FontSize="15" FontWeight="Bold" HorizontalAlignment="Center"/>
+                        <TextBlock Text="20-30 min" FontSize="12" Foreground="#c39bd3" HorizontalAlignment="Center"/>
+                        <TextBlock Text="Full + Stress Tests" FontSize="9" Foreground="#aaa" HorizontalAlignment="Center"/></StackPanel>
+                    </Button>
+                    <Button x:Name="btnFull" Grid.Column="2" Margin="6,0,0,0" Height="80" Background="#b7950b" Foreground="White" BorderThickness="0" Cursor="Hand">
+                        <StackPanel><TextBlock Text="DEEP TEST" FontSize="15" FontWeight="Bold" HorizontalAlignment="Center"/>
+                        <TextBlock Text="60-90 min" FontSize="12" Foreground="#f9e79f" HorizontalAlignment="Center"/>
+                        <TextBlock Text="Advanced Bench + History" FontSize="9" Foreground="#aaa" HorizontalAlignment="Center"/></StackPanel>
                     </Button>
                 </Grid>
 
@@ -2112,7 +2791,7 @@ $xaml = @"
 
         <!-- FOOTER -->
         <Border Grid.Row="2" Background="#0d1f3c">
-            <TextBlock Text="PC Plus Computing | pcpluscomputing.com | 604-760-1662 | 236-500-2700 | v1.0.0" Foreground="#666" FontSize="10" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            <TextBlock Text="PC Plus Computing | pcpluscomputing.com | 604-760-1662 | 236-500-2700 | v2.0.0" Foreground="#666" FontSize="10" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
     </Grid>
 </Window>
@@ -2246,109 +2925,178 @@ $xaml = @"
         }
     })
 
-    # QUICK DIAGNOSTIC
+    # Helper: disable/enable all scan buttons
+    function Set-ScanButtons($enabled) {
+        foreach ($bn in @("btnQuick","btnStandard","btnFull")) { $window.FindName($bn).IsEnabled = $enabled }
+    }
+
+    # ── QUICK TEST (5-10 min) ── Fast customer-facing scan, no stress tests
     $window.FindName("btnQuick").Add_Click({
         try {
             $p = Get-Params; if (-not $p) { return }
-            $window.FindName("btnQuick").IsEnabled = $false
-            $window.FindName("btnFull").IsEnabled = $false
-            Set-Status "Quick Diagnostic: Collecting system info..." 5
+            Set-ScanButtons $false
+            $Global:DiagResults.ScanMode = "Quick"
+            Set-Status "Quick Test: Collecting system info..." 5
             $Global:DiagResults.SystemInfo = Get-FullSystemInfo
-            Set-Status "Quick Diagnostic: Security scan..." 25
+            Set-Status "Quick Test: Security scan..." 20
             $Global:DiagResults.Security = Get-FullSecurityInfo
-            Set-Status "Quick Diagnostic: Network analysis..." 45
+            Set-Status "Quick Test: Network info..." 35
             $Global:DiagResults.Network = Get-NetworkDiagnostics
-            Set-Status "Quick Diagnostic: Software inventory..." 55
+            Set-Status "Quick Test: Software inventory..." 50
             $Global:DiagResults.Software = Get-SoftwareInventory
-            Set-Status "Quick Diagnostic: Checking updates..." 65
+            Set-Status "Quick Test: Checking updates..." 60
             $Global:DiagResults.Patches = Get-MissingPatchesList
-            Set-Status "Quick Diagnostic: Performance snapshot..." 75
+            Set-Status "Quick Test: Performance snapshot..." 70
             $Global:DiagResults.Performance = Get-PerformanceSnapshot
-            Set-Status "Quick Diagnostic: License keys..." 80
+            Set-Status "Quick Test: License keys..." 78
             $Global:DiagResults.LicenseKeys = Get-LicenseKeys
-            Set-Status "Quick Diagnostic: CPU stress test (60s)..." 82
-            $Global:DiagResults.CPUStress = Start-CPUStressTest -DurationSeconds 60
-            Set-Status "Quick Diagnostic: RAM test (60s)..." 87
-            $Global:DiagResults.RAMStress = Start-RAMStressTest -DurationSeconds 60
-            Set-Status "Quick Diagnostic: Disk benchmark (256MB)..." 92
-            $Global:DiagResults.DiskBench = Start-DiskBenchmark -FileSizeMB 256
-            Set-Status "Quick Diagnostic: GPU test (30s)..." 95
-            $Global:DiagResults.GPUStress = Start-GPUStressTest -DurationSeconds 30
-            Set-Status "Quick Diagnostic: Calculating scores..." 98
+            Set-Status "Quick Test: Crash history..." 85
+            $Global:DiagResults.Stability = Get-CrashStabilityHistory
+            Set-Status "Quick Test: Battery info..." 90
+            $Global:DiagResults.BatteryDetail = Get-DetailedBatteryInfo
+            Set-Status "Quick Test: Calculating scores..." 95
             $Global:DiagResults.Scoring = Calculate-Score $Global:DiagResults.Security $Global:DiagResults.Patches
-            $Global:DiagResults.StressResults = @{ CPU = $Global:DiagResults.CPUStress; RAM = $Global:DiagResults.RAMStress; Disk = $Global:DiagResults.DiskBench; GPU = $Global:DiagResults.GPUStress }
-            Set-Status "DONE! Quick Diagnostic complete. Click Generate Reports to save PDFs." 100
-            [System.Windows.MessageBox]::Show($window, "Quick Diagnostic complete!`n`nClick 'Hardware Report', 'Security Report', or 'Both Reports' to generate PDFs.", "Diagnostic Complete", "OK", "Information")
+            $Global:DiagResults.StressResults = @{}
+            $Global:DiagResults.SpeedTest = $null; $Global:DiagResults.Gaming = $null; $Global:DiagResults.PowerInfo = $null
+            Set-Status "DONE! Quick Test complete. Click Generate Reports." 100
+            [System.Windows.MessageBox]::Show($window, "Quick Test complete!`nStability: $($Global:DiagResults.Stability.StabilityRating)`n`nClick Generate Reports to save PDFs.", "Quick Test Complete", "OK", "Information")
         } catch {
-            Write-DebugLog "Quick Diagnostic ERROR: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
+            Write-DebugLog "Quick Test ERROR: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
             Set-Status "ERROR: $($_.Exception.Message)" 0
-            [System.Windows.MessageBox]::Show($window, "Error during Quick Diagnostic:`n`n$($_.Exception.Message)", "Error", "OK", "Error")
-        } finally {
-            $window.FindName("btnQuick").IsEnabled = $true
-            $window.FindName("btnFull").IsEnabled = $true
-        }
+            [System.Windows.MessageBox]::Show($window, "Error during Quick Test:`n`n$($_.Exception.Message)", "Error", "OK", "Error")
+        } finally { Set-ScanButtons $true }
     })
 
-    # FULL DIAGNOSTIC
-    $window.FindName("btnFull").Add_Click({
+    # ── STANDARD TEST (20-30 min) ── Full diagnostic with stress tests
+    $window.FindName("btnStandard").Add_Click({
         try {
             $p = Get-Params; if (-not $p) { return }
-            $window.FindName("btnQuick").IsEnabled = $false
-            $window.FindName("btnFull").IsEnabled = $false
-            Set-Status "Full Diagnostic: Collecting system info..." 3
+            Set-ScanButtons $false
+            $Global:DiagResults.ScanMode = "Standard"
+            Set-Status "Standard Test: Collecting system info..." 2
             $Global:DiagResults.SystemInfo = Get-FullSystemInfo
-            Set-Status "Full Diagnostic: Security scan..." 10
+            Set-Status "Standard Test: Security scan..." 8
             $Global:DiagResults.Security = Get-FullSecurityInfo
-            Set-Status "Full Diagnostic: Network analysis..." 20
+            Set-Status "Standard Test: Network analysis..." 14
             $Global:DiagResults.Network = Get-NetworkDiagnostics
-            Set-Status "Full Diagnostic: Software inventory..." 28
+            Set-Status "Standard Test: Network speed test..." 18
+            $Global:DiagResults.SpeedTest = Get-NetworkSpeedTest
+            Set-Status "Standard Test: Software inventory..." 24
             $Global:DiagResults.Software = Get-SoftwareInventory
-            Set-Status "Full Diagnostic: Checking updates..." 35
+            Set-Status "Standard Test: Checking updates..." 28
             $Global:DiagResults.Patches = Get-MissingPatchesList
-            Set-Status "Full Diagnostic: Performance snapshot..." 40
+            Set-Status "Standard Test: Performance snapshot..." 32
             $Global:DiagResults.Performance = Get-PerformanceSnapshot
-            Set-Status "Full Diagnostic: License keys..." 45
+            Set-Status "Standard Test: License keys..." 36
             $Global:DiagResults.LicenseKeys = Get-LicenseKeys
-            Set-Status "Full Diagnostic: CPU stress test (120s)..." 50
-            $Global:DiagResults.CPUStress = Start-CPUStressTest -DurationSeconds 120
-            Set-Status "Full Diagnostic: RAM test (120s)..." 70
-            $Global:DiagResults.RAMStress = Start-RAMStressTest -DurationSeconds 120
-            Set-Status "Full Diagnostic: Disk benchmark..." 82
+            Set-Status "Standard Test: Crash history..." 40
+            $Global:DiagResults.Stability = Get-CrashStabilityHistory
+            Set-Status "Standard Test: Battery report..." 44
+            $Global:DiagResults.BatteryDetail = Get-DetailedBatteryInfo
+            Set-Status "Standard Test: Power stability..." 47
+            $Global:DiagResults.PowerInfo = Get-PowerStabilityInfo
+            Set-Status "Standard Test: Gaming readiness..." 50
+            $Global:DiagResults.Gaming = Get-GamingReadiness
+            Set-Status "Standard Test: CPU stress (5 min)..." 53
+            $Global:DiagResults.CPUStress = Start-CPUStressTest -DurationSeconds 300
+            Set-Status "Standard Test: GPU stress (2 min)..." 70
+            $Global:DiagResults.GPUStress = Start-GPUStressTest -DurationSeconds 120
+            Set-Status "Standard Test: RAM test (5 min)..." 78
+            $Global:DiagResults.RAMStress = Start-RAMStressTest -DurationSeconds 300
+            Set-Status "Standard Test: Disk benchmark (512MB)..." 90
             $Global:DiagResults.DiskBench = Start-DiskBenchmark -FileSizeMB 512
-            Set-Status "Full Diagnostic: GPU stress test (60s)..." 88
-            $Global:DiagResults.GPUStress = Start-GPUStressTest -DurationSeconds 60
-            Set-Status "Full Diagnostic: Calculating scores..." 95
+            Set-Status "Standard Test: Calculating scores..." 96
             $Global:DiagResults.Scoring = Calculate-Score $Global:DiagResults.Security $Global:DiagResults.Patches
             $Global:DiagResults.StressResults = @{ CPU = $Global:DiagResults.CPUStress; RAM = $Global:DiagResults.RAMStress; Disk = $Global:DiagResults.DiskBench; GPU = $Global:DiagResults.GPUStress }
             $cs = $Global:DiagResults.CPUStress; $rs = $Global:DiagResults.RAMStress; $ds = $Global:DiagResults.DiskBench; $gs = $Global:DiagResults.GPUStress
-            Set-Status "DONE! CPU: $(if($cs.Passed){'PASS'}else{'FAIL'}), RAM: $(if($rs.Passed){'PASS'}else{'FAIL'}), GPU: $(if($gs.Passed){'PASS'}else{'FAIL'}), Disk: W=$($ds.SeqWriteMBps)/$($ds.SeqReadMBps) MB/s" 100
-            [System.Windows.MessageBox]::Show($window, "Full Diagnostic complete!`n`nCPU: $(if($cs.Passed){'PASS'}else{'FAIL'})`nRAM: $(if($rs.Passed){'PASS'}else{'FAIL'})`nGPU: $(if($gs.Passed){'PASS'}else{'FAIL'})`nDisk: W=$($ds.SeqWriteMBps) / R=$($ds.SeqReadMBps) MB/s`n`nClick Generate Reports to save PDFs.", "Diagnostic Complete", "OK", "Information")
+            Set-Status "DONE! CPU:$(if($cs.Passed){'PASS'}else{'FAIL'}) RAM:$(if($rs.Passed){'PASS'}else{'FAIL'}) GPU:$(if($gs.Passed){'PASS'}else{'FAIL'}) Disk:W=$($ds.SeqWriteMBps)/$($ds.SeqReadMBps)" 100
+            [System.Windows.MessageBox]::Show($window, "Standard Test complete!`nCPU: $(if($cs.Passed){'PASS'}else{'FAIL'})`nRAM: $(if($rs.Passed){'PASS'}else{'FAIL'})`nGPU: $(if($gs.Passed){'PASS'}else{'FAIL'})`nDisk: W=$($ds.SeqWriteMBps) / R=$($ds.SeqReadMBps) MB/s`nStability: $($Global:DiagResults.Stability.StabilityRating)`n`nClick Generate Reports.", "Standard Test Complete", "OK", "Information")
         } catch {
-            Write-DebugLog "Full Diagnostic ERROR: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
+            Write-DebugLog "Standard Test ERROR: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
             Set-Status "ERROR: $($_.Exception.Message)" 0
-            [System.Windows.MessageBox]::Show($window, "Error during Full Diagnostic:`n`n$($_.Exception.Message)", "Error", "OK", "Error")
-        } finally {
-            $window.FindName("btnQuick").IsEnabled = $true
-            $window.FindName("btnFull").IsEnabled = $true
-        }
+            [System.Windows.MessageBox]::Show($window, "Error during Standard Test:`n`n$($_.Exception.Message)", "Error", "OK", "Error")
+        } finally { Set-ScanButtons $true }
+    })
+
+    # ── DEEP TEST (60-90 min) ── Advanced bench testing with historical comparison
+    $window.FindName("btnFull").Add_Click({
+        try {
+            $p = Get-Params; if (-not $p) { return }
+            Set-ScanButtons $false
+            $Global:DiagResults.ScanMode = "Deep"
+            Set-Status "Deep Test: Collecting system info..." 2
+            $Global:DiagResults.SystemInfo = Get-FullSystemInfo
+            Set-Status "Deep Test: Security scan..." 5
+            $Global:DiagResults.Security = Get-FullSecurityInfo
+            Set-Status "Deep Test: Network analysis..." 8
+            $Global:DiagResults.Network = Get-NetworkDiagnostics
+            Set-Status "Deep Test: Network speed test..." 11
+            $Global:DiagResults.SpeedTest = Get-NetworkSpeedTest
+            Set-Status "Deep Test: Software inventory..." 14
+            $Global:DiagResults.Software = Get-SoftwareInventory
+            Set-Status "Deep Test: Checking updates..." 17
+            $Global:DiagResults.Patches = Get-MissingPatchesList
+            Set-Status "Deep Test: Performance snapshot..." 20
+            $Global:DiagResults.Performance = Get-PerformanceSnapshot
+            Set-Status "Deep Test: License keys..." 22
+            $Global:DiagResults.LicenseKeys = Get-LicenseKeys
+            Set-Status "Deep Test: Crash history..." 25
+            $Global:DiagResults.Stability = Get-CrashStabilityHistory
+            Set-Status "Deep Test: Battery report..." 28
+            $Global:DiagResults.BatteryDetail = Get-DetailedBatteryInfo
+            Set-Status "Deep Test: Power stability..." 30
+            $Global:DiagResults.PowerInfo = Get-PowerStabilityInfo
+            Set-Status "Deep Test: Gaming readiness..." 33
+            $Global:DiagResults.Gaming = Get-GamingReadiness
+            Set-Status "Deep Test: CPU stress (15 min)..." 36
+            $Global:DiagResults.CPUStress = Start-CPUStressTest -DurationSeconds 900
+            Set-Status "Deep Test: GPU stress (5 min)..." 56
+            $Global:DiagResults.GPUStress = Start-GPUStressTest -DurationSeconds 300
+            Set-Status "Deep Test: RAM test (15 min)..." 66
+            $Global:DiagResults.RAMStress = Start-RAMStressTest -DurationSeconds 900
+            Set-Status "Deep Test: Disk benchmark (1GB)..." 86
+            $Global:DiagResults.DiskBench = Start-DiskBenchmark -FileSizeMB 1024
+            Set-Status "Deep Test: Calculating scores..." 92
+            $Global:DiagResults.Scoring = Calculate-Score $Global:DiagResults.Security $Global:DiagResults.Patches
+            $Global:DiagResults.StressResults = @{ CPU = $Global:DiagResults.CPUStress; RAM = $Global:DiagResults.RAMStress; Disk = $Global:DiagResults.DiskBench; GPU = $Global:DiagResults.GPUStress }
+            # Historical comparison
+            Set-Status "Deep Test: Loading scan history..." 95
+            $history = Get-ScanHistory -ComputerName $Global:DiagResults.SystemInfo.ComputerName
+            $Global:DiagResults.HistoryComparison = Compare-ScanHistory -Current @{
+                HardwareScore = $Global:DiagResults.StressResults.CPU.Passed; SecurityScore = $Global:DiagResults.Scoring.Score
+                SSDHealth = ($Global:DiagResults.SystemInfo.SMART | ForEach-Object { "$($_.Model):$($_.Health)" }) -join "; "
+                BatteryHealth = if($Global:DiagResults.BatteryDetail.Present){$Global:DiagResults.BatteryDetail.HealthPct}else{"N/A"}
+                CPUPeakTemp = if($Global:DiagResults.CPUStress){$Global:DiagResults.CPUStress.MaxTemp}else{"N/A"}
+                CrashCount = $Global:DiagResults.Stability.TotalBSODs + $Global:DiagResults.Stability.TotalUnexpected
+                DiskWriteMBps = if($Global:DiagResults.DiskBench){$Global:DiagResults.DiskBench.SeqWriteMBps}else{"N/A"}
+            } -Previous $history
+            $cs = $Global:DiagResults.CPUStress; $rs = $Global:DiagResults.RAMStress; $ds = $Global:DiagResults.DiskBench; $gs = $Global:DiagResults.GPUStress
+            Set-Status "DONE! Deep Test complete. CPU:$(if($cs.Passed){'PASS'}else{'FAIL'}) RAM:$(if($rs.Passed){'PASS'}else{'FAIL'}) GPU:$(if($gs.Passed){'PASS'}else{'FAIL'})" 100
+            $histMsg = if ($Global:DiagResults.HistoryComparison -and $Global:DiagResults.HistoryComparison.HasPrevious) { "`nPrevious scan found: $($Global:DiagResults.HistoryComparison.PreviousDate)" } else { "`nNo previous scan history found." }
+            [System.Windows.MessageBox]::Show($window, "Deep Test complete!`nCPU: $(if($cs.Passed){'PASS'}else{'FAIL'})`nRAM: $(if($rs.Passed){'PASS'}else{'FAIL'})`nGPU: $(if($gs.Passed){'PASS'}else{'FAIL'})`nDisk: W=$($ds.SeqWriteMBps) / R=$($ds.SeqReadMBps) MB/s`nStability: $($Global:DiagResults.Stability.StabilityRating)$histMsg`n`nClick Generate Reports.", "Deep Test Complete", "OK", "Information")
+        } catch {
+            Write-DebugLog "Deep Test ERROR: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
+            Set-Status "ERROR: $($_.Exception.Message)" 0
+            [System.Windows.MessageBox]::Show($window, "Error during Deep Test:`n`n$($_.Exception.Message)", "Error", "OK", "Error")
+        } finally { Set-ScanButtons $true }
     })
 
     # REPORT GENERATION
     $generateReports = {
         param([bool]$DoHW, [bool]$DoSec)
         $p = Get-Params; if (-not $p) { return }
-        if (-not $Global:DiagResults.SystemInfo) { [System.Windows.MessageBox]::Show($window, "Run a diagnostic first (Quick or Full).", "No Data", "OK", "Warning"); return }
+        if (-not $Global:DiagResults.SystemInfo) { [System.Windows.MessageBox]::Show($window, "Run a diagnostic first.", "No Data", "OK", "Warning"); return }
         $safeName = $p.CustomerName -replace '[\\/:*?"<>|]','_'
         $safeDev = $Global:DiagResults.SystemInfo.ComputerName -replace '[\\/:*?"<>|]','_'
         $ds = Get-Date -Format "yyyy-MM-dd"
         if ($DoHW) {
-            Set-Status "Generating Hardware Report..." 30
-            $hwHTML = Build-HardwareReport $p $Global:DiagResults.SystemInfo $Global:DiagResults.Network $Global:DiagResults.Software $Global:DiagResults.Performance $Global:DiagResults.StressResults $Global:DiagResults.LicenseKeys
+            Set-Status "Generating Hardware Report..." 20
+            $hwHTML = Build-HardwareReport $p $Global:DiagResults.SystemInfo $Global:DiagResults.Network $Global:DiagResults.Software $Global:DiagResults.Performance $Global:DiagResults.StressResults $Global:DiagResults.LicenseKeys $Global:DiagResults.Stability $Global:DiagResults.BatteryDetail $Global:DiagResults.PowerInfo $Global:DiagResults.SpeedTest $Global:DiagResults.Gaming $Global:DiagResults.HistoryComparison $Global:DiagResults.ScanMode
             $hwHTMLPath = Join-Path $p.OutputFolder "$safeName - $safeDev - Hardware Report $ds.html"
             $hwPDFPath = Join-Path $p.OutputFolder "$safeName - $safeDev - Hardware Report $ds.pdf"
             [IO.File]::WriteAllText($hwHTMLPath, $hwHTML, [Text.Encoding]::UTF8)
             $hwPDF = Convert-ToPDF $hwHTMLPath $hwPDFPath
-            Set-Status "Hardware Report: $(if($hwPDF){"PDF saved"}else{"HTML saved (no PDF browser)"}) to reports folder" 60
+            Set-Status "Hardware Report: $(if($hwPDF){"PDF saved"}else{"HTML saved (no PDF browser)"}) to reports folder" 40
         }
         if ($DoSec) {
             Set-Status "Generating Security Report..." 70
@@ -2359,7 +3107,27 @@ $xaml = @"
             $secPDF = Convert-ToPDF $secHTMLPath $secPDFPath
             Set-Status "Security Report: $(if($secPDF){"PDF saved"}else{"HTML saved"}) to reports folder" 90
         }
-        Set-Status "Reports saved to: $($p.OutputFolder)" 100
+        # Export JSON + CSV
+        Set-Status "Exporting data files..." 92
+        try {
+            $exportData = @{
+                CustomerName = $p.CustomerName; TechName = $p.TechName; TechNotes = $p.TechNotes
+                ScanDate = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"); ScanMode = $Global:DiagResults.ScanMode
+                SystemInfo = $Global:DiagResults.SystemInfo; StressResults = $Global:DiagResults.StressResults
+                Stability = $Global:DiagResults.Stability; BatteryDetail = $Global:DiagResults.BatteryDetail
+                SpeedTest = $Global:DiagResults.SpeedTest; Gaming = $Global:DiagResults.Gaming
+                PowerInfo = $Global:DiagResults.PowerInfo; Scoring = $Global:DiagResults.Scoring
+                HardwareScore = if($DoHW){ $Global:DiagResults.StressResults.Count }else{0}
+                SecurityScore = if($Global:DiagResults.Scoring){ $Global:DiagResults.Scoring.Score }else{0}
+                Battery = $Global:DiagResults.BatteryDetail
+            }
+            Export-ScanJSON -ScanData $exportData -OutputFolder $p.OutputFolder
+            Export-ScanCSV -ScanData $exportData -OutputFolder $p.OutputFolder
+            # Save to history
+            Save-ScanHistory -ScanData $exportData
+        } catch { Write-DiagLog "Export error: $($_.Exception.Message)" "WARN" }
+
+        Set-Status "All reports and data saved to: $($p.OutputFolder)" 100
         Start-Process explorer.exe -ArgumentList $p.OutputFolder
 
         # Offer to email the report
