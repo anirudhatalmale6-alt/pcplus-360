@@ -2002,6 +2002,7 @@ function Initialize-PaperlessConfig {
             Password         = ""
             DefaultRecipient = ""
         }
+        AutoUploadEnabled = $true
     }
 
     if (Test-Path $ConfigPath) {
@@ -2015,6 +2016,9 @@ function Initialize-PaperlessConfig {
             }
             if (-not $config.Email) {
                 $config | Add-Member -NotePropertyName "Email" -NotePropertyValue ($defaultConfig.Email | ConvertTo-Json -Depth 3 | ConvertFrom-Json) -Force
+            }
+            if ($null -eq $config.AutoUploadEnabled) {
+                $config | Add-Member -NotePropertyName "AutoUploadEnabled" -NotePropertyValue $true -Force
             }
 
             Write-DiagLog "Paperless config loaded from $ConfigPath"
@@ -4366,6 +4370,678 @@ $(if($qrSvcUri){"<img src='$qrSvcUri' alt='Send Info'/>"}else{"<div class='qr-fa
 </div>
 <div style="margin-top:40px;font-size:8pt;color:#94a3b8;">
 Gaming Performance &amp; Stability Report generated $date<br/>
+Technician: $techName &nbsp;|&nbsp; Device: $compName
+</div>
+</div>
+
+</body>
+</html>
+"@
+
+    return $html
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BENCHMARK COMPARISON HTML SNIPPET
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Build-BenchmarkComparisonHTML {
+    param(
+        [hashtable]$CurrentScores,
+        [hashtable]$PercentileOverall,
+        [hashtable]$PercentileThermal,
+        [hashtable]$PercentileStorage,
+        [hashtable]$PercentileNetwork
+    )
+    Write-DiagLog "Building benchmark comparison HTML snippet..."
+
+    # Safe value extraction
+    $overallScore = if ($CurrentScores -and $CurrentScores.Overall) { $CurrentScores.Overall } else { 0 }
+    $overallPct   = if ($PercentileOverall)  { $PercentileOverall.Percentile }  else { 0 }
+    $overallAvg   = if ($PercentileOverall)  { $PercentileOverall.AvgScore }    else { 0 }
+    $overallBest  = if ($PercentileOverall)  { $PercentileOverall.BestScore }   else { 0 }
+    $overallWorst = if ($PercentileOverall)  { $PercentileOverall.WorstScore }  else { 0 }
+    $totalSamples = if ($PercentileOverall)  { $PercentileOverall.TotalSamples } else { 0 }
+    $similarCount = if ($PercentileOverall)  { $PercentileOverall.SimilarSystemCount } else { 0 }
+
+    $thermalScore = if ($CurrentScores -and $CurrentScores.Thermal) { $CurrentScores.Thermal } else { 0 }
+    $thermalPct   = if ($PercentileThermal) { $PercentileThermal.Percentile } else { 0 }
+    $thermalAvg   = if ($PercentileThermal) { $PercentileThermal.AvgScore }   else { 0 }
+
+    $storageScore = if ($CurrentScores -and $CurrentScores.Storage) { $CurrentScores.Storage } else { 0 }
+    $storagePct   = if ($PercentileStorage) { $PercentileStorage.Percentile } else { 0 }
+    $storageAvg   = if ($PercentileStorage) { $PercentileStorage.AvgScore }   else { 0 }
+
+    $networkScore = if ($CurrentScores -and $CurrentScores.Network) { $CurrentScores.Network } else { 0 }
+    $networkPct   = if ($PercentileNetwork) { $PercentileNetwork.Percentile } else { 0 }
+    $networkAvg   = if ($PercentileNetwork) { $PercentileNetwork.AvgScore }   else { 0 }
+
+    # Color for percentile
+    function Get-PctColor($pct) {
+        if ($pct -ge 75) { return "#22c55e" }
+        elseif ($pct -ge 50) { return "#f59e0b" }
+        elseif ($pct -ge 25) { return "#f97316" }
+        else { return "#ef4444" }
+    }
+
+    $overallColor  = Get-PctColor $overallPct
+    $thermalColor  = Get-PctColor $thermalPct
+    $storageColor  = Get-PctColor $storagePct
+    $networkColor  = Get-PctColor $networkPct
+
+    # Build the HTML snippet
+    $html = @"
+<!-- Benchmark Comparison Section -->
+<div style="margin:30px 0;padding:24px;background:#0f172a;border-radius:12px;border:1px solid #1e293b;font-family:'Segoe UI',sans-serif;">
+    <div style="display:flex;align-items:center;margin-bottom:18px;">
+        <div style="width:36px;height:36px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:8px;display:flex;align-items:center;justify-content:center;margin-right:12px;">
+            <span style="color:white;font-size:16px;font-weight:bold;">&#9733;</span>
+        </div>
+        <div>
+            <div style="font-size:15px;font-weight:700;color:#f1f5f9;">Your System vs Others Tested</div>
+            <div style="font-size:11px;color:#64748b;">Based on $totalSamples benchmarks across $similarCount similar systems</div>
+        </div>
+    </div>
+
+    <!-- Overall Percentile Hero -->
+    <div style="text-align:center;padding:20px;margin-bottom:20px;background:#1e293b;border-radius:10px;">
+        <div style="font-size:42px;font-weight:800;color:$overallColor;">$($overallPct)%</div>
+        <div style="font-size:13px;color:#94a3b8;margin-top:4px;">Your score of <span style="color:#f1f5f9;font-weight:600;">$overallScore</span> is better than <span style="color:$overallColor;font-weight:600;">$($overallPct)%</span> of tested systems</div>
+        <!-- Gradient bar -->
+        <div style="margin:16px auto 0;max-width:400px;position:relative;">
+            <div style="height:10px;border-radius:5px;background:linear-gradient(90deg,#ef4444 0%,#f97316 25%,#f59e0b 50%,#22c55e 75%,#16a34a 100%);"></div>
+            <div style="position:absolute;top:-4px;left:$($overallPct)%;transform:translateX(-50%);width:18px;height:18px;background:white;border-radius:50%;border:3px solid $overallColor;box-shadow:0 0 8px rgba(0,0,0,0.3);"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;max-width:400px;margin:8px auto 0;">
+            <span style="font-size:9px;color:#64748b;">Worst: $overallWorst</span>
+            <span style="font-size:9px;color:#64748b;">Avg: $overallAvg</span>
+            <span style="font-size:9px;color:#64748b;">Best: $overallBest</span>
+        </div>
+    </div>
+
+    <!-- Category Breakdown -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <!-- Thermal -->
+        <div style="padding:14px;background:#1e293b;border-radius:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <span style="font-size:12px;font-weight:600;color:#f1f5f9;">Thermal</span>
+                <span style="font-size:12px;font-weight:700;color:$thermalColor;">$($thermalPct)%ile</span>
+            </div>
+            <div style="height:6px;background:#334155;border-radius:3px;overflow:hidden;">
+                <div style="height:100%;width:$($thermalPct)%;background:$thermalColor;border-radius:3px;"></div>
+            </div>
+            <div style="font-size:10px;color:#64748b;margin-top:6px;">Score: $thermalScore (avg: $thermalAvg)</div>
+        </div>
+        <!-- Storage -->
+        <div style="padding:14px;background:#1e293b;border-radius:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <span style="font-size:12px;font-weight:600;color:#f1f5f9;">Storage</span>
+                <span style="font-size:12px;font-weight:700;color:$storageColor;">$($storagePct)%ile</span>
+            </div>
+            <div style="height:6px;background:#334155;border-radius:3px;overflow:hidden;">
+                <div style="height:100%;width:$($storagePct)%;background:$storageColor;border-radius:3px;"></div>
+            </div>
+            <div style="font-size:10px;color:#64748b;margin-top:6px;">Score: $storageScore (avg: $storageAvg)</div>
+        </div>
+        <!-- Network -->
+        <div style="padding:14px;background:#1e293b;border-radius:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <span style="font-size:12px;font-weight:600;color:#f1f5f9;">Network</span>
+                <span style="font-size:12px;font-weight:700;color:$networkColor;">$($networkPct)%ile</span>
+            </div>
+            <div style="height:6px;background:#334155;border-radius:3px;overflow:hidden;">
+                <div style="height:100%;width:$($networkPct)%;background:$networkColor;border-radius:3px;"></div>
+            </div>
+            <div style="font-size:10px;color:#64748b;margin-top:6px;">Score: $networkScore (avg: $networkAvg)</div>
+        </div>
+        <!-- Database Info -->
+        <div style="padding:14px;background:#1e293b;border-radius:8px;">
+            <div style="font-size:12px;font-weight:600;color:#f1f5f9;margin-bottom:8px;">Database</div>
+            <div style="font-size:10px;color:#94a3b8;line-height:1.6;">
+                Total benchmarks: <span style="color:#f1f5f9;">$totalSamples</span><br/>
+                Similar systems: <span style="color:#f1f5f9;">$similarCount</span><br/>
+                Avg overall score: <span style="color:#f1f5f9;">$overallAvg</span>
+            </div>
+        </div>
+    </div>
+</div>
+"@
+
+    return $html
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AUTO-UPLOAD - Silent background upload after every report generation
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Invoke-AutoUploadReport {
+    <#
+    .SYNOPSIS
+        Silently uploads a report file in the background if auto-upload is enabled.
+    .DESCRIPTION
+        Reads PCPlus360-Config.json and, if AutoUploadEnabled is true AND a server
+        URL is configured, uploads the report using the same logic as Send-ReportToServer
+        but without any UI dialogs. Logs success/failure via Write-DiagLog only.
+    .PARAMETER ReportPath
+        Path to the report file (HTML or PDF) to upload.
+    .PARAMETER CustomerName
+        Customer name for upload metadata.
+    .PARAMETER ComputerName
+        Computer name for upload metadata.
+    .PARAMETER TechName
+        Technician name for upload metadata.
+    .PARAMETER ScanMode
+        Scan mode label for upload metadata.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$ReportPath,
+        [string]$CustomerName  = "",
+        [string]$ComputerName  = "",
+        [string]$TechName      = "",
+        [string]$ScanMode      = ""
+    )
+
+    $result = @{ Uploaded = $false; Message = "" }
+
+    # Check file exists
+    if (-not (Test-Path $ReportPath)) {
+        $result.Message = "Auto-upload skipped: file not found '$ReportPath'"
+        Write-DiagLog $result.Message "WARN"
+        return $result
+    }
+
+    # Load config
+    $config = Invoke-Safe { Initialize-PaperlessConfig } $null
+    if (-not $config) {
+        $result.Message = "Auto-upload skipped: could not load config"
+        Write-DiagLog $result.Message "WARN"
+        return $result
+    }
+
+    # Check if auto-upload is enabled
+    $autoEnabled = $true
+    if ($null -ne $config.AutoUploadEnabled) {
+        $autoEnabled = [bool]$config.AutoUploadEnabled
+    }
+    if (-not $autoEnabled) {
+        $result.Message = "Auto-upload disabled in config"
+        Write-DiagLog $result.Message
+        return $result
+    }
+
+    # Check if server upload is configured with a URL
+    if (-not $config.ServerUpload) {
+        $result.Message = "Auto-upload skipped: no ServerUpload config section"
+        Write-DiagLog $result.Message
+        return $result
+    }
+    if ([string]::IsNullOrWhiteSpace($config.ServerUpload.Url)) {
+        $result.Message = "Auto-upload skipped: no server URL configured"
+        Write-DiagLog $result.Message
+        return $result
+    }
+
+    # Perform the upload silently using Send-ReportToServer
+    Write-DiagLog "Auto-upload: uploading '$([IO.Path]::GetFileName($ReportPath))' to $($config.ServerUpload.Url)..."
+    $uploadResult = Invoke-Safe {
+        Send-ReportToServer -ReportPath $ReportPath `
+            -CustomerName $CustomerName `
+            -ComputerName $ComputerName `
+            -TechName $TechName `
+            -ScanMode $ScanMode `
+            -ServerUrl $config.ServerUpload.Url
+    } $null
+
+    if ($uploadResult -and $uploadResult.Success) {
+        $result.Uploaded = $true
+        $result.Message = "Auto-upload successful$(if($uploadResult.ViewUrl){" - $($uploadResult.ViewUrl)"})"
+        Write-DiagLog "Auto-upload: $($result.Message)"
+    }
+    elseif ($uploadResult) {
+        $result.Message = "Auto-upload failed: $($uploadResult.Message)"
+        Write-DiagLog $result.Message "WARN"
+    }
+    else {
+        $result.Message = "Auto-upload failed: Send-ReportToServer returned null"
+        Write-DiagLog $result.Message "WARN"
+    }
+
+    return $result
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LCD DISPLAY WEAR & LIFE REPORT
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Build-LCDDisplayReport {
+    <#
+    .SYNOPSIS
+        Generates a branded HTML report for the LCD Display Wear & Life test.
+    .PARAMETER Params
+        Hashtable with CustomerName, TechName, ContactName, TechNotes.
+    .PARAMETER LCDData
+        The hashtable returned by Invoke-LCDDisplayTest.
+    #>
+    param(
+        $Params,
+        $LCDData
+    )
+
+    $date = Get-Date -Format "MMMM dd, yyyy 'at' h:mm tt"
+    $iconPass = "&#10004;"; $iconFail = "&#10008;"; $iconWarn = "&#9888;"
+
+    # ── Safe accessors ──
+    $customerName = if ($Params.CustomerName) { $Params.CustomerName } else { "Customer" }
+    $techName     = if ($Params.TechName)     { $Params.TechName }     else { "Technician" }
+    $contactName  = if ($Params.ContactName)  { $Params.ContactName }  else { "" }
+    $techNotes    = if ($Params.TechNotes)    { $Params.TechNotes }    else { "" }
+
+    $sys   = $LCDData.System
+    $mon   = $LCDData.Monitor
+    $adp   = $LCDData.Adapter
+    $brt   = $LCDData.Brightness
+    $evt   = $LCDData.Events
+    $thm   = $LCDData.Thermal
+    $scr   = $LCDData.Score
+
+    $compName = if ($sys.ComputerName) { $sys.ComputerName } else { "PC" }
+
+    # Score colors
+    $scoreVal   = if ($scr.Score -ne $null) { [int]$scr.Score } else { 0 }
+    $scoreColor = if ($scoreVal -ge 80) {"#22c55e"} elseif ($scoreVal -ge 60) {"#f59e0b"} else {"#dc2626"}
+    $riskColor  = if ($scr.Risk -eq "Low") {"#22c55e"} elseif ($scr.Risk -eq "Moderate") {"#f59e0b"} elseif ($scr.Risk -eq "High") {"#f97316"} else {"#dc2626"}
+
+    # ── Load logo ──
+    $logoDataUri = ""
+    $logoPath = Join-Path $Global:ScriptDir "logo-base64.txt"
+    if (Test-Path $logoPath) {
+        try { $logoDataUri = "data:image/png;base64,$((Get-Content $logoPath -Raw).Trim())" } catch {}
+    }
+    $logoHTML = if ($logoDataUri) {
+        "<img src='$logoDataUri' alt='PC Plus Computing' style='width:320px;max-width:85%;'/>"
+    } else {
+        "<div style='background:linear-gradient(135deg,#0a1628,#0d4b71);color:#fff;padding:16px 40px;font-size:20pt;font-weight:bold;letter-spacing:3px;border-radius:8px;display:inline-block;'>PC PLUS COMPUTING</div>"
+    }
+
+    # ── Load QR codes ──
+    $qrAppUri = ""; $qrSvcUri = ""
+    $qrAppPath = Join-Path $Global:ScriptDir "qr-appointments.txt"
+    $qrSvcPath = Join-Path $Global:ScriptDir "qr-service-requests.txt"
+    if (Test-Path $qrAppPath) { try { $qrAppUri = "data:image/png;base64,$((Get-Content $qrAppPath -Raw).Trim())" } catch {} }
+    if (Test-Path $qrSvcPath) { try { $qrSvcUri = "data:image/png;base64,$((Get-Content $qrSvcPath -Raw).Trim())" } catch {} }
+
+    # ── Donut SVG for wear score ──
+    $donutR = 40; $donutCirc = [math]::Round(2 * [math]::PI * $donutR, 1)
+    $donutOffset = [math]::Round($donutCirc - ($donutCirc * $scoreVal / 100), 1)
+
+    $donutSVG = @"
+<svg viewBox="0 0 120 120" width="140" height="140" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="60" cy="60" r="$donutR" fill="none" stroke="#334155" stroke-width="8"/>
+  <circle cx="60" cy="60" r="$donutR" fill="none" stroke="$scoreColor" stroke-width="8"
+    stroke-dasharray="$donutCirc" stroke-dashoffset="$donutOffset"
+    transform="rotate(-90 60 60)" stroke-linecap="round"/>
+  <text x="60" y="56" text-anchor="middle" font-size="22" font-weight="bold" fill="$scoreColor" font-family="Segoe UI,sans-serif">$scoreVal</text>
+  <text x="60" y="72" text-anchor="middle" font-size="9" fill="#94a3b8" font-family="Segoe UI,sans-serif">/ 100</text>
+</svg>
+"@
+
+    # ── Monitor info rows ──
+    $monitorRows = ""
+    if ($mon.WmiMonitorID -and $mon.WmiMonitorID.Count -gt 0) {
+        foreach ($m in $mon.WmiMonitorID) {
+            $mName = if ($m.UserFriendlyName) { [System.Web.HttpUtility]::HtmlEncode($m.UserFriendlyName) } else { "N/A" }
+            $mMfr  = if ($m.ManufacturerName) { [System.Web.HttpUtility]::HtmlEncode($m.ManufacturerName) } else { "N/A" }
+            $mSer  = if ($m.SerialNumberID) { [System.Web.HttpUtility]::HtmlEncode($m.SerialNumberID) } else { "N/A" }
+            $mYear = if ($m.YearOfManufacture) { $m.YearOfManufacture } else { "N/A" }
+            $mAct  = if ($m.Active) { "<span class='pass'>$iconPass Active</span>" } else { "Inactive" }
+            $monitorRows += "<tr><td>$mName</td><td>$mMfr</td><td>$mSer</td><td>$mYear</td><td>$mAct</td></tr>`n"
+        }
+    } else {
+        $monitorRows = "<tr><td colspan='5'>No WMI Monitor EDID records found. This is normal for some desktops/external monitors.</td></tr>"
+    }
+
+    # ── GPU adapter rows ──
+    $gpuRows = ""
+    if ($adp.GPUs -and $adp.GPUs.Count -gt 0) {
+        foreach ($g in $adp.GPUs) {
+            $gName   = if ($g.Name) { [System.Web.HttpUtility]::HtmlEncode($g.Name) } else { "N/A" }
+            $gVRAM   = if ($g.AdapterRAMGB) { "$($g.AdapterRAMGB) GB" } else { "N/A" }
+            $gDrv    = if ($g.DriverVersion) { $g.DriverVersion } else { "N/A" }
+            $gDrvDt  = if ($g.DriverDate) { $g.DriverDate.ToString("yyyy-MM-dd") } else { "N/A" }
+            $gRes    = "$($g.CurrentHorizontalResolution)x$($g.CurrentVerticalResolution)"
+            $gRefr   = if ($g.CurrentRefreshRate) { "$($g.CurrentRefreshRate) Hz" } else { "N/A" }
+            $gStat   = if ($g.Status -match "OK") { "<span class='pass'>$iconPass $($g.Status)</span>" } else { "<span class='fail'>$iconFail $($g.Status)</span>" }
+            $gpuRows += "<tr><td>$gName</td><td>$gVRAM</td><td>$gDrv</td><td>$gDrvDt</td><td>$gRes</td><td>$gRefr</td><td>$gStat</td></tr>`n"
+        }
+    } else {
+        $gpuRows = "<tr><td colspan='7'>No display adapters detected.</td></tr>"
+    }
+
+    # ── Findings rows ──
+    $findingRows = ""
+    if ($scr.Findings -and $scr.Findings.Count -gt 0) {
+        foreach ($f in $scr.Findings) {
+            $fClass = switch ($f.Severity) { "Critical" {"fail"} "High" {"fail"} "Moderate" {"warn"} default {"pass"} }
+            $fIcon  = switch ($f.Severity) { "Critical" {$iconFail} "High" {$iconFail} "Moderate" {$iconWarn} default {$iconPass} }
+            $findingRows += "<tr><td>$($f.Category)</td><td class='$fClass'>$fIcon $($f.Severity)</td><td>$([System.Web.HttpUtility]::HtmlEncode($f.Finding))</td><td>$([System.Web.HttpUtility]::HtmlEncode($f.Recommendation))</td></tr>`n"
+        }
+    } else {
+        $findingRows = "<tr><td colspan='4'><span class='pass'>$iconPass No major display wear indicators detected from Windows data.</span></td></tr>"
+    }
+
+    # ── Event rows ──
+    $eventRows = ""
+    if ($evt.RecentEvents -and $evt.RecentEvents.Count -gt 0) {
+        foreach ($e in $evt.RecentEvents) {
+            $eMsg = [System.Web.HttpUtility]::HtmlEncode($e.Message)
+            if ($eMsg.Length -gt 260) { $eMsg = $eMsg.Substring(0, 260) + "..." }
+            $eLvl = if ($e.LevelDisplayName -match "Error|Critical") { "<span class='fail'>$($e.LevelDisplayName)</span>" } elseif ($e.LevelDisplayName -match "Warning") { "<span class='warn'>$($e.LevelDisplayName)</span>" } else { $e.LevelDisplayName }
+            $eventRows += "<tr><td>$($e.TimeCreated)</td><td>$($e.ProviderName)</td><td>$($e.Id)</td><td>$eLvl</td><td>$eMsg</td></tr>`n"
+        }
+    } else {
+        $eventRows = "<tr><td colspan='5'><span class='pass'>$iconPass No recent display/GPU-related events found in 180 days.</span></td></tr>"
+    }
+
+    # ── Manual visual test checklist rows ──
+    $manualRows = ""
+    foreach ($t in $scr.ManualVisualTestsRequired) {
+        $manualRows += "<tr><td style='padding-left:18px;'>&#9744; $t</td><td style='color:#64748b;'>Technician visual check required</td></tr>`n"
+    }
+
+    # ── Thermal zone rows ──
+    $thermalZoneRows = ""
+    if ($thm.ThermalZones -and $thm.ThermalZones.Count -gt 0) {
+        foreach ($tz in $thm.ThermalZones) {
+            $tzName = if ($tz.InstanceName) { $tz.InstanceName -replace '\\\\','/' } else { "Zone" }
+            $tzTemp = $tz.TemperatureC
+            $tzClass = if ($tzTemp -ge 85) {"fail"} elseif ($tzTemp -ge 65) {"warn"} else {"pass"}
+            $thermalZoneRows += "<tr><td>$tzName</td><td class='$tzClass'>$tzTemp C</td></tr>`n"
+        }
+    } else {
+        $thermalZoneRows = "<tr><td colspan='2'>No ACPI thermal zone data available.</td></tr>"
+    }
+
+    # ── Tech notes HTML ──
+    $techNotesHTML = if ($techNotes) {
+        "<div class='section-header'><span class='section-icon'>&#128221;</span> Technician Notes</div><div style='padding:14px 18px;background:#f8fafc;border:1px solid #d1d5db;border-radius:8px;min-height:50px;white-space:pre-wrap;font-size:9.5pt;line-height:1.7;margin-bottom:16px;'>$([System.Web.HttpUtility]::HtmlEncode($techNotes))</div>"
+    } else { "" }
+
+    # ── Recommendations based on score ──
+    $recsHTML = ""
+    if ($scoreVal -lt 60) {
+        $recsHTML += "<div style='display:flex;align-items:flex-start;gap:10px;padding:8px 14px;margin:4px 0;border-radius:6px;background:#fef2f2;border-left:4px solid #dc2626;'><span style='font-size:13pt;flex-shrink:0;'>$iconFail</span><span style='font-size:9.5pt;color:#1e293b;line-height:1.5;'>Display health is critical. Schedule a professional inspection and consider LCD panel replacement or external monitor use.</span></div>`n"
+    }
+    if ($evt.DriverResetCount -gt 0) {
+        $recsHTML += "<div style='display:flex;align-items:flex-start;gap:10px;padding:8px 14px;margin:4px 0;border-radius:6px;background:#fffbeb;border-left:4px solid #f59e0b;'><span style='font-size:13pt;flex-shrink:0;'>$iconWarn</span><span style='font-size:9.5pt;color:#1e293b;line-height:1.5;'>Display driver resets detected. Update graphics drivers and check for GPU overheating. If flickering continues, test the display cable (eDP/LVDS).</span></div>`n"
+    }
+    if ($thm.ThermalEventCount -gt 0) {
+        $recsHTML += "<div style='display:flex;align-items:flex-start;gap:10px;padding:8px 14px;margin:4px 0;border-radius:6px;background:#fffbeb;border-left:4px solid #f59e0b;'><span style='font-size:13pt;flex-shrink:0;'>$iconWarn</span><span style='font-size:9.5pt;color:#1e293b;line-height:1.5;'>Thermal events detected. Clean fans and heatsinks, reapply thermal paste if needed. High heat accelerates LCD backlight and cable wear.</span></div>`n"
+    }
+    if ($sys.BIOSAgeYears -ne $null -and $sys.BIOSAgeYears -ge 5) {
+        $recsHTML += "<div style='display:flex;align-items:flex-start;gap:10px;padding:8px 14px;margin:4px 0;border-radius:6px;background:#f0fdf4;border-left:4px solid #22c55e;'><span style='font-size:13pt;flex-shrink:0;'>$iconWarn</span><span style='font-size:9.5pt;color:#1e293b;line-height:1.5;'>System is approximately $($sys.BIOSAgeYears) years old. Consider a full visual inspection of the LCD panel, backlight uniformity, and hinge cable during the next service.</span></div>`n"
+    }
+    if (-not $recsHTML) {
+        $recsHTML = "<div style='display:flex;align-items:flex-start;gap:10px;padding:8px 14px;margin:4px 0;border-radius:6px;background:#f0fdf4;border-left:4px solid #22c55e;'><span style='font-size:13pt;flex-shrink:0;'>$iconPass</span><span style='font-size:9.5pt;color:#1e293b;line-height:1.5;'>No critical display issues detected. Continue regular use and schedule periodic visual inspections.</span></div>"
+    }
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # ASSEMBLE THE FULL HTML
+    # ══════════════════════════════════════════════════════════════════════════
+
+$html = @"
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>LCD Display Wear &amp; Life Report - $customerName</title>
+<style>
+@page { size: A4; margin: 0.5in 0.6in 0.9in 0.6in; }
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: 'Segoe UI', -apple-system, Tahoma, sans-serif; font-size: 9.5pt; color: #1e293b; line-height: 1.6; background: #fff; }
+h1,h2,h3,h4 { margin:0; }
+@media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .page-break { page-break-before: always; }
+    .no-break { page-break-inside: avoid; }
+}
+.page-break { page-break-before: always; }
+.print-footer {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    padding: 6px 0; border-top: 1.5px solid #0d4b71;
+    text-align: center; font-size: 7.5pt; color: #94a3b8; background: #fff;
+}
+.print-footer strong { color: #0d4b71; font-size: 7.5pt; }
+.print-footer .report-name { color: #475569; }
+.no-break { page-break-inside: avoid; }
+.section-header {
+    background: linear-gradient(135deg, #1a1a2e 0%, #0d4b71 100%);
+    color: #fff; padding: 10px 20px; font-size: 12pt; font-weight: 600;
+    margin: 24px 0 14px 0; border-radius: 6px; letter-spacing: 0.5px;
+    display: flex; align-items: center; gap: 10px;
+}
+.section-header .section-icon { font-size: 14pt; opacity: 0.85; }
+.sub-header {
+    color: #0d4b71; font-size: 10.5pt; font-weight: 700; margin: 18px 0 8px 0;
+    padding-bottom: 5px; border-bottom: 2px solid #2596be; letter-spacing: 0.3px;
+}
+table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 9pt; }
+th {
+    background: #0d4b71; color: #fff; padding: 7px 10px; text-align: left;
+    font-weight: 600; font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.5px;
+}
+td { padding: 6px 10px; border-bottom: 1px solid #e2e8f0; vertical-align: middle; }
+tr:nth-child(even) td { background: #f8fafc; }
+tr:hover td { background: #eaf7fc; }
+.pass { color: #16a34a; font-weight: 600; }
+.fail { color: #dc2626; font-weight: 600; }
+.warn { color: #f59e0b; font-weight: 600; }
+.summary-strip { display: flex; gap: 10px; margin: 14px 0; flex-wrap: wrap; }
+.summary-chip {
+    flex: 1; min-width: 100px; text-align: center; padding: 10px 8px; background: #f8fafc;
+    border: 1px solid #e2e8f0; border-radius: 8px;
+}
+.summary-chip .chip-val { font-size: 13pt; font-weight: 700; color: #0a1628; display: block; }
+.summary-chip .chip-lbl { font-size: 7.5pt; color: #64748b; text-transform: uppercase; font-weight: 600; letter-spacing: 0.3px; }
+.info-card {
+    background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; margin-bottom: 12px;
+}
+.notice {
+    background: #fffbeb; border-left: 5px solid #f59e0b; padding: 12px 16px; border-radius: 6px;
+    font-size: 9pt; color: #92400e; margin: 12px 0;
+}
+.qr-row { display: flex; justify-content: center; gap: 60px; margin: 20px 0; }
+.qr-item { text-align: center; }
+.qr-item img { width: 140px; height: 140px; border-radius: 8px; }
+.qr-item .qr-fallback { width: 140px; height: 140px; border: 2px dashed #94a3b8; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 7.5pt; color: #94a3b8; }
+.qr-label { font-size: 9pt; font-weight: 600; color: #0d4b71; margin-top: 8px; }
+.qr-sublabel { font-size: 7.5pt; color: #64748b; margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<div class="print-footer">
+<span class="report-name">LCD Display Wear &amp; Life Report</span> &nbsp;|&nbsp; <strong>$COMPANY</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE
+</div>
+
+<!-- =============================== PAGE 1: COVER =============================== -->
+<div style="page-break-after:always;">
+<div style="text-align:center;padding:20px 0 10px;">
+$logoHTML
+<div style="font-size:17pt;font-weight:700;color:#0d4b71;margin-top:12px;letter-spacing:0.5px;">PC Plus 360 LCD Display Wear &amp; Life Report</div>
+<div style="font-size:10pt;color:#3bbde0;margin-top:4px;">Panel Health Estimation &amp; Visual Inspection Workflow</div>
+</div>
+
+<!-- Customer info + Donut -->
+<div style="display:flex;gap:20px;align-items:center;margin:16px 0;">
+<div style="flex:1;">
+<div class="info-card">
+<table style="width:100%;font-size:10pt;border:none;margin:0;">
+<tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;width:110px;">Customer:</td><td style="border:none;padding:4px 8px;color:#0a1628;font-weight:700;">$customerName</td></tr>
+$(if($contactName){"<tr><td style='border:none;padding:4px 8px;color:#64748b;font-weight:600;'>Contact:</td><td style='border:none;padding:4px 8px;color:#0a1628;'>$contactName</td></tr>"})
+<tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Device:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$compName</td></tr>
+<tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Model:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$($sys.Manufacturer) $($sys.Model)</td></tr>
+<tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Date:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$date</td></tr>
+<tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Technician:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$techName</td></tr>
+</table>
+</div>
+</div>
+<div style="text-align:center;">
+$donutSVG
+<div style="font-size:10pt;font-weight:700;color:$scoreColor;margin-top:4px;">$($scr.Grade)</div>
+<div style="font-size:8pt;color:#64748b;margin-top:2px;">Display Wear Score</div>
+</div>
+</div>
+
+<!-- Summary strip -->
+<div class="summary-strip">
+<div class="summary-chip"><span class="chip-val" style="color:$scoreColor;">$scoreVal</span><span class="chip-lbl">Wear Score</span></div>
+<div class="summary-chip"><span class="chip-val" style="color:$riskColor;">$($scr.Risk)</span><span class="chip-lbl">Risk Level</span></div>
+<div class="summary-chip"><span class="chip-val">$($mon.MonitorCount)</span><span class="chip-lbl">Monitors</span></div>
+<div class="summary-chip"><span class="chip-val">$(if($brt.CurrentBrightness -ne $null){"$($brt.CurrentBrightness)%"}else{"N/A"})</span><span class="chip-lbl">Brightness</span></div>
+<div class="summary-chip"><span class="chip-val">$(if($sys.BIOSAgeYears){"~$($sys.BIOSAgeYears)y"}else{"N/A"})</span><span class="chip-lbl">System Age</span></div>
+<div class="summary-chip"><span class="chip-val">$(if($sys.IsLaptop){"Yes"}else{"No"})</span><span class="chip-lbl">Laptop</span></div>
+</div>
+
+<!-- Approximate Life -->
+<div class="info-card" style="border-left:5px solid $scoreColor;">
+<div style="font-size:10pt;font-weight:700;color:#0d4b71;margin-bottom:4px;">Approximate LCD / Display Life</div>
+<div style="font-size:10pt;color:#1e293b;">$($scr.ApproxLife)</div>
+</div>
+
+<div class="notice">
+<strong>$iconWarn Important:</strong> $($scr.Notes)
+</div>
+
+<!-- System info -->
+<div class="section-header"><span class="section-icon">&#128187;</span> System / Age Information</div>
+<table class="no-break">
+<tr><th>Property</th><th>Value</th></tr>
+<tr><td>Manufacturer</td><td>$($sys.Manufacturer)</td></tr>
+<tr><td>Model</td><td>$($sys.Model)</td></tr>
+<tr><td>Serial Number</td><td>$($sys.SerialNumber)</td></tr>
+<tr><td>BIOS Version</td><td>$($sys.BIOSVersion)</td></tr>
+<tr><td>BIOS Age Estimate</td><td>$(if($sys.BIOSAgeYears){"$($sys.BIOSAgeYears) years"}else{"N/A"})</td></tr>
+<tr><td>Operating System</td><td>$($sys.OS) Build $($sys.OSBuild)</td></tr>
+<tr><td>CPU</td><td>$($sys.CPU)</td></tr>
+<tr><td>RAM</td><td>$($sys.RAMGB) GB</td></tr>
+<tr><td>Laptop Detected</td><td>$(if($sys.IsLaptop){"<span class='warn'>Yes - LCD wear monitoring recommended</span>"}else{"No (Desktop)"})</td></tr>
+<tr><td>Uptime</td><td>$($sys.UptimeHours) hours</td></tr>
+</table>
+</div>
+
+<!-- =============================== PAGE 2: FINDINGS & HARDWARE =============================== -->
+<div class="page-break"></div>
+
+<div class="section-header"><span class="section-icon">&#128270;</span> Findings &amp; Recommendations</div>
+<table class="no-break">
+<tr><th>Category</th><th>Severity</th><th>Finding</th><th>Recommendation</th></tr>
+$findingRows
+</table>
+
+$(if($recsHTML){@"
+<div class="section-header"><span class="section-icon">&#128161;</span> Recommendations</div>
+<div style="margin:8px 0;">
+$recsHTML
+</div>
+"@})
+
+<div class="section-header"><span class="section-icon">&#128424;</span> Detected Monitor / Panel Information</div>
+<table class="no-break">
+<tr><th>Name</th><th>Manufacturer</th><th>Serial</th><th>Year</th><th>Active</th></tr>
+$monitorRows
+</table>
+
+<div class="section-header"><span class="section-icon">&#127912;</span> Display Adapter / Resolution</div>
+<table class="no-break">
+<tr><th>GPU</th><th>VRAM</th><th>Driver</th><th>Driver Date</th><th>Resolution</th><th>Refresh</th><th>Status</th></tr>
+$gpuRows
+</table>
+
+<div class="section-header"><span class="section-icon">&#9728;</span> Brightness Information</div>
+<table class="no-break">
+<tr><th>Property</th><th>Value</th></tr>
+<tr><td>Brightness Supported</td><td>$(if($brt.BrightnessSupported){"<span class='pass'>$iconPass Yes</span>"}else{"No (common for desktops/external monitors)"})</td></tr>
+<tr><td>Current Brightness</td><td>$(if($brt.CurrentBrightness -ne $null){"$($brt.CurrentBrightness)%"}else{"N/A"})</td></tr>
+<tr><td>Note</td><td>$($brt.Notes)</td></tr>
+</table>
+
+<!-- =============================== PAGE 3: EVENTS & THERMAL =============================== -->
+<div class="page-break"></div>
+
+<div class="section-header"><span class="section-icon">&#128200;</span> Display / GPU Stability Events (Last $($evt.DaysChecked) Days)</div>
+<div class="summary-strip" style="margin-bottom:10px;">
+<div class="summary-chip"><span class="chip-val">$($evt.EventCount)</span><span class="chip-lbl">Total Events</span></div>
+<div class="summary-chip"><span class="chip-val" style="color:$(if($evt.DriverResetCount -gt 0){'#dc2626'}else{'#22c55e'});">$($evt.DriverResetCount)</span><span class="chip-lbl">Driver Resets</span></div>
+<div class="summary-chip"><span class="chip-val">$($evt.PossibleCableReconnectCount)</span><span class="chip-lbl">Cable/Reconnect</span></div>
+</div>
+<table>
+<tr><th>Time</th><th>Source</th><th>ID</th><th>Level</th><th>Message</th></tr>
+$eventRows
+</table>
+
+<div class="section-header"><span class="section-icon">&#127777;</span> Thermal Correlation Risk</div>
+<div class="summary-strip" style="margin-bottom:10px;">
+<div class="summary-chip"><span class="chip-val" style="color:$(if($thm.ThermalEventCount -gt 0){'#f59e0b'}else{'#22c55e'});">$($thm.ThermalEventCount)</span><span class="chip-lbl">Thermal Events</span></div>
+<div class="summary-chip"><span class="chip-val">$(if($thm.MaxReportedTemperatureC){"$($thm.MaxReportedTemperatureC) C"}else{"N/A"})</span><span class="chip-lbl">Max Temp</span></div>
+</div>
+<div class="sub-header">Current Thermal Zones</div>
+<table class="no-break">
+<tr><th>Zone</th><th>Temperature</th></tr>
+$thermalZoneRows
+</table>
+<div class="notice">
+$($thm.Notes)
+</div>
+
+<!-- =============================== PAGE 4: VISUAL TEST & CHECKLIST =============================== -->
+<div class="page-break"></div>
+
+<div class="section-header"><span class="section-icon">&#128065;</span> Manual Visual Inspection Checklist</div>
+<p style="margin:8px 0 12px;font-size:9.5pt;color:#64748b;">The following tests require a technician to visually inspect the display using the LCD Visual Test page (included as a separate HTML file). Check each item after inspection.</p>
+<table class="no-break">
+<tr><th>Test</th><th>Status</th></tr>
+$manualRows
+</table>
+
+<div style="padding:14px 18px;background:#eaf7fc;border:1px solid #2596be;border-radius:8px;margin:16px 0;">
+<div style="font-size:10pt;font-weight:700;color:#0d4b71;margin-bottom:6px;">&#128161; How to Use the LCD Visual Test</div>
+<ol style="font-size:9pt;color:#1e293b;margin-left:18px;line-height:1.8;">
+<li>Open the <strong>LCD-Visual-Test.html</strong> file (saved alongside this report)</li>
+<li>Press <strong>F11</strong> to go fullscreen</li>
+<li>Use <strong>arrow keys</strong> or buttons to cycle through: White, Black, Red, Green, Blue, Gray, Gradient, Grid, and Ghosting screens</li>
+<li>On each screen, carefully inspect for: dead/stuck pixels, backlight bleed, color tint, burn-in, uniformity issues</li>
+<li>Record findings in the technician notes section above</li>
+</ol>
+</div>
+
+$techNotesHTML
+
+<!-- =============================== BACK PAGE =============================== -->
+<div class="page-break"></div>
+<div style="text-align:center;padding-top:60px;">
+$(if($logoDataUri){"<img src='$logoDataUri' alt='PC Plus Computing' style='width:250px;margin-bottom:30px;'/>"}else{"<div style='background:linear-gradient(135deg,#0a1628,#0d4b71);color:#fff;padding:16px 40px;font-size:18pt;font-weight:bold;letter-spacing:3px;border-radius:6px;margin-bottom:30px;display:inline-block;'>PC PLUS COMPUTING</div>"})
+<div style="font-size:12pt;color:#0d4b71;font-weight:600;margin-bottom:6px;">Thank you for choosing PC Plus Computing</div>
+<div style="font-size:10pt;color:#64748b;margin-bottom:30px;">Your Security, Our Priority &nbsp;|&nbsp; 30+ Years in Service &nbsp;|&nbsp; 4.9&#9733; Google Rating</div>
+<div class="qr-row">
+<div class="qr-item">
+$(if($qrAppUri){"<img src='$qrAppUri' alt='Book Appointment'/>"}else{"<div class='qr-fallback'>Book<br/>Appointment</div>"})
+<div class="qr-label">Book an Appointment</div>
+<div class="qr-sublabel">pcpluscomputing.com/appointments</div>
+</div>
+<div class="qr-item">
+$(if($qrSvcUri){"<img src='$qrSvcUri' alt='Send Info'/>"}else{"<div class='qr-fallback'>Send Us<br/>Info</div>"})
+<div class="qr-label">Send Us Your Info</div>
+<div class="qr-sublabel">Service Request Portal</div>
+</div>
+</div>
+<div style="margin-top:40px;padding:20px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;display:inline-block;">
+<div style="font-size:11pt;font-weight:700;color:#0a1628;margin-bottom:8px;">Get In Touch</div>
+<div style="font-size:10pt;color:#475569;">
+&#127760; $WEBSITE &nbsp;&nbsp;|&nbsp;&nbsp; &#128222; $PHONE
+</div>
+</div>
+<div style="margin-top:40px;font-size:8pt;color:#94a3b8;">
+LCD Display Wear &amp; Life Report generated $date<br/>
 Technician: $techName &nbsp;|&nbsp; Device: $compName
 </div>
 </div>

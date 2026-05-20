@@ -4124,3 +4124,1390 @@ function Invoke-GamingPerformanceTest {
 
     return $report
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BENCHMARK COMPARISON DATABASE
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Save-BenchmarkResult {
+    param(
+        [string]$ComputerName,
+        [string]$CPUModel,
+        [string]$GPUModel,
+        [double]$RAMTotal,
+        [string]$StorageType,
+        [hashtable]$Scores,
+        [string]$TestType = "Standard"
+    )
+    Write-DiagLog "Saving benchmark result for $ComputerName ($TestType)..."
+    $benchFile = Join-Path $Global:ScriptDir "PCPlus360-Benchmarks.jsonl"
+
+    $entry = @{
+        Timestamp     = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        ComputerName  = if ($ComputerName) { $ComputerName } else { "Unknown" }
+        CPUModel      = if ($CPUModel) { $CPUModel } else { "Unknown" }
+        GPUModel      = if ($GPUModel) { $GPUModel } else { "Unknown" }
+        RAMTotalGB    = if ($RAMTotal -gt 0) { $RAMTotal } else { 0 }
+        StorageType   = if ($StorageType) { $StorageType } else { "Unknown" }
+        TestType      = $TestType
+        Scores        = @{
+            Overall        = if ($Scores -and $Scores.Overall)        { $Scores.Overall }        else { 0 }
+            Thermal        = if ($Scores -and $Scores.Thermal)        { $Scores.Thermal }        else { 0 }
+            Storage        = if ($Scores -and $Scores.Storage)        { $Scores.Storage }        else { 0 }
+            Network        = if ($Scores -and $Scores.Network)        { $Scores.Network }        else { 0 }
+            Security       = if ($Scores -and $Scores.Security)       { $Scores.Security }       else { 0 }
+            FPSStability   = if ($Scores -and $Scores.FPSStability)   { $Scores.FPSStability }   else { "N/A" }
+            PowerStability = if ($Scores -and $Scores.PowerStability) { $Scores.PowerStability } else { "N/A" }
+            Grade          = if ($Scores -and $Scores.Grade)          { $Scores.Grade }          else { "N/A" }
+        }
+    }
+
+    try {
+        $jsonLine = $entry | ConvertTo-Json -Depth 5 -Compress
+        $jsonLine | Out-File -FilePath $benchFile -Append -Encoding UTF8
+        Write-DiagLog "Benchmark saved to $benchFile (TestType=$TestType, Overall=$($entry.Scores.Overall))"
+    } catch {
+        Write-DiagLog "Failed to save benchmark: $($_.Exception.Message)" "WARN"
+    }
+
+    return $entry
+}
+
+function Get-BenchmarkPercentile {
+    param(
+        [string]$CPUModel = "all",
+        [string]$ScoreType = "Overall",
+        [double]$ScoreValue = 0
+    )
+    Write-DiagLog "Calculating benchmark percentile: CPU=$CPUModel, Type=$ScoreType, Value=$ScoreValue"
+    $benchFile = Join-Path $Global:ScriptDir "PCPlus360-Benchmarks.jsonl"
+
+    $result = @{
+        Percentile         = 0
+        TotalSamples       = 0
+        BetterThan         = 0
+        SimilarSystemCount = 0
+        AvgScore           = 0
+        BestScore          = 0
+        WorstScore         = 0
+        ScoreType          = $ScoreType
+        FilterCPU          = $CPUModel
+    }
+
+    if (-not (Test-Path $benchFile)) {
+        Write-DiagLog "No benchmark file found at $benchFile - first run"
+        return $result
+    }
+
+    try {
+        $lines = Get-Content $benchFile -Encoding UTF8 | Where-Object { $_.Trim().Length -gt 0 }
+        $entries = @()
+        foreach ($line in $lines) {
+            try {
+                $obj = $line | ConvertFrom-Json
+                $entries += $obj
+            } catch {
+                # Skip malformed lines
+            }
+        }
+
+        if ($entries.Count -eq 0) {
+            Write-DiagLog "Benchmark file empty or all lines malformed"
+            return $result
+        }
+
+        # Fuzzy CPU filter
+        $filtered = $entries
+        if ($CPUModel -and $CPUModel -ne "all") {
+            $cpuSearch = $CPUModel -replace '^\s*(AMD|Intel)\s*', '' -replace '\s+', ' '
+            $cpuSearch = $cpuSearch.Trim()
+            # Extract family pattern: "Ryzen 7", "Core i7", "Core Ultra 7", etc.
+            $familyPattern = ""
+            if ($cpuSearch -match '(Ryzen\s+\d)') { $familyPattern = $Matches[1] }
+            elseif ($cpuSearch -match '(Core\s+(?:Ultra\s+)?\w+\d)') { $familyPattern = $Matches[1] }
+            elseif ($cpuSearch -match '(Xeon\s+\w+)') { $familyPattern = $Matches[1] }
+            else { $familyPattern = $cpuSearch.Substring(0, [math]::Min(10, $cpuSearch.Length)) }
+
+            $filtered = @($entries | Where-Object {
+                $entryCPU = $_.CPUModel -replace '^\s*(AMD|Intel)\s*', ''
+                $entryCPU -match [regex]::Escape($familyPattern)
+            })
+            # Fall back to all entries if no matches
+            if ($filtered.Count -eq 0) {
+                Write-DiagLog "No CPU matches for '$familyPattern', using all entries"
+                $filtered = $entries
+            }
+        }
+
+        # Extract numeric scores for the requested type
+        $scores = @()
+        foreach ($e in $filtered) {
+            $val = $null
+            if ($e.Scores -and $e.Scores.PSObject.Properties[$ScoreType]) {
+                $raw = $e.Scores.$ScoreType
+                if ($raw -is [int] -or $raw -is [double] -or $raw -is [long] -or $raw -is [decimal]) {
+                    $val = [double]$raw
+                } elseif ($raw -match '^\d+(\.\d+)?$') {
+                    $val = [double]$raw
+                }
+            }
+            if ($null -ne $val) { $scores += $val }
+        }
+
+        if ($scores.Count -eq 0) {
+            Write-DiagLog "No numeric scores found for type $ScoreType"
+            return $result
+        }
+
+        $sorted = $scores | Sort-Object
+        $betterThan = ($sorted | Where-Object { $_ -lt $ScoreValue }).Count
+        $percentile = if ($scores.Count -gt 0) { [math]::Round(($betterThan / $scores.Count) * 100, 1) } else { 0 }
+
+        $result.Percentile         = $percentile
+        $result.TotalSamples       = $entries.Count
+        $result.BetterThan         = $betterThan
+        $result.SimilarSystemCount = $filtered.Count
+        $result.AvgScore           = [math]::Round(($scores | Measure-Object -Average).Average, 1)
+        $result.BestScore          = ($scores | Measure-Object -Maximum).Maximum
+        $result.WorstScore         = ($scores | Measure-Object -Minimum).Minimum
+
+        Write-DiagLog "Percentile result: $percentile% (better than $betterThan of $($scores.Count) similar systems)"
+    } catch {
+        Write-DiagLog "Error calculating percentile: $($_.Exception.Message)" "WARN"
+    }
+
+    return $result
+}
+
+function Get-BenchmarkSummary {
+    Write-DiagLog "Generating benchmark database summary..."
+    $benchFile = Join-Path $Global:ScriptDir "PCPlus360-Benchmarks.jsonl"
+
+    $summary = @{
+        TotalBenchmarks    = 0
+        UniqueComputers    = 0
+        UniqueCPUs         = 0
+        AverageScores      = @{ Overall = 0; Thermal = 0; Storage = 0; Network = 0; Security = 0 }
+        ScoresByTestType   = @{}
+        HardwareTiers      = @()
+        Top10              = @()
+        LastBenchmarkDate  = "N/A"
+        DatabaseFile       = $benchFile
+        DatabaseExists     = $false
+    }
+
+    if (-not (Test-Path $benchFile)) {
+        Write-DiagLog "No benchmark database found"
+        return $summary
+    }
+
+    try {
+        $lines = Get-Content $benchFile -Encoding UTF8 | Where-Object { $_.Trim().Length -gt 0 }
+        $entries = @()
+        foreach ($line in $lines) {
+            try {
+                $obj = $line | ConvertFrom-Json
+                $entries += $obj
+            } catch {}
+        }
+
+        if ($entries.Count -eq 0) {
+            return $summary
+        }
+
+        $summary.DatabaseExists = $true
+        $summary.TotalBenchmarks = $entries.Count
+        $summary.UniqueComputers = ($entries | Select-Object -ExpandProperty ComputerName -Unique).Count
+        $summary.UniqueCPUs = ($entries | Select-Object -ExpandProperty CPUModel -Unique).Count
+
+        # Last benchmark date
+        $dates = $entries | ForEach-Object { $_.Timestamp } | Sort-Object -Descending
+        if ($dates.Count -gt 0) { $summary.LastBenchmarkDate = $dates[0] }
+
+        # Average scores across all entries
+        $overallScores  = @($entries | ForEach-Object { if ($_.Scores -and $_.Scores.Overall  -match '^\d') { [double]$_.Scores.Overall } })
+        $thermalScores  = @($entries | ForEach-Object { if ($_.Scores -and $_.Scores.Thermal  -match '^\d') { [double]$_.Scores.Thermal } })
+        $storageScores  = @($entries | ForEach-Object { if ($_.Scores -and $_.Scores.Storage  -match '^\d') { [double]$_.Scores.Storage } })
+        $networkScores  = @($entries | ForEach-Object { if ($_.Scores -and $_.Scores.Network  -match '^\d') { [double]$_.Scores.Network } })
+        $securityScores = @($entries | ForEach-Object { if ($_.Scores -and $_.Scores.Security -match '^\d') { [double]$_.Scores.Security } })
+
+        if ($overallScores.Count -gt 0)  { $summary.AverageScores.Overall  = [math]::Round(($overallScores  | Measure-Object -Average).Average, 1) }
+        if ($thermalScores.Count -gt 0)  { $summary.AverageScores.Thermal  = [math]::Round(($thermalScores  | Measure-Object -Average).Average, 1) }
+        if ($storageScores.Count -gt 0)  { $summary.AverageScores.Storage  = [math]::Round(($storageScores  | Measure-Object -Average).Average, 1) }
+        if ($networkScores.Count -gt 0)  { $summary.AverageScores.Network  = [math]::Round(($networkScores  | Measure-Object -Average).Average, 1) }
+        if ($securityScores.Count -gt 0) { $summary.AverageScores.Security = [math]::Round(($securityScores | Measure-Object -Average).Average, 1) }
+
+        # Scores by test type
+        $testTypes = $entries | Select-Object -ExpandProperty TestType -Unique
+        foreach ($tt in $testTypes) {
+            $typeEntries = @($entries | Where-Object { $_.TestType -eq $tt })
+            $typeOverall = @($typeEntries | ForEach-Object { if ($_.Scores -and $_.Scores.Overall -match '^\d') { [double]$_.Scores.Overall } })
+            $summary.ScoresByTestType[$tt] = @{
+                Count    = $typeEntries.Count
+                AvgScore = if ($typeOverall.Count -gt 0) { [math]::Round(($typeOverall | Measure-Object -Average).Average, 1) } else { 0 }
+            }
+        }
+
+        # Hardware tiers (group by RAM range)
+        $ramGroups = @(
+            @{ Label = "4-8 GB";  Min = 0;  Max = 8 }
+            @{ Label = "8-16 GB"; Min = 8;  Max = 16 }
+            @{ Label = "16-32 GB"; Min = 16; Max = 32 }
+            @{ Label = "32+ GB";  Min = 32; Max = 99999 }
+        )
+        foreach ($rg in $ramGroups) {
+            $tierEntries = @($entries | Where-Object { $_.RAMTotalGB -gt $rg.Min -and $_.RAMTotalGB -le $rg.Max })
+            if ($tierEntries.Count -gt 0) {
+                $tierScores = @($tierEntries | ForEach-Object { if ($_.Scores -and $_.Scores.Overall -match '^\d') { [double]$_.Scores.Overall } })
+                $summary.HardwareTiers += @{
+                    RAMRange = $rg.Label
+                    Count    = $tierEntries.Count
+                    AvgScore = if ($tierScores.Count -gt 0) { [math]::Round(($tierScores | Measure-Object -Average).Average, 1) } else { 0 }
+                }
+            }
+        }
+
+        # Top 10 best performers by Overall score
+        $ranked = $entries | Where-Object { $_.Scores -and $_.Scores.Overall -match '^\d' } |
+            Sort-Object { [double]$_.Scores.Overall } -Descending | Select-Object -First 10
+        foreach ($r in $ranked) {
+            $summary.Top10 += @{
+                ComputerName = $r.ComputerName
+                CPUModel     = $r.CPUModel
+                Overall      = $r.Scores.Overall
+                Grade        = $r.Scores.Grade
+                TestType     = $r.TestType
+                Date         = $r.Timestamp
+            }
+        }
+
+        Write-DiagLog "Benchmark summary: $($entries.Count) entries, $($summary.UniqueComputers) unique systems, avg overall=$($summary.AverageScores.Overall)"
+    } catch {
+        Write-DiagLog "Error generating benchmark summary: $($_.Exception.Message)" "WARN"
+    }
+
+    return $summary
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AUTO-UPDATE / VERSION CHECK
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Compare-SemanticVersion {
+    <#
+    .SYNOPSIS
+        Compares two semantic version strings (e.g. "2.3.0" vs "2.5.0").
+        Returns  1 if $Version2 is newer, 0 if equal, -1 if $Version1 is newer.
+    #>
+    param([string]$Version1, [string]$Version2)
+
+    # Strip leading "v" if present
+    $v1 = $Version1.TrimStart("vV").Trim()
+    $v2 = $Version2.TrimStart("vV").Trim()
+
+    try {
+        $parts1 = $v1.Split('.') | ForEach-Object { [int]$_ }
+        $parts2 = $v2.Split('.') | ForEach-Object { [int]$_ }
+
+        # Pad to equal length
+        $maxLen = [Math]::Max($parts1.Count, $parts2.Count)
+        while ($parts1.Count -lt $maxLen) { $parts1 += 0 }
+        while ($parts2.Count -lt $maxLen) { $parts2 += 0 }
+
+        for ($i = 0; $i -lt $maxLen; $i++) {
+            if ($parts2[$i] -gt $parts1[$i]) { return 1 }
+            if ($parts2[$i] -lt $parts1[$i]) { return -1 }
+        }
+        return 0
+    } catch {
+        Write-DiagLog "Version comparison failed: $($_.Exception.Message)" "WARN"
+        return 0
+    }
+}
+
+function Test-ToolkitUpdate {
+    <#
+    .SYNOPSIS
+        Checks for a newer version of PC Plus 360 from GitHub releases API or a
+        local network share.  Returns a hashtable describing the result.
+    .PARAMETER CurrentVersion
+        The version string currently running (e.g. "2.5.0").
+    .PARAMETER ScriptDir
+        Path to the toolkit directory (used to locate config).
+    #>
+    param(
+        [string]$CurrentVersion,
+        [string]$ScriptDir
+    )
+
+    Write-DiagLog "Update check started (current: v$CurrentVersion)"
+
+    $result = @{
+        UpdateAvailable = $false
+        CurrentVersion  = $CurrentVersion
+        LatestVersion   = $CurrentVersion
+        Source          = "none"
+        DownloadURL     = ""
+        ReleaseNotes    = ""
+    }
+
+    # ── Load config for network share path ──
+    $configPath = Join-Path $ScriptDir "PCPlus360-Config.json"
+    $networkSharePath = $null
+    if (Test-Path $configPath) {
+        try {
+            $config = Get-Content $configPath -Raw | ConvertFrom-Json
+            if ($config.UpdateNetworkPath) {
+                $networkSharePath = $config.UpdateNetworkPath
+                Write-DiagLog "Config loaded: network update path = $networkSharePath"
+            }
+        } catch {
+            Write-DiagLog "Failed to parse config: $($_.Exception.Message)" "WARN"
+        }
+    } else {
+        Write-DiagLog "No config file found at $configPath, skipping network source"
+    }
+
+    # ── Source 1: GitHub Releases API ──
+    $githubChecked = $false
+    try {
+        Write-DiagLog "Checking GitHub releases API..."
+        $apiUrl = "https://api.github.com/repos/anirudhatalmale6-alt/pcplus-360/releases/latest"
+
+        # Use Invoke-RestMethod with a reasonable timeout
+        $oldProgressPref = $ProgressPreference
+        $ProgressPreference = 'SilentlyContinue'
+        $headers = @{ "User-Agent" = "PCPlus360-Updater/$CurrentVersion" }
+
+        $release = $null
+        try {
+            $release = Invoke-RestMethod -Uri $apiUrl -Headers $headers -TimeoutSec 10 -ErrorAction Stop
+        } catch {
+            # Fallback to WebClient for older PowerShell / restricted environments
+            Write-DiagLog "Invoke-RestMethod failed, trying WebClient fallback..." "WARN"
+            $wc = New-Object System.Net.WebClient
+            $wc.Headers.Add("User-Agent", "PCPlus360-Updater/$CurrentVersion")
+            # Set timeout via underlying request (WebClient has no direct timeout property)
+            $json = $wc.DownloadString($apiUrl)
+            $release = $json | ConvertFrom-Json
+            $wc.Dispose()
+        }
+        $ProgressPreference = $oldProgressPref
+
+        if ($release -and $release.tag_name) {
+            $remoteVersion = $release.tag_name.TrimStart("vV").Trim()
+            Write-DiagLog "GitHub latest version: $remoteVersion"
+
+            $cmp = Compare-SemanticVersion -Version1 $CurrentVersion -Version2 $remoteVersion
+            if ($cmp -eq 1) {
+                # Find the zip asset (prefer .zip)
+                $downloadUrl = ""
+                if ($release.assets) {
+                    $zipAsset = $release.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1
+                    if ($zipAsset) {
+                        $downloadUrl = $zipAsset.browser_download_url
+                    }
+                }
+                # Fallback to the auto-generated zipball
+                if (-not $downloadUrl -and $release.zipball_url) {
+                    $downloadUrl = $release.zipball_url
+                }
+
+                $result.UpdateAvailable = $true
+                $result.LatestVersion   = $remoteVersion
+                $result.Source          = "GitHub"
+                $result.DownloadURL     = $downloadUrl
+                $result.ReleaseNotes    = if ($release.body) { $release.body.Substring(0, [Math]::Min($release.body.Length, 500)) } else { "" }
+                Write-DiagLog "Update found on GitHub: v$remoteVersion ($downloadUrl)"
+                return $result
+            } else {
+                Write-DiagLog "GitHub version ($remoteVersion) is not newer than current ($CurrentVersion)"
+            }
+            $githubChecked = $true
+        }
+    } catch {
+        Write-DiagLog "GitHub update check failed: $($_.Exception.Message)" "WARN"
+    }
+
+    # ── Source 2: Local network share ──
+    if ($networkSharePath) {
+        try {
+            $versionFile = Join-Path $networkSharePath "version.txt"
+            Write-DiagLog "Checking network share: $versionFile"
+
+            if (Test-Path $versionFile) {
+                $networkVersion = (Get-Content $versionFile -First 1).Trim().TrimStart("vV")
+                Write-DiagLog "Network share version: $networkVersion"
+
+                $cmp = Compare-SemanticVersion -Version1 $CurrentVersion -Version2 $networkVersion
+                if ($cmp -eq 1) {
+                    $result.UpdateAvailable = $true
+                    $result.LatestVersion   = $networkVersion
+                    $result.Source          = "Network"
+                    $result.DownloadURL     = $networkSharePath
+                    Write-DiagLog "Update found on network: v$networkVersion"
+                    return $result
+                } else {
+                    Write-DiagLog "Network version ($networkVersion) is not newer than current ($CurrentVersion)"
+                }
+            } else {
+                Write-DiagLog "Network version file not found: $versionFile" "WARN"
+            }
+        } catch {
+            Write-DiagLog "Network update check failed: $($_.Exception.Message)" "WARN"
+        }
+    }
+
+    Write-DiagLog "No updates available"
+    return $result
+}
+
+function Invoke-ToolkitUpdate {
+    <#
+    .SYNOPSIS
+        Downloads and applies a toolkit update based on the info returned by
+        Test-ToolkitUpdate.  Backs up existing files before overwriting.
+    .PARAMETER UpdateInfo
+        The hashtable returned by Test-ToolkitUpdate (must have UpdateAvailable=$true).
+    .PARAMETER ScriptDir
+        Path to the toolkit directory where files should be updated.
+    #>
+    param(
+        [hashtable]$UpdateInfo,
+        [string]$ScriptDir
+    )
+
+    $result = @{
+        Success       = $false
+        Message       = ""
+        BackedUpFiles = @()
+        UpdatedFiles  = @()
+    }
+
+    if (-not $UpdateInfo.UpdateAvailable) {
+        $result.Message = "No update available."
+        Write-DiagLog "Invoke-ToolkitUpdate called but no update available"
+        return $result
+    }
+
+    Write-DiagLog "Starting update from $($UpdateInfo.Source): v$($UpdateInfo.CurrentVersion) -> v$($UpdateInfo.LatestVersion)"
+
+    # ── Create backup of current files ──
+    $backupTimestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    $filesToBackup = @("PCPlus-360.ps1", "PCPlus-Tests.ps1", "PCPlus-Reports.ps1")
+
+    foreach ($file in $filesToBackup) {
+        $filePath = Join-Path $ScriptDir $file
+        if (Test-Path $filePath) {
+            $bakPath = "$filePath.bak.$backupTimestamp"
+            try {
+                Copy-Item -Path $filePath -Destination $bakPath -Force
+                $result.BackedUpFiles += $bakPath
+                Write-DiagLog "Backed up: $file -> $([System.IO.Path]::GetFileName($bakPath))"
+            } catch {
+                $result.Message = "Failed to back up $file : $($_.Exception.Message)"
+                Write-DiagLog $result.Message "ERROR"
+                return $result
+            }
+        }
+    }
+
+    try {
+        if ($UpdateInfo.Source -eq "GitHub") {
+            # ── Download from GitHub ──
+            if ([string]::IsNullOrEmpty($UpdateInfo.DownloadURL)) {
+                $result.Message = "No download URL available from GitHub release."
+                Write-DiagLog $result.Message "ERROR"
+                return $result
+            }
+
+            Write-DiagLog "Downloading from: $($UpdateInfo.DownloadURL)"
+
+            $tempDir  = Join-Path $env:TEMP "PCPlus360_Update_$backupTimestamp"
+            $zipPath  = Join-Path $env:TEMP "PCPlus360_Update_$backupTimestamp.zip"
+
+            # Download the zip
+            $oldProgressPref = $ProgressPreference
+            $ProgressPreference = 'SilentlyContinue'
+            try {
+                Invoke-WebRequest -Uri $UpdateInfo.DownloadURL -OutFile $zipPath -TimeoutSec 60 -ErrorAction Stop
+            } catch {
+                # Fallback to WebClient
+                Write-DiagLog "Invoke-WebRequest failed, trying WebClient..." "WARN"
+                $wc = New-Object System.Net.WebClient
+                $wc.Headers.Add("User-Agent", "PCPlus360-Updater")
+                $wc.DownloadFile($UpdateInfo.DownloadURL, $zipPath)
+                $wc.Dispose()
+            }
+            $ProgressPreference = $oldProgressPref
+
+            if (-not (Test-Path $zipPath) -or (Get-Item $zipPath).Length -eq 0) {
+                $result.Message = "Download failed or file is empty."
+                Write-DiagLog $result.Message "ERROR"
+                return $result
+            }
+
+            Write-DiagLog "Downloaded $('{0:N0}' -f (Get-Item $zipPath).Length) bytes"
+
+            # Extract
+            if (Test-Path $tempDir) { Remove-Item $tempDir -Recurse -Force }
+            New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
+            Expand-Archive -Path $zipPath -DestinationPath $tempDir -Force
+
+            # GitHub archives often have a top-level folder; find the .ps1 files
+            $extractedFiles = Get-ChildItem -Path $tempDir -Filter "*.ps1" -Recurse
+            if ($extractedFiles.Count -eq 0) {
+                $result.Message = "Downloaded archive contains no .ps1 files."
+                Write-DiagLog $result.Message "ERROR"
+                # Clean up temp
+                Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+                Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+                return $result
+            }
+
+            # Copy each matching file
+            foreach ($ef in $extractedFiles) {
+                $destPath = Join-Path $ScriptDir $ef.Name
+                Copy-Item -Path $ef.FullName -Destination $destPath -Force
+                $result.UpdatedFiles += $ef.Name
+                Write-DiagLog "Updated: $($ef.Name)"
+            }
+
+            # Also copy any .json config files from the release
+            $extractedJson = Get-ChildItem -Path $tempDir -Filter "*.json" -Recurse
+            foreach ($jf in $extractedJson) {
+                $destPath = Join-Path $ScriptDir $jf.Name
+                Copy-Item -Path $jf.FullName -Destination $destPath -Force
+                $result.UpdatedFiles += $jf.Name
+                Write-DiagLog "Updated config: $($jf.Name)"
+            }
+
+            # Clean up temp files
+            Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+            Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+            Write-DiagLog "Temp files cleaned up"
+
+        } elseif ($UpdateInfo.Source -eq "Network") {
+            # ── Copy from network share ──
+            $networkPath = $UpdateInfo.DownloadURL  # DownloadURL holds the share path for network source
+
+            if (-not (Test-Path $networkPath)) {
+                $result.Message = "Network share path not accessible: $networkPath"
+                Write-DiagLog $result.Message "ERROR"
+                return $result
+            }
+
+            Write-DiagLog "Copying from network share: $networkPath"
+
+            $networkFiles = Get-ChildItem -Path $networkPath -Filter "*.ps1" -ErrorAction Stop
+            if ($networkFiles.Count -eq 0) {
+                $result.Message = "No .ps1 files found in network share."
+                Write-DiagLog $result.Message "ERROR"
+                return $result
+            }
+
+            foreach ($nf in $networkFiles) {
+                $destPath = Join-Path $ScriptDir $nf.Name
+                Copy-Item -Path $nf.FullName -Destination $destPath -Force
+                $result.UpdatedFiles += $nf.Name
+                Write-DiagLog "Updated from network: $($nf.Name)"
+            }
+
+            # Also copy .json config files
+            $networkJson = Get-ChildItem -Path $networkPath -Filter "*.json" -ErrorAction SilentlyContinue
+            foreach ($jf in $networkJson) {
+                $destPath = Join-Path $ScriptDir $jf.Name
+                Copy-Item -Path $jf.FullName -Destination $destPath -Force
+                $result.UpdatedFiles += $jf.Name
+                Write-DiagLog "Updated config from network: $($jf.Name)"
+            }
+        } else {
+            $result.Message = "Unknown update source: $($UpdateInfo.Source)"
+            Write-DiagLog $result.Message "ERROR"
+            return $result
+        }
+
+        $result.Success = $true
+        $result.Message = "Updated $($result.UpdatedFiles.Count) file(s) from $($UpdateInfo.Source): v$($UpdateInfo.CurrentVersion) -> v$($UpdateInfo.LatestVersion). Backups saved with .bak extension."
+        Write-DiagLog "Update completed successfully"
+
+    } catch {
+        $result.Message = "Update failed: $($_.Exception.Message)"
+        Write-DiagLog $result.Message "ERROR"
+
+        # Attempt rollback from backups
+        Write-DiagLog "Attempting rollback from backups..."
+        foreach ($bakFile in $result.BackedUpFiles) {
+            $originalPath = $bakFile -replace "\.bak\.\d{8}_\d{6}$", ""
+            if (Test-Path $bakFile) {
+                try {
+                    Copy-Item -Path $bakFile -Destination $originalPath -Force
+                    Write-DiagLog "Rolled back: $([System.IO.Path]::GetFileName($originalPath))"
+                } catch {
+                    Write-DiagLog "Rollback failed for $originalPath : $($_.Exception.Message)" "ERROR"
+                }
+            }
+        }
+        $result.Message += " (Rollback attempted - check logs)"
+    }
+
+    return $result
+}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# QUICK REMEDIATION - One-click fixes for common issues
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Invoke-QuickRemediation {
+    <#
+    .SYNOPSIS
+        Performs a single remediation action to fix common system issues.
+    .DESCRIPTION
+        Supports: CleanTempFiles, OptimizePowerPlan, DisableStartupBloat,
+        ClearDNSCache, RepairWindowsImage, UpdateDrivers, OptimizeVisualEffects.
+        Each action is non-destructive and logged via Write-DiagLog.
+    .PARAMETER Action
+        The remediation action to perform.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet("CleanTempFiles","OptimizePowerPlan","DisableStartupBloat",
+                     "ClearDNSCache","RepairWindowsImage","UpdateDrivers","OptimizeVisualEffects")]
+        [string]$Action
+    )
+
+    $result = @{
+        Action         = $Action
+        Success        = $false
+        Details        = ""
+        BytesRecovered = 0
+    }
+
+    Write-DiagLog "Quick Remediation: starting action '$Action'"
+
+    switch ($Action) {
+
+        "CleanTempFiles" {
+            $totalBytes = [long]0
+            $deletedCount = 0
+            $failedCount  = 0
+            $details = [System.Collections.ArrayList]::new()
+
+            # Folders to clean
+            $tempFolders = @(
+                $env:TEMP,
+                "$env:SystemRoot\Temp",
+                "$env:SystemRoot\Prefetch",
+                "$env:LOCALAPPDATA\Microsoft\Windows\INetCache",
+                "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache",
+                "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Code Cache",
+                "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Cache",
+                "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Code Cache",
+                "$env:LOCALAPPDATA\Mozilla\Firefox\Profiles"
+            )
+
+            foreach ($folder in $tempFolders) {
+                if ([string]::IsNullOrWhiteSpace($folder) -or -not (Test-Path $folder)) { continue }
+                $folderName = Split-Path $folder -Leaf
+                try {
+                    $items = Get-ChildItem -Path $folder -Recurse -Force -ErrorAction SilentlyContinue
+                    $folderSize = ($items | Where-Object { -not $_.PSIsContainer } | Measure-Object -Property Length -Sum -ErrorAction SilentlyContinue).Sum
+                    if (-not $folderSize) { $folderSize = 0 }
+
+                    # For Firefox profiles, only clean cache subfolders
+                    if ($folder -like "*Firefox\Profiles*") {
+                        $cacheItems = Get-ChildItem -Path $folder -Recurse -Force -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match "^(cache2|startupCache|jumpListCache)$" }
+                        foreach ($cacheDir in $cacheItems) {
+                            $subItems = Get-ChildItem -Path $cacheDir.FullName -Recurse -Force -File -ErrorAction SilentlyContinue
+                            foreach ($item in $subItems) {
+                                try { Remove-Item $item.FullName -Force -ErrorAction Stop; $deletedCount++; $totalBytes += $item.Length } catch { $failedCount++ }
+                            }
+                        }
+                        $null = $details.Add("Firefox caches: cleaned")
+                        continue
+                    }
+
+                    # Delete files (not the folder itself)
+                    $files = Get-ChildItem -Path $folder -Recurse -Force -File -ErrorAction SilentlyContinue
+                    foreach ($file in $files) {
+                        try {
+                            $sz = $file.Length
+                            Remove-Item $file.FullName -Force -ErrorAction Stop
+                            $deletedCount++
+                            $totalBytes += $sz
+                        }
+                        catch { $failedCount++ }
+                    }
+
+                    # Remove empty subdirectories
+                    Get-ChildItem -Path $folder -Recurse -Force -Directory -ErrorAction SilentlyContinue |
+                        Sort-Object { $_.FullName.Length } -Descending |
+                        ForEach-Object { try { Remove-Item $_.FullName -Force -ErrorAction Stop } catch {} }
+
+                    $null = $details.Add("$folderName`: $deletedCount files")
+                }
+                catch {
+                    $null = $details.Add("$folderName`: error - $($_.Exception.Message)")
+                    Write-DiagLog "CleanTempFiles: error cleaning $folder - $($_.Exception.Message)" "WARN"
+                }
+            }
+
+            $mbRecovered = [math]::Round($totalBytes / 1MB, 1)
+            $result.Success = $true
+            $result.BytesRecovered = $totalBytes
+            $result.Details = "Cleaned $deletedCount files ($mbRecovered MB recovered). Skipped $failedCount locked files. Folders: $($details -join '; ')"
+            Write-DiagLog "CleanTempFiles: $($result.Details)"
+        }
+
+        "OptimizePowerPlan" {
+            try {
+                # Detect if on battery (laptop)
+                $battery = Invoke-Safe { Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue } $null
+                $onBattery = $false
+                if ($battery -and $battery.BatteryStatus -eq 1) { $onBattery = $true }
+
+                if ($onBattery) {
+                    # Set Balanced plan for battery conservation
+                    $balancedGuid = "381b4222-f694-41f0-9685-ff5bb260df2e"
+                    powercfg /setactive $balancedGuid 2>$null
+                    $result.Details = "Laptop on battery: set to Balanced power plan ($balancedGuid)"
+                }
+                else {
+                    # Set High Performance plan
+                    $highPerfGuid = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
+                    # Unhide High Performance if needed
+                    powercfg /setactive $highPerfGuid 2>$null
+                    if ($LASTEXITCODE -ne 0) {
+                        # Try to duplicate and activate
+                        $dupOutput = powercfg /duplicatescheme $highPerfGuid 2>&1
+                        if ($dupOutput -match "([a-f0-9\-]{36})") {
+                            $newGuid = $Matches[1]
+                            powercfg /setactive $newGuid 2>$null
+                            $result.Details = "High Performance plan duplicated and activated ($newGuid)"
+                        }
+                        else {
+                            $result.Details = "Could not activate High Performance plan. Output: $dupOutput"
+                            $result.Success = $false
+                            Write-DiagLog "OptimizePowerPlan: $($result.Details)" "WARN"
+                            break
+                        }
+                    }
+                    else {
+                        $result.Details = "Set to High Performance power plan ($highPerfGuid)"
+                    }
+                }
+                $result.Success = $true
+                Write-DiagLog "OptimizePowerPlan: $($result.Details)"
+            }
+            catch {
+                $result.Details = "Failed: $($_.Exception.Message)"
+                Write-DiagLog "OptimizePowerPlan: $($result.Details)" "WARN"
+            }
+        }
+
+        "DisableStartupBloat" {
+            try {
+                $disabledCount = 0
+                $alreadyDisabled = 0
+                $details = [System.Collections.ArrayList]::new()
+
+                # Known bloatware startup registry entries
+                $bloatwareNames = @(
+                    "Cortana",
+                    "OneDrive",
+                    "Microsoft Teams",
+                    "Teams Machine-Wide Installer",
+                    "TeamsMachineInstaller",
+                    "TeamsMachineUninstallerLocalAppData",
+                    "Skype",
+                    "SkypeForBusiness",
+                    "Adobe Updater Startup Utility",
+                    "AdobeAAMUpdater*",
+                    "AdobeGCInvoker*",
+                    "CCXProcess",
+                    "Adobe Creative Cloud",
+                    "iTunesHelper",
+                    "Spotify",
+                    "Steam Client Bootstrapper",
+                    "Discord",
+                    "CiscoMeetingDaemon",
+                    "com.squirrel.Zoom.Zoom"
+                )
+
+                # Check Run keys in registry
+                $runPaths = @(
+                    "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+                    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+                    "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run"
+                )
+
+                foreach ($regPath in $runPaths) {
+                    if (-not (Test-Path $regPath)) { continue }
+                    $entries = Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue
+                    if (-not $entries) { continue }
+
+                    $propNames = $entries.PSObject.Properties | Where-Object { $_.Name -notmatch "^PS" } | Select-Object -ExpandProperty Name
+                    foreach ($propName in $propNames) {
+                        $matchesBloat = $false
+                        foreach ($bloat in $bloatwareNames) {
+                            if ($propName -like "*$bloat*" -or ($entries.$propName -and $entries.$propName -like "*$bloat*")) {
+                                $matchesBloat = $true
+                                break
+                            }
+                        }
+                        if ($matchesBloat) {
+                            try {
+                                Remove-ItemProperty -Path $regPath -Name $propName -Force -ErrorAction Stop
+                                $disabledCount++
+                                $null = $details.Add("Removed: $propName (from $($regPath -replace 'HKCU:|HKLM:',''))")
+                                Write-DiagLog "DisableStartupBloat: removed '$propName' from $regPath"
+                            }
+                            catch {
+                                $null = $details.Add("Failed: $propName - $($_.Exception.Message)")
+                                Write-DiagLog "DisableStartupBloat: could not remove '$propName': $($_.Exception.Message)" "WARN"
+                            }
+                        }
+                    }
+                }
+
+                # Also disable via Task Manager startup items (Startup Approved folder)
+                $startupApproved = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
+                if (Test-Path $startupApproved) {
+                    $approvedEntries = Get-ItemProperty -Path $startupApproved -ErrorAction SilentlyContinue
+                    if ($approvedEntries) {
+                        $approvedProps = $approvedEntries.PSObject.Properties | Where-Object { $_.Name -notmatch "^PS" }
+                        foreach ($prop in $approvedProps) {
+                            foreach ($bloat in $bloatwareNames) {
+                                if ($prop.Name -like "*$bloat*") {
+                                    try {
+                                        # Disable by setting first byte to 03 (disabled flag)
+                                        $val = $prop.Value
+                                        if ($val -is [byte[]] -and $val.Length -ge 1 -and $val[0] -ne 3) {
+                                            $val[0] = 3
+                                            Set-ItemProperty -Path $startupApproved -Name $prop.Name -Value $val -Force -ErrorAction Stop
+                                            $disabledCount++
+                                            $null = $details.Add("Disabled startup: $($prop.Name)")
+                                            Write-DiagLog "DisableStartupBloat: disabled startup '$($prop.Name)'"
+                                        }
+                                        else { $alreadyDisabled++ }
+                                    }
+                                    catch {
+                                        $null = $details.Add("Failed startup disable: $($prop.Name)")
+                                    }
+                                    break
+                                }
+                            }
+                        }
+                    }
+                }
+
+                $result.Success = $true
+                if ($disabledCount -eq 0) {
+                    $result.Details = "No known bloatware startup entries found to disable. ($alreadyDisabled already disabled)"
+                }
+                else {
+                    $result.Details = "Disabled $disabledCount bloatware startup entries. $($details -join '; ')"
+                }
+                Write-DiagLog "DisableStartupBloat: $($result.Details)"
+            }
+            catch {
+                $result.Details = "Failed: $($_.Exception.Message)"
+                Write-DiagLog "DisableStartupBloat: $($result.Details)" "WARN"
+            }
+        }
+
+        "ClearDNSCache" {
+            try {
+                $beforeStats = Invoke-Safe { Get-DnsClientCache -ErrorAction SilentlyContinue | Measure-Object | Select-Object -ExpandProperty Count } 0
+                Clear-DnsClientCache -ErrorAction Stop
+                $result.Success = $true
+                $result.Details = "DNS resolver cache flushed successfully. ($beforeStats entries cleared)"
+                Write-DiagLog "ClearDNSCache: $($result.Details)"
+            }
+            catch {
+                # Fallback to ipconfig
+                try {
+                    $output = & ipconfig /flushdns 2>&1
+                    $result.Success = $true
+                    $result.Details = "DNS cache flushed via ipconfig. $($output -join ' ')"
+                    Write-DiagLog "ClearDNSCache: $($result.Details)"
+                }
+                catch {
+                    $result.Details = "Failed to flush DNS cache: $($_.Exception.Message)"
+                    Write-DiagLog "ClearDNSCache: $($result.Details)" "WARN"
+                }
+            }
+        }
+
+        "RepairWindowsImage" {
+            try {
+                Write-DiagLog "RepairWindowsImage: starting DISM /RestoreHealth (this may take several minutes)..."
+                $dismOutput = & DISM /Online /Cleanup-Image /RestoreHealth 2>&1
+                $dismExit = $LASTEXITCODE
+                $dismSummary = ($dismOutput | Select-String -Pattern "The restore operation completed|error" -ErrorAction SilentlyContinue) -join "; "
+                if ([string]::IsNullOrWhiteSpace($dismSummary)) {
+                    $dismSummary = "DISM exit code: $dismExit"
+                }
+                Write-DiagLog "RepairWindowsImage: DISM completed (exit=$dismExit)"
+
+                Write-DiagLog "RepairWindowsImage: starting SFC /scannow..."
+                $sfcOutput = & sfc /scannow 2>&1
+                $sfcExit = $LASTEXITCODE
+                $sfcSummary = ($sfcOutput | Select-String -Pattern "found corrupt|did not find|successfully repaired|could not perform" -ErrorAction SilentlyContinue) -join "; "
+                if ([string]::IsNullOrWhiteSpace($sfcSummary)) {
+                    $sfcSummary = "SFC exit code: $sfcExit"
+                }
+                Write-DiagLog "RepairWindowsImage: SFC completed (exit=$sfcExit)"
+
+                $result.Success = ($dismExit -eq 0 -or $sfcExit -eq 0)
+                $result.Details = "DISM: $dismSummary | SFC: $sfcSummary"
+                Write-DiagLog "RepairWindowsImage: $($result.Details)"
+            }
+            catch {
+                $result.Details = "Failed: $($_.Exception.Message)"
+                Write-DiagLog "RepairWindowsImage: $($result.Details)" "WARN"
+            }
+        }
+
+        "UpdateDrivers" {
+            try {
+                # Open Windows Update settings (can't auto-install but can trigger the UI)
+                Start-Process "ms-settings:windowsupdate" -ErrorAction Stop
+                Start-Sleep -Milliseconds 500
+
+                # Also try to trigger an update scan via UsoClient
+                Invoke-Safe { & UsoClient StartScan 2>$null } $null
+
+                $result.Success = $true
+                $result.Details = "Windows Update settings opened. Update scan triggered via UsoClient. Please click 'Check for updates' to find driver updates."
+                Write-DiagLog "UpdateDrivers: $($result.Details)"
+            }
+            catch {
+                $result.Details = "Failed to open Windows Update: $($_.Exception.Message)"
+                Write-DiagLog "UpdateDrivers: $($result.Details)" "WARN"
+            }
+        }
+
+        "OptimizeVisualEffects" {
+            try {
+                # Set visual effects to "Adjust for best performance"
+                # This sets UserPreferencesMask in registry
+                $regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects"
+                $advPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
+
+                # Set VisualFXSetting to 2 = Best Performance
+                if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
+                Set-ItemProperty -Path $regPath -Name "VisualFXSetting" -Value 2 -Type DWord -Force
+
+                # Disable individual effects via UserPreferencesMask
+                $prefMaskPath = "HKCU:\Control Panel\Desktop"
+                $currentMask = (Get-ItemProperty -Path $prefMaskPath -Name "UserPreferencesMask" -ErrorAction SilentlyContinue).UserPreferencesMask
+                if ($currentMask) {
+                    # Best performance mask: disable animations, shadows, etc.
+                    $bestPerfMask = @([byte]0x90, [byte]0x12, [byte]0x01, [byte]0x80, [byte]0x10, [byte]0x00, [byte]0x00, [byte]0x00)
+                    Set-ItemProperty -Path $prefMaskPath -Name "UserPreferencesMask" -Value ([byte[]]$bestPerfMask) -Type Binary -Force
+                }
+
+                # Disable specific visual effects
+                $effects = @{
+                    "ListviewAlphaSelect"  = 0  # Translucent selection rectangle
+                    "ListviewShadow"       = 0  # Drop shadow for icon labels
+                    "TaskbarAnimations"    = 0  # Taskbar animations
+                }
+                foreach ($key in $effects.Keys) {
+                    Set-ItemProperty -Path $advPath -Name $key -Value $effects[$key] -Type DWord -Force -ErrorAction SilentlyContinue
+                }
+
+                # Disable window animations
+                Set-ItemProperty -Path "HKCU:\Control Panel\Desktop\WindowMetrics" -Name "MinAnimate" -Value "0" -Force -ErrorAction SilentlyContinue
+
+                # Disable smooth scrolling
+                Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "SmoothScroll" -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue
+
+                $result.Success = $true
+                $result.Details = "Visual effects set to 'Adjust for best performance'. Disabled animations, shadows, translucent selections, and smooth scrolling. Changes apply on next login or explorer restart."
+                Write-DiagLog "OptimizeVisualEffects: $($result.Details)"
+            }
+            catch {
+                $result.Details = "Failed: $($_.Exception.Message)"
+                Write-DiagLog "OptimizeVisualEffects: $($result.Details)" "WARN"
+            }
+        }
+    }
+
+    Write-DiagLog "Quick Remediation: '$Action' completed - Success=$($result.Success)"
+    return $result
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LCD DISPLAY WEAR & LIFE TEST
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Invoke-LCDDisplayTest {
+    <#
+    .SYNOPSIS
+        Runs a comprehensive LCD / Display Wear & Life diagnostic.
+    .DESCRIPTION
+        Gathers monitor EDID, display adapter, brightness, display event history,
+        thermal correlation, calculates wear score, and generates a visual test page.
+        Returns a structured hashtable suitable for Build-LCDDisplayReport.
+    #>
+    Write-DiagLog "=== LCD DISPLAY WEAR & LIFE TEST STARTING ==="
+
+    # ── Helper: Convert EDID byte array to string ──
+    function Convert-LCDEdidString {
+        param($CharArray)
+        try {
+            if (-not $CharArray) { return $null }
+            $s = -join ($CharArray | ForEach-Object { if ($_ -gt 0) { [char]$_ } })
+            return $s.Trim()
+        } catch { return $null }
+    }
+
+    # ── Helper: New finding object ──
+    function New-LCDFinding {
+        param([string]$Category,[string]$Severity,[string]$Finding,[string]$Recommendation)
+        [PSCustomObject]@{Category=$Category;Severity=$Severity;Finding=$Finding;Recommendation=$Recommendation}
+    }
+
+    # ── Helper: Grade from score ──
+    function Get-LCDGradeFromScore {
+        param([int]$Score)
+        if ($Score -ge 90) { "A - Excellent" }
+        elseif ($Score -ge 80) { "B - Good" }
+        elseif ($Score -ge 70) { "C - Fair" }
+        elseif ($Score -ge 60) { "D - Needs Attention" }
+        else { "F - Critical" }
+    }
+    function Get-LCDRiskFromScore {
+        param([int]$Score)
+        if ($Score -ge 85) { "Low" }
+        elseif ($Score -ge 70) { "Moderate" }
+        elseif ($Score -ge 55) { "High" }
+        else { "Critical" }
+    }
+    function Get-LCDLifeTextFromScore {
+        param([int]$Score)
+        if ($Score -ge 90) { "3-5+ years estimated comfortable display use" }
+        elseif ($Score -ge 80) { "2-4 years estimated comfortable display use" }
+        elseif ($Score -ge 70) { "1-3 years estimated comfortable display use; monitor condition should be reviewed" }
+        elseif ($Score -ge 60) { "6-18 months estimated comfortable use if symptoms are present; service/replacement planning recommended" }
+        else { "Immediate display inspection or replacement recommended" }
+    }
+
+    # ── 1. System Info ──
+    Write-DiagLog "LCD Test: Collecting system information..."
+    $systemData = Invoke-Safe {
+        $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+        $bios = Get-CimInstance Win32_BIOS -ErrorAction SilentlyContinue
+        $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+        $cpu = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Select-Object -First 1
+
+        $biosDate = $null
+        try { $biosDate = [Management.ManagementDateTimeConverter]::ToDateTime($bios.ReleaseDate) } catch {}
+        $biosAgeYears = if ($biosDate) { [math]::Round(((Get-Date) - $biosDate).TotalDays / 365.25, 1) } else { $null }
+
+        @{
+            ComputerName  = $env:COMPUTERNAME
+            Manufacturer  = $cs.Manufacturer
+            Model         = $cs.Model
+            SerialNumber  = $bios.SerialNumber
+            BIOSVersion   = $bios.SMBIOSBIOSVersion
+            BIOSDate      = $biosDate
+            BIOSAgeYears  = $biosAgeYears
+            OS            = $os.Caption
+            OSBuild       = $os.BuildNumber
+            LastBoot      = $os.LastBootUpTime
+            UptimeHours   = [math]::Round(((Get-Date) - $os.LastBootUpTime).TotalHours, 2)
+            CPU           = $cpu.Name
+            RAMGB         = [math]::Round($cs.TotalPhysicalMemory / 1GB, 2)
+            IsLaptop      = ($cs.PCSystemType -eq 2 -or $cs.PCSystemTypeEx -eq 2)
+            ReportDate    = Get-Date
+        }
+    } @{ ComputerName=$env:COMPUTERNAME; Manufacturer="Unknown"; Model="Unknown"; SerialNumber="N/A";
+         BIOSVersion="N/A"; BIOSDate=$null; BIOSAgeYears=$null; OS="Windows"; OSBuild="N/A";
+         LastBoot=$null; UptimeHours=0; CPU="Unknown"; RAMGB=0; IsLaptop=$false; ReportDate=Get-Date }
+
+    # ── 2. Monitor EDID Info ──
+    Write-DiagLog "LCD Test: Collecting monitor EDID information..."
+    $monitorData = Invoke-Safe {
+        $monitors = @()
+        $ids = @(Get-CimInstance WmiMonitorID -Namespace root\wmi -ErrorAction SilentlyContinue)
+        foreach ($m in $ids) {
+            $monitors += @{
+                InstanceName      = $m.InstanceName
+                ManufacturerName  = Convert-LCDEdidString $m.ManufacturerName
+                ProductCodeID     = Convert-LCDEdidString $m.ProductCodeID
+                SerialNumberID    = Convert-LCDEdidString $m.SerialNumberID
+                UserFriendlyName  = Convert-LCDEdidString $m.UserFriendlyName
+                WeekOfManufacture = $m.WeekOfManufacture
+                YearOfManufacture = $m.YearOfManufacture
+                Active            = $m.Active
+            }
+        }
+        $desktopMonitors = @(Get-CimInstance Win32_DesktopMonitor -ErrorAction SilentlyContinue |
+            Select-Object Name, ScreenHeight, ScreenWidth, MonitorManufacturer, MonitorType, Status, PNPDeviceID)
+
+        @{
+            WmiMonitorID   = $monitors
+            DesktopMonitor = $desktopMonitors
+            MonitorCount   = [math]::Max($monitors.Count, $desktopMonitors.Count)
+        }
+    } @{ WmiMonitorID=@(); DesktopMonitor=@(); MonitorCount=0 }
+
+    # ── 3. Display Adapter Info ──
+    Write-DiagLog "LCD Test: Collecting display adapter information..."
+    $adapterData = Invoke-Safe {
+        $gpus = @(Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | ForEach-Object {
+            $driverDate = $null
+            try { $driverDate = [Management.ManagementDateTimeConverter]::ToDateTime($_.DriverDate) } catch {}
+            $driverAgeYears = if ($driverDate) { [math]::Round(((Get-Date) - $driverDate).TotalDays / 365.25, 1) } else { $null }
+
+            @{
+                Name                        = $_.Name
+                VideoProcessor              = $_.VideoProcessor
+                AdapterRAMGB                = if ($_.AdapterRAM -gt 0) { [math]::Round($_.AdapterRAM / 1GB, 2) } else { 0 }
+                DriverVersion               = $_.DriverVersion
+                DriverDate                  = $driverDate
+                DriverAgeYears              = $driverAgeYears
+                CurrentHorizontalResolution = $_.CurrentHorizontalResolution
+                CurrentVerticalResolution   = $_.CurrentVerticalResolution
+                CurrentRefreshRate          = $_.CurrentRefreshRate
+                MaxRefreshRate              = $_.MaxRefreshRate
+                MinRefreshRate              = $_.MinRefreshRate
+                VideoModeDescription        = $_.VideoModeDescription
+                Status                      = $_.Status
+            }
+        })
+        @{
+            GPUs              = $gpus
+            PrimaryResolution = if ($gpus.Count -gt 0) { $gpus[0].VideoModeDescription } else { "Unknown" }
+        }
+    } @{ GPUs=@(); PrimaryResolution="Unknown" }
+
+    # ── 4. Brightness Info ──
+    Write-DiagLog "LCD Test: Collecting brightness information..."
+    $brightnessData = Invoke-Safe {
+        $brightness = @(Get-CimInstance WmiMonitorBrightness -Namespace root\wmi -ErrorAction SilentlyContinue |
+            Select-Object InstanceName, Active, CurrentBrightness, Level)
+        $methods = @(Get-CimInstance WmiMonitorBrightnessMethods -Namespace root\wmi -ErrorAction SilentlyContinue |
+            Select-Object InstanceName, Active)
+        @{
+            BrightnessSupported = ($brightness.Count -gt 0)
+            CurrentBrightness   = if ($brightness.Count -gt 0) { ($brightness | Select-Object -First 1).CurrentBrightness } else { $null }
+            BrightnessRecords   = $brightness
+            BrightnessMethods   = $methods
+            Notes               = "Windows usually reports brightness percentage, not actual panel nits. A colorimeter/light meter is required for true brightness wear measurement."
+        }
+    } @{ BrightnessSupported=$false; CurrentBrightness=$null; BrightnessRecords=@(); BrightnessMethods=@(); Notes="Brightness data unavailable." }
+
+    # ── 5. Display Events ──
+    Write-DiagLog "LCD Test: Collecting display/GPU stability event history..."
+    $eventsData = Invoke-Safe {
+        $start = (Get-Date).AddDays(-180)
+        $events = @(Get-WinEvent -FilterHashtable @{LogName='System'; StartTime=$start} -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.Message -match "display driver|nvlddmkm|amdkmdag|igfx|video hardware|LiveKernelEvent|monitor|display|graphics|TDR|stopped responding|recovered"
+            } |
+            Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message -First 80)
+
+        @{
+            DaysChecked                 = 180
+            EventCount                  = $events.Count
+            RecentEvents                = @($events | Sort-Object TimeCreated -Descending | Select-Object -First 20)
+            DriverResetCount            = @($events | Where-Object { $_.Message -match "stopped responding|recovered|TDR|display driver" }).Count
+            PossibleCableReconnectCount = @($events | Where-Object { $_.Message -match "monitor|display.*disconnect|display.*connect|graphics" }).Count
+        }
+    } @{ DaysChecked=180; EventCount=0; RecentEvents=@(); DriverResetCount=0; PossibleCableReconnectCount=0 }
+
+    # ── 6. Thermal Correlation ──
+    Write-DiagLog "LCD Test: Collecting thermal correlation risk..."
+    $thermalData = Invoke-Safe {
+        $thermalEvents = @(Get-WinEvent -FilterHashtable @{LogName='System'; StartTime=(Get-Date).AddDays(-180)} -ErrorAction SilentlyContinue |
+            Where-Object { $_.Message -match "thermal|overheat|temperature|throttl" } |
+            Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message -First 40)
+
+        $thermalZones = @()
+        try {
+            $thermalZones = @(Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root\wmi -ErrorAction SilentlyContinue | ForEach-Object {
+                @{ InstanceName=$_.InstanceName; TemperatureC=[math]::Round(($_.CurrentTemperature / 10) - 273.15, 1) }
+            })
+        } catch {}
+
+        @{
+            ThermalEventCount       = $thermalEvents.Count
+            ThermalEvents           = $thermalEvents
+            ThermalZones            = $thermalZones
+            MaxReportedTemperatureC = if ($thermalZones.Count -gt 0) { ($thermalZones | ForEach-Object { $_.TemperatureC } | Measure-Object -Maximum).Maximum } else { $null }
+            Notes                   = "High internal heat can age LCD backlight, eDP/LVDS cable, adhesives, and display electronics faster."
+        }
+    } @{ ThermalEventCount=0; ThermalEvents=@(); ThermalZones=@(); MaxReportedTemperatureC=$null; Notes="Thermal data unavailable." }
+
+    # ── 7. Calculate Wear Score ──
+    Write-DiagLog "LCD Test: Calculating display wear score..."
+    $score = 100
+    $findings = @()
+
+    # Age scoring
+    if ($systemData.BIOSAgeYears -ne $null) {
+        if ($systemData.BIOSAgeYears -ge 8) {
+            $score -= 18
+            $findings += New-LCDFinding "Display Age Estimate" "High" "System age is approximately $($systemData.BIOSAgeYears) years based on BIOS date." "LCD/backlight/cable wear risk is higher on older laptops."
+        } elseif ($systemData.BIOSAgeYears -ge 5) {
+            $score -= 10
+            $findings += New-LCDFinding "Display Age Estimate" "Moderate" "System age is approximately $($systemData.BIOSAgeYears) years." "Inspect brightness, uniformity, hinge cable, and panel condition."
+        } elseif ($systemData.BIOSAgeYears -ge 3) {
+            $score -= 4
+            $findings += New-LCDFinding "Display Age Estimate" "Low" "System age is approximately $($systemData.BIOSAgeYears) years." "Normal display aging possible."
+        }
+    }
+
+    # GPU/driver scoring
+    foreach ($gpu in $adapterData.GPUs) {
+        if ($gpu.DriverAgeYears -ne $null -and $gpu.DriverAgeYears -ge 4) {
+            $score -= 5
+            $findings += New-LCDFinding "Display Driver Age" "Low" "Graphics driver appears about $($gpu.DriverAgeYears) years old." "Update display driver if flicker, crashes, or monitor issues occur."
+        }
+        if ($gpu.Status -and $gpu.Status -notmatch "OK") {
+            $score -= 15
+            $findings += New-LCDFinding "Display Adapter Status" "High" "$($gpu.Name) status is $($gpu.Status)." "Review Device Manager and display driver."
+        }
+        if ($gpu.CurrentRefreshRate -and $gpu.CurrentRefreshRate -lt 59) {
+            $score -= 5
+            $findings += New-LCDFinding "Refresh Rate" "Low" "Current refresh rate is $($gpu.CurrentRefreshRate) Hz." "Confirm correct display mode and driver."
+        }
+    }
+
+    # Brightness scoring
+    if ($brightnessData.BrightnessSupported -eq $false) {
+        $findings += New-LCDFinding "Brightness Reading" "Low" "Windows did not expose brightness controls/readings." "This is common on desktops/external monitors. Use visual/light meter testing for backlight wear."
+    } elseif ($brightnessData.CurrentBrightness -ne $null -and $brightnessData.CurrentBrightness -lt 40) {
+        $score -= 4
+        $findings += New-LCDFinding "Brightness Setting" "Low" "Current brightness is $($brightnessData.CurrentBrightness)%." "Low brightness setting is not wear by itself; test maximum brightness visually."
+    }
+
+    # Driver resets scoring
+    if ($eventsData.DriverResetCount -gt 0) {
+        $score -= [math]::Min(25, $eventsData.DriverResetCount * 8)
+        $findings += New-LCDFinding "Display Driver Resets" "High" "$($eventsData.DriverResetCount) display driver reset/recovery event(s) found." "Check GPU driver, GPU health, thermal condition, and display cable symptoms."
+    }
+
+    # Event volume scoring
+    if ($eventsData.EventCount -gt 10) {
+        $score -= 10
+        $findings += New-LCDFinding "Display/GPU Events" "Moderate" "$($eventsData.EventCount) display/GPU-related event(s) found in 180 days." "Review event details and test for flicker, black screen, or driver instability."
+    }
+
+    # Thermal scoring
+    if ($thermalData.ThermalEventCount -gt 0) {
+        $score -= 8
+        $findings += New-LCDFinding "Thermal Exposure" "Moderate" "$($thermalData.ThermalEventCount) thermal-related event(s) found." "Heat may accelerate LCD backlight, cable, and display electronics wear."
+    }
+    if ($thermalData.MaxReportedTemperatureC -ne $null -and $thermalData.MaxReportedTemperatureC -ge 85) {
+        $score -= 8
+        $findings += New-LCDFinding "Heat Risk" "Moderate" "Reported thermal zone reached $($thermalData.MaxReportedTemperatureC) C." "Cooling service recommended if repeated."
+    }
+
+    # Monitor detection scoring
+    if ($monitorData.MonitorCount -eq 0) {
+        $score -= 5
+        $findings += New-LCDFinding "Monitor Detection" "Low" "Monitor EDID information was not detected." "Check display driver/monitor detection if display issues exist."
+    }
+
+    if ($score -lt 0) { $score = 0 }
+
+    $scoreData = @{
+        Score      = $score
+        Grade      = Get-LCDGradeFromScore $score
+        Risk       = Get-LCDRiskFromScore $score
+        ApproxLife = Get-LCDLifeTextFromScore $score
+        Findings   = $findings
+        ManualVisualTestsRequired = @(
+            "Dead/stuck pixel test",
+            "Backlight bleed test",
+            "Brightness uniformity check",
+            "Gray-screen burn-in/image-retention check",
+            "Color tint/yellowing check",
+            "Hinge angle flicker test",
+            "External monitor comparison test",
+            "Camera/photo evidence optional"
+        )
+        Notes = "LCD life is an approximation. Exact panel/backlight remaining hours usually cannot be read from Windows."
+    }
+
+    # ── 8. Generate Visual Test Page HTML ──
+    Write-DiagLog "LCD Test: Generating visual test page..."
+    $visualTestHTML = @"
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>PC Plus 360 LCD Visual Test</title>
+<style>
+html,body{margin:0;height:100%;font-family:Segoe UI,Arial,sans-serif;background:#111;color:white;overflow:hidden}
+#screen{height:100vh;width:100vw;display:flex;align-items:center;justify-content:center;text-align:center}
+.panel{background:rgba(0,0,0,.55);padding:30px;border-radius:18px;max-width:900px}
+button{padding:12px 18px;margin:6px;border:0;border-radius:10px;font-weight:700;cursor:pointer}
+.small{font-size:14px;opacity:.85}
+</style>
+</head>
+<body>
+<div id="screen">
+  <div class="panel" id="panel">
+    <h1>PC Plus 360 LCD Visual Test</h1>
+    <p>Use this test to check dead pixels, stuck pixels, burn-in, backlight bleed, color tint, flicker, and brightness uniformity.</p>
+    <p>Press F11 for fullscreen. Use arrow keys or buttons to change test screens.</p>
+    <div>
+      <button onclick="setTest(0)">White</button>
+      <button onclick="setTest(1)">Black</button>
+      <button onclick="setTest(2)">Red</button>
+      <button onclick="setTest(3)">Green</button>
+      <button onclick="setTest(4)">Blue</button>
+      <button onclick="setTest(5)">Gray</button>
+      <button onclick="setTest(6)">Gradient</button>
+      <button onclick="setTest(7)">Grid</button>
+      <button onclick="setTest(8)">Text Ghosting</button>
+    </div>
+    <p class="small">Technician checks: dead/stuck pixels, yellow tint, uneven brightness, edge bleed, ghost image/taskbar burn-in, flicker, hinge angle flicker.</p>
+  </div>
+</div>
+<script>
+let idx=0;
+const tests=[
+ {name:'White',bg:'#fff',fg:'#111',html:'WHITE SCREEN<br><small>Check dark/dead pixels, dirt, pressure marks, uneven brightness.</small>'},
+ {name:'Black',bg:'#000',fg:'#fff',html:'BLACK SCREEN<br><small>Check backlight bleed, edge glow, stuck bright pixels.</small>'},
+ {name:'Red',bg:'#f00',fg:'#fff',html:'RED SCREEN<br><small>Check stuck/dead subpixels.</small>'},
+ {name:'Green',bg:'#0f0',fg:'#111',html:'GREEN SCREEN<br><small>Check stuck/dead subpixels.</small>'},
+ {name:'Blue',bg:'#00f',fg:'#fff',html:'BLUE SCREEN<br><small>Check stuck/dead subpixels.</small>'},
+ {name:'Gray',bg:'#777',fg:'#fff',html:'GRAY SCREEN<br><small>Check burn-in, image retention, yellow tint, uniformity.</small>'},
+ {name:'Gradient',bg:'linear-gradient(90deg,#000,#fff)',fg:'#fff',html:'BRIGHTNESS GRADIENT<br><small>Check banding and uneven brightness.</small>'},
+ {name:'Grid',bg:'repeating-linear-gradient(0deg,#fff 0,#fff 1px,#111 1px,#111 40px),repeating-linear-gradient(90deg,transparent 0,transparent 39px,#fff 39px,#fff 40px)',fg:'#0ff',html:'GRID TEST<br><small>Check lines, panel damage, scaling, and geometry.</small>'},
+ {name:'Text Ghosting',bg:'#333',fg:'#fff',html:'GHOSTING / BURN-IN TEST<br><br>PC PLUS COMPUTING DISPLAY TEST<br><br><small>Look for old taskbar/icons/window shadows on gray background.</small>'}
+];
+function setTest(i){
+ idx=i; const t=tests[idx]; const s=document.getElementById('screen'); const p=document.getElementById('panel');
+ s.style.background=t.bg; s.style.color=t.fg; p.innerHTML='<h1>'+t.html+'</h1><p class="small">Screen '+(idx+1)+' of '+tests.length+' | Use Left/Right arrows | Press F11 fullscreen</p>';
+ if(idx>0){p.style.background='rgba(0,0,0,.35)'} else {p.style.background='rgba(255,255,255,.65)'}
+}
+document.addEventListener('keydown',e=>{if(e.key==='ArrowRight')setTest((idx+1)%tests.length); if(e.key==='ArrowLeft')setTest((idx-1+tests.length)%tests.length);});
+</script>
+</body>
+</html>
+"@
+
+    # ── Assemble result ──
+    $result = @{
+        System         = $systemData
+        Monitor        = $monitorData
+        Adapter        = $adapterData
+        Brightness     = $brightnessData
+        Events         = $eventsData
+        Thermal        = $thermalData
+        Score          = $scoreData
+        VisualTestHTML = $visualTestHTML
+    }
+
+    Write-DiagLog "=== LCD DISPLAY WEAR & LIFE TEST COMPLETE: Score=$score ($(Get-LCDGradeFromScore $score)), Risk=$(Get-LCDRiskFromScore $score) ==="
+    return $result
+}

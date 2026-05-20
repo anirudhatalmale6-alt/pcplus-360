@@ -7,7 +7,7 @@
     Runs from USB drive with no installation required.
 .NOTES
     Company:  PC Plus Computing
-    Version:  2.3.0
+    Version:  2.5.0
     Requires: PowerShell 5.1+, Windows 10/11, Administrator privileges
 #>
 
@@ -83,7 +83,7 @@ $Global:LogLines = [System.Collections.ArrayList]::new()
 $COMPANY      = "PC Plus Computing"
 $PHONE        = "604-760-1662 | 236-500-2700"
 $WEBSITE      = "pcpluscomputing.com"
-$VERSION      = "2.3.0"
+$VERSION      = "2.5.0"
 
 if (-not (Test-Path $Global:ReportsDir)) { New-Item -Path $Global:ReportsDir -ItemType Directory -Force | Out-Null }
 if (-not (Test-Path $Global:ToolsDir)) { New-Item -Path $Global:ToolsDir -ItemType Directory -Force | Out-Null }
@@ -218,9 +218,25 @@ $xaml = @"
 
                 <Border DockPanel.Dock="Bottom" Padding="14,8" BorderBrush="#0d4b71" BorderThickness="0,1,0,0">
                     <StackPanel>
-                        <TextBlock Text="v2.3.0" FontSize="10" Foreground="#2596be" FontFamily="Consolas"/>
+                        <TextBlock x:Name="lblVersion" Text="v2.5.0" FontSize="10" Foreground="#2596be" FontFamily="Consolas"/>
                         <TextBlock Text="604-760-1662 | 236-500-2700" FontSize="8.5" Foreground="#4a7a8a" Margin="0,2,0,0"/>
                         <TextBlock Text="pcpluscomputing.com" FontSize="8.5" Foreground="#3a6a7a"/>
+                        <Button x:Name="btnCheckUpdate" Cursor="Hand" Background="Transparent" BorderThickness="0" HorizontalAlignment="Left" Margin="0,4,0,0" Padding="0">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="bd" Background="Transparent" CornerRadius="3" Padding="4,2">
+                                        <TextBlock x:Name="txt" Text="Check for Updates" FontSize="8.5" Foreground="#4a7a8a"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="txt" Property="Foreground" Value="#3bbde0"/>
+                                            <Setter TargetName="txt" Property="TextDecorations" Value="Underline"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                        <TextBlock x:Name="lblUpdateStatus" Text="" FontSize="8" Foreground="#34d399" Margin="0,2,0,0" TextWrapping="Wrap"/>
                     </StackPanel>
                 </Border>
 
@@ -249,6 +265,8 @@ $xaml = @"
                         <TextBlock Text="  DIAGNOSTICS" FontSize="9" FontWeight="SemiBold" Foreground="#4a7a8a" Margin="0,12,0,4"/>
                         <Button x:Name="btnNavWearTear" Style="{StaticResource SideNav}"><TextBlock Text="  Wear &amp; Tear Report" FontSize="11.5" Foreground="#e879f9"/></Button>
                         <Button x:Name="btnGamingPerfTest" Style="{StaticResource SideNav}"><TextBlock Text="  Gaming Perf Test" FontSize="11.5" Foreground="#f97316" FontWeight="SemiBold"/></Button>
+                        <Button x:Name="btnLCDDisplay" Style="{StaticResource SideNav}"><TextBlock Text="  LCD Display Test" FontSize="11.5" Foreground="#06b6d4" FontWeight="SemiBold"/></Button>
+                        <Button x:Name="btnQuickFix" Style="{StaticResource SideNav}"><TextBlock Text="  Quick Fix" FontSize="11.5" Foreground="#f43f5e" FontWeight="SemiBold"/></Button>
 
                         <TextBlock Text="  REPORTS" FontSize="9" FontWeight="SemiBold" Foreground="#4a7a8a" Margin="0,12,0,4"/>
                         <Button x:Name="btnHWReport" Style="{StaticResource SideNav}"><TextBlock Text="  Hardware Report" FontSize="11.5" Foreground="#22c55e"/></Button>
@@ -257,6 +275,7 @@ $xaml = @"
                         <Button x:Name="btnCustomerSummary" Style="{StaticResource SideNav}"><TextBlock Text="  Customer Summary" FontSize="11.5" Foreground="#3bbde0" FontWeight="SemiBold"/></Button>
                         <Button x:Name="btnGamingReport" Style="{StaticResource SideNav}"><TextBlock Text="  Gaming PC Report" FontSize="11.5" Foreground="#f472b6" FontWeight="SemiBold"/></Button>
                         <Button x:Name="btnPaperless" Style="{StaticResource SideNav}"><TextBlock Text="  Send Report" FontSize="11.5" Foreground="#34d399" FontWeight="SemiBold"/></Button>
+                        <Button x:Name="btnBenchmarks" Style="{StaticResource SideNav}"><TextBlock Text="  Benchmarks" FontSize="11.5" Foreground="#a78bfa" FontWeight="SemiBold"/></Button>
                     </StackPanel>
                 </ScrollViewer>
             </DockPanel>
@@ -409,7 +428,7 @@ $xaml = @"
                             <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
-                            <RowDefinition Height="30"/><RowDefinition Height="30"/><RowDefinition Height="30"/><RowDefinition Height="30"/><RowDefinition Height="30"/><RowDefinition Height="30"/>
+                            <RowDefinition Height="30"/><RowDefinition Height="30"/><RowDefinition Height="30"/><RowDefinition Height="30"/><RowDefinition Height="30"/><RowDefinition Height="30"/><RowDefinition Height="30"/>
                         </Grid.RowDefinitions>
                         <Border Grid.Row="0" Grid.Column="0" Background="White" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#d8e8f0" BorderThickness="1">
                             <CheckBox x:Name="chkCPU" Content=" CPU Stress Test" FontSize="11" Foreground="#1a2b3c" VerticalContentAlignment="Center"/>
@@ -464,6 +483,9 @@ $xaml = @"
                         </Border>
                         <Border Grid.Row="5" Grid.Column="2" Background="White" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#d8e8f0" BorderThickness="1">
                             <CheckBox x:Name="chkThermal" Content=" Thermal Check" FontSize="11" Foreground="#1a2b3c" VerticalContentAlignment="Center"/>
+                        </Border>
+                        <Border Grid.Row="6" Grid.Column="0" Background="#ecfeff" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#06b6d4" BorderThickness="1">
+                            <CheckBox x:Name="chkLCDDisplay" Content=" LCD Display" FontSize="11" Foreground="#0e7490" VerticalContentAlignment="Center"/>
                         </Border>
                     </Grid>
 
@@ -549,6 +571,7 @@ $xaml = @"
     $chkWearTear = $window.FindName("chkWearTear")
     $chkSpeedTest = $window.FindName("chkSpeedTest")
     $chkThermal = $window.FindName("chkThermal")
+    $chkLCDDisplay = $window.FindName("chkLCDDisplay")
 
     $tools = Get-ToolStatus
 
@@ -633,6 +656,74 @@ $xaml = @"
         Update-HealthScore
         Play-CompletionBeep
         $lblReadyStatus.Text = "Done"
+    }
+
+    function Invoke-SaveBenchmark {
+        param([string]$TestType = "Standard")
+        try {
+            $si = $Global:DiagResults.SystemInfo
+            if (-not $si) { Write-DiagLog "No SystemInfo for benchmark save, skipping" "WARN"; return }
+            $cpuModel = if ($si.CPUModel) { $si.CPUModel } else { "Unknown" }
+            $gpuModel = if ($si.GPUs -and $si.GPUs.Count -gt 0) { $si.GPUs[0].Name } else { "Unknown" }
+            $ramTotal = if ($si.RAMTotal) { [double]$si.RAMTotal } else { 0 }
+            $storageType = "Unknown"
+            if ($si.SMART -and $si.SMART.Count -gt 0) {
+                $mt = $si.SMART[0].MediaType; $bt = $si.SMART[0].BusType
+                if ($bt -match 'NVMe') { $storageType = "NVMe" }
+                elseif ($mt -match 'SSD' -or $mt -match 'Solid') { $storageType = "SSD" }
+                elseif ($mt -match 'HDD' -or $mt -match 'Unspecified') { $storageType = "HDD" }
+                else { $storageType = "$mt" }
+            }
+            # Build normalized scores hashtable
+            $scores = @{ Overall = 0; Thermal = 0; Storage = 0; Network = 0; Security = 0; Grade = "N/A" }
+            # Pull from Scoring if available
+            if ($Global:DiagResults.Scoring) {
+                $scores.Security = if ($Global:DiagResults.Scoring.Score) { $Global:DiagResults.Scoring.Score } else { 0 }
+            }
+            # Pull from stress results for storage
+            if ($Global:DiagResults.DiskBench -and $Global:DiagResults.DiskBench.SeqReadMBps) {
+                $r = $Global:DiagResults.DiskBench.SeqReadMBps
+                $scores.Storage = if ($r -gt 1000) { 100 } elseif ($r -gt 300) { 80 } elseif ($r -gt 100) { 55 } else { 25 }
+            }
+            # Network from Network diag
+            if ($Global:DiagResults.Network -and $Global:DiagResults.Network.InternetTest) {
+                $scores.Network = if ($Global:DiagResults.Network.InternetTest.Success) { 80 } else { 20 }
+            }
+            if ($Global:DiagResults.SpeedTest -and $Global:DiagResults.SpeedTest.DownloadMbps -and $Global:DiagResults.SpeedTest.DownloadMbps -ne "N/A") {
+                $dl = 0; try { $dl = [double]($Global:DiagResults.SpeedTest.DownloadMbps -replace '[^\d.]','') } catch {}
+                if ($dl -gt 100) { $scores.Network = 95 } elseif ($dl -gt 50) { $scores.Network = 80 } elseif ($dl -gt 20) { $scores.Network = 65 } elseif ($dl -gt 5) { $scores.Network = 45 }
+            }
+            # Thermal from stress test
+            if ($Global:DiagResults.CPUStress -and $Global:DiagResults.CPUStress.MaxTemp) {
+                $t = $Global:DiagResults.CPUStress.MaxTemp
+                $scores.Thermal = if ($t -lt 60) { 100 } elseif ($t -lt 70) { 90 } elseif ($t -lt 80) { 75 } elseif ($t -lt 90) { 55 } else { 30 }
+            } elseif ($Global:DiagResults.Thermal -and $Global:DiagResults.Thermal.CPUTemp) {
+                $t = $Global:DiagResults.Thermal.CPUTemp
+                $scores.Thermal = if ($t -lt 50) { 100 } elseif ($t -lt 60) { 85 } elseif ($t -lt 70) { 70 } elseif ($t -lt 80) { 55 } else { 35 }
+            }
+            # Overall weighted average
+            $wSum = 0; $wTotal = 0
+            if ($scores.Thermal -gt 0) { $wSum += $scores.Thermal * 25; $wTotal += 25 }
+            if ($scores.Storage -gt 0) { $wSum += $scores.Storage * 25; $wTotal += 25 }
+            if ($scores.Network -gt 0) { $wSum += $scores.Network * 20; $wTotal += 20 }
+            if ($scores.Security -gt 0) { $wSum += $scores.Security * 30; $wTotal += 30 }
+            if ($wTotal -gt 0) { $scores.Overall = [math]::Round($wSum / $wTotal) } else { $scores.Overall = 50 }
+            $scores.Overall = [math]::Max(0, [math]::Min(100, $scores.Overall))
+            $scores.Grade = if ($scores.Overall -ge 90){"A"} elseif ($scores.Overall -ge 80){"B"} elseif ($scores.Overall -ge 70){"C"} elseif ($scores.Overall -ge 60){"D"} else{"F"}
+            # For Gaming Performance Test, override with its scores
+            if ($TestType -eq "Gaming" -and $Global:DiagResults.GamingPerformance) {
+                $gp = $Global:DiagResults.GamingPerformance.Scores
+                $scores.Overall = if ($gp.Overall) { $gp.Overall } else { $scores.Overall }
+                $scores.Thermal = if ($gp.Thermal) { $gp.Thermal } else { $scores.Thermal }
+                $scores.Network = if ($gp.NetworkScore) { $gp.NetworkScore } else { $scores.Network }
+                $scores.Grade   = if ($gp.Grade) { $gp.Grade } else { $scores.Grade }
+                if ($gp.FPSStability) { $scores.FPSStability = $gp.FPSStability }
+                if ($gp.PowerStability) { $scores.PowerStability = $gp.PowerStability }
+            }
+            Save-BenchmarkResult -ComputerName $si.ComputerName -CPUModel $cpuModel -GPUModel $gpuModel -RAMTotal $ramTotal -StorageType $storageType -Scores $scores -TestType $TestType
+        } catch {
+            Write-DiagLog "Benchmark save failed: $($_.Exception.Message)" "WARN"
+        }
     }
 
     # Checkbox count update
@@ -723,6 +814,7 @@ $xaml = @"
             $wtPDFPath = Join-Path $p.OutputFolder "$safeName - $safeDev - Wear and Tear Report $ds.pdf"
             [IO.File]::WriteAllText($wtHTMLPath, $wtHTML, [Text.Encoding]::UTF8)
             $pdfOK = Convert-ToPDF $wtHTMLPath $wtPDFPath
+            Invoke-Safe { Invoke-AutoUploadReport -ReportPath $(if($pdfOK){$wtPDFPath}else{$wtHTMLPath}) -CustomerName $p.CustomerName -ComputerName $Global:DiagResults.SystemInfo.ComputerName -TechName $p.TechName -ScanMode "Wear and Tear" }
             Set-Status "Wear & Tear: Score=$($wt.Score)/100 ($($wt.Grade)) - $($wt.RiskLevel) risk" 100
             Complete-Scan
             Start-Process explorer.exe -ArgumentList $p.OutputFolder
@@ -919,6 +1011,7 @@ $xaml = @"
 
             Set-Status "All selected tests complete!" 100
             Complete-Scan
+            Invoke-SaveBenchmark -TestType "Custom"
             [System.Windows.MessageBox]::Show($window, "All selected tests complete!", "Tests Complete", "OK", "Information")
         } catch {
             Write-DebugLog "Run Selected ERROR: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
@@ -962,6 +1055,7 @@ $xaml = @"
             $Global:DiagResults.SpeedTest = $null; $Global:DiagResults.Gaming = $null; $Global:DiagResults.PowerInfo = $null
             Set-Status "DONE! Quick Test complete. Generate reports from sidebar." 100
             Complete-Scan
+            Invoke-SaveBenchmark -TestType "Quick"
             [System.Windows.MessageBox]::Show($window, "Quick Test complete!`nStability: $($Global:DiagResults.Stability.StabilityRating)`n`nClick a Report button in the sidebar to save PDFs.", "Quick Test Complete", "OK", "Information")
         } catch {
             Write-DebugLog "Quick Test ERROR: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
@@ -1019,6 +1113,7 @@ $xaml = @"
             $cs = $Global:DiagResults.CPUStress; $rs = $Global:DiagResults.RAMStress; $ds = $Global:DiagResults.DiskBench; $gs = $Global:DiagResults.GPUStress
             Set-Status "DONE! CPU:$(if($cs.Passed){'PASS'}else{'FAIL'}) RAM:$(if($rs.Passed){'PASS'}else{'FAIL'}) GPU:$(if($gs.Passed){'PASS'}else{'FAIL'}) Disk:W=$($ds.SeqWriteMBps)/$($ds.SeqReadMBps)" 100
             Complete-Scan
+            Invoke-SaveBenchmark -TestType "Standard"
             [System.Windows.MessageBox]::Show($window, "Standard Test complete!`nCPU: $(if($cs.Passed){'PASS'}else{'FAIL'})`nRAM: $(if($rs.Passed){'PASS'}else{'FAIL'})`nGPU: $(if($gs.Passed){'PASS'}else{'FAIL'})`nDisk: W=$($ds.SeqWriteMBps) / R=$($ds.SeqReadMBps) MB/s`nStability: $($Global:DiagResults.Stability.StabilityRating)`n`nClick a Report button in the sidebar.", "Standard Test Complete", "OK", "Information")
         } catch {
             Write-DebugLog "Standard Test ERROR: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
@@ -1087,6 +1182,7 @@ $xaml = @"
             Set-Status "DONE! Deep Test complete. CPU:$(if($cs.Passed){'PASS'}else{'FAIL'}) RAM:$(if($rs.Passed){'PASS'}else{'FAIL'}) GPU:$(if($gs.Passed){'PASS'}else{'FAIL'})" 100
             $histMsg = if ($Global:DiagResults.HistoryComparison -and $Global:DiagResults.HistoryComparison.HasPrevious) { "`nPrevious scan: $($Global:DiagResults.HistoryComparison.PreviousDate)" } else { "`nNo previous scan history." }
             Complete-Scan
+            Invoke-SaveBenchmark -TestType "Deep"
             [System.Windows.MessageBox]::Show($window, "Deep Test complete!`nCPU: $(if($cs.Passed){'PASS'}else{'FAIL'})`nRAM: $(if($rs.Passed){'PASS'}else{'FAIL'})`nGPU: $(if($gs.Passed){'PASS'}else{'FAIL'})`nDisk: W=$($ds.SeqWriteMBps) / R=$($ds.SeqReadMBps) MB/s`nStability: $($Global:DiagResults.Stability.StabilityRating)$histMsg`n`nClick a Report button in the sidebar.", "Deep Test Complete", "OK", "Information")
         } catch {
             Write-DebugLog "Deep Test ERROR: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
@@ -1189,6 +1285,7 @@ $xaml = @"
 
             Set-Status "DONE! Full System MRI complete. Score: $overallScore/100 ($mriGrade)" 100
             Complete-Scan
+            Invoke-SaveBenchmark -TestType "MRI"
             $msg = "Full System MRI Complete!`n`nOverall Score: $overallScore/100 ($mriGrade)`n`nCPU: $(if($cs.Passed){'PASS'}else{'FAIL'})`nRAM: $(if($rs.Passed){'PASS'}else{'FAIL'})`nGPU: $(if($gs.Passed){'PASS'}else{'FAIL'})`nDisk: W=$($ds.SeqWriteMBps) / R=$($ds.SeqReadMBps) MB/s"
             if ($Global:DiagResults.WindowsDeep) { $msg += "`nWindows Health: $($Global:DiagResults.WindowsDeep.Score)/100 ($($Global:DiagResults.WindowsDeep.Grade))" }
             if ($Global:DiagResults.Scoring) { $msg += "`nSecurity: $($Global:DiagResults.Scoring.Score)/100 ($($Global:DiagResults.Scoring.Grade))" }
@@ -1217,6 +1314,7 @@ $xaml = @"
             $hwPDFPath = Join-Path $p.OutputFolder "$safeName - $safeDev - Hardware Report $ds.pdf"
             [IO.File]::WriteAllText($hwHTMLPath, $hwHTML, [Text.Encoding]::UTF8)
             $hwPDF = Convert-ToPDF $hwHTMLPath $hwPDFPath
+            Invoke-Safe { Invoke-AutoUploadReport -ReportPath $(if($hwPDF){$hwPDFPath}else{$hwHTMLPath}) -CustomerName $p.CustomerName -ComputerName $Global:DiagResults.SystemInfo.ComputerName -TechName $p.TechName -ScanMode "Hardware" }
             Set-Status "Hardware Report: $(if($hwPDF){"PDF saved"}else{"HTML saved (no PDF browser)"}) to reports folder" 40
         }
         if ($DoSec) {
@@ -1226,6 +1324,7 @@ $xaml = @"
             $secPDFPath = Join-Path $p.OutputFolder "$safeName - $safeDev - Security Report $ds.pdf"
             [IO.File]::WriteAllText($secHTMLPath, $secHTML, [Text.Encoding]::UTF8)
             $secPDF = Convert-ToPDF $secHTMLPath $secPDFPath
+            Invoke-Safe { Invoke-AutoUploadReport -ReportPath $(if($secPDF){$secPDFPath}else{$secHTMLPath}) -CustomerName $p.CustomerName -ComputerName $Global:DiagResults.SystemInfo.ComputerName -TechName $p.TechName -ScanMode "Security" }
             Set-Status "Security Report: $(if($secPDF){"PDF saved"}else{"HTML saved"}) to reports folder" 90
         }
         Set-Status "Exporting data files..." 92
@@ -1245,6 +1344,38 @@ $xaml = @"
             Export-ScanCSV -ScanData $exportData -OutputFolder $p.OutputFolder
             Save-ScanHistory -ScanData $exportData
         } catch { Write-DiagLog "Export error: $($_.Exception.Message)" "WARN" }
+
+        # Generate benchmark comparison data and save as HTML snippet
+        try {
+            Set-Status "Generating benchmark comparison..." 95
+            $cpuModel = if ($Global:DiagResults.SystemInfo.CPUModel) { $Global:DiagResults.SystemInfo.CPUModel } else { "all" }
+            # Build current scores from whatever is available
+            $curScores = @{ Overall = 50; Thermal = 50; Storage = 50; Network = 50 }
+            if ($Global:DiagResults.Scoring -and $Global:DiagResults.Scoring.Score) { $curScores.Overall = $Global:DiagResults.Scoring.Score }
+            if ($Global:DiagResults.CPUStress -and $Global:DiagResults.CPUStress.MaxTemp) {
+                $t = $Global:DiagResults.CPUStress.MaxTemp
+                $curScores.Thermal = if ($t -lt 60) { 100 } elseif ($t -lt 70) { 90 } elseif ($t -lt 80) { 75 } elseif ($t -lt 90) { 55 } else { 30 }
+            }
+            if ($Global:DiagResults.DiskBench -and $Global:DiagResults.DiskBench.SeqReadMBps) {
+                $r = $Global:DiagResults.DiskBench.SeqReadMBps
+                $curScores.Storage = if ($r -gt 1000) { 100 } elseif ($r -gt 300) { 80 } elseif ($r -gt 100) { 55 } else { 25 }
+            }
+            if ($Global:DiagResults.SpeedTest -and $Global:DiagResults.SpeedTest.DownloadMbps -and $Global:DiagResults.SpeedTest.DownloadMbps -ne "N/A") {
+                $dl = 0; try { $dl = [double]($Global:DiagResults.SpeedTest.DownloadMbps -replace '[^\d.]','') } catch {}
+                $curScores.Network = if ($dl -gt 100) { 95 } elseif ($dl -gt 50) { 80 } elseif ($dl -gt 20) { 65 } elseif ($dl -gt 5) { 45 } else { 20 }
+            }
+            $pctOverall = Get-BenchmarkPercentile -CPUModel $cpuModel -ScoreType "Overall" -ScoreValue $curScores.Overall
+            $pctThermal = Get-BenchmarkPercentile -CPUModel $cpuModel -ScoreType "Thermal" -ScoreValue $curScores.Thermal
+            $pctStorage = Get-BenchmarkPercentile -CPUModel "all"    -ScoreType "Storage" -ScoreValue $curScores.Storage
+            $pctNetwork = Get-BenchmarkPercentile -CPUModel "all"    -ScoreType "Network" -ScoreValue $curScores.Network
+            if ($pctOverall.TotalSamples -gt 0) {
+                $benchHTML = Build-BenchmarkComparisonHTML -CurrentScores $curScores -PercentileOverall $pctOverall -PercentileThermal $pctThermal -PercentileStorage $pctStorage -PercentileNetwork $pctNetwork
+                $benchHTMLPath = Join-Path $p.OutputFolder "$safeName - $safeDev - Benchmark Comparison $ds.html"
+                $benchPage = "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Benchmark Comparison</title></head><body style='margin:20px;background:#0f172a;'>$benchHTML</body></html>"
+                [IO.File]::WriteAllText($benchHTMLPath, $benchPage, [Text.Encoding]::UTF8)
+                Write-DiagLog "Benchmark comparison saved: $benchHTMLPath"
+            }
+        } catch { Write-DiagLog "Benchmark comparison error: $($_.Exception.Message)" "WARN" }
 
         Set-Status "All reports and data saved to: $($p.OutputFolder)" 100
         Start-Process explorer.exe -ArgumentList $p.OutputFolder
@@ -1285,6 +1416,7 @@ $xaml = @"
         [IO.File]::WriteAllText($summaryHTMLPath, $summaryHTML, [Text.Encoding]::UTF8)
         Set-Status "Converting to PDF..." 70
         $pdfOK = Convert-ToPDF $summaryHTMLPath $summaryPDFPath
+        Invoke-Safe { Invoke-AutoUploadReport -ReportPath $(if($pdfOK){$summaryPDFPath}else{$summaryHTMLPath}) -CustomerName $p.CustomerName -ComputerName $Global:DiagResults.SystemInfo.ComputerName -TechName $p.TechName -ScanMode "Customer Summary" }
         Set-Status "Customer Summary: $(if($pdfOK){'PDF saved'}else{'HTML saved'}) to reports folder" 100
         Start-Process explorer.exe -ArgumentList $p.OutputFolder
         [System.Windows.MessageBox]::Show($window, "Customer Health Summary saved!`n`nThis is a customer-friendly 1-2 page report with donut charts and plain English - ready to hand to the customer.", "Summary Ready", "OK", "Information")
@@ -1304,6 +1436,7 @@ $xaml = @"
         [IO.File]::WriteAllText($gamingHTMLPath, $gamingHTML, [Text.Encoding]::UTF8)
         Set-Status "Converting Gaming Report to PDF..." 70
         $pdfOK = Convert-ToPDF $gamingHTMLPath $gamingPDFPath
+        Invoke-Safe { Invoke-AutoUploadReport -ReportPath $(if($pdfOK){$gamingPDFPath}else{$gamingHTMLPath}) -CustomerName $p.CustomerName -ComputerName $Global:DiagResults.SystemInfo.ComputerName -TechName $p.TechName -ScanMode "Gaming PC" }
         Set-Status "Gaming PC Report: $(if($pdfOK){'PDF saved'}else{'HTML saved'}) to reports folder" 100
         Start-Process explorer.exe -ArgumentList $p.OutputFolder
         [System.Windows.MessageBox]::Show($window, "Gaming PC Report saved!`n`nIncludes visual charts for:`n- Temperature bars (CPU/GPU)`n- Storage read/write speed bars`n- Network speed gauge`n- Component health donuts`n- RAM usage and fan speeds`n`nPrint-ready format with full branding.", "Gaming Report Ready", "OK", "Information")
@@ -1356,6 +1489,7 @@ $xaml = @"
 
         Set-Status "Converting Gaming Performance Report to PDF..." 92
         $pdfOK = Convert-ToPDF $gamingPerfHTMLPath $gamingPerfPDFPath
+        Invoke-Safe { Invoke-AutoUploadReport -ReportPath $(if($pdfOK){$gamingPerfPDFPath}else{$gamingPerfHTMLPath}) -CustomerName $p.CustomerName -ComputerName $(if($gamingResult.SystemInfo.ComputerName){$gamingResult.SystemInfo.ComputerName}else{"PC"}) -TechName $p.TechName -ScanMode "Gaming Performance" }
 
         $window.Dispatcher.Invoke([Action]{
             $window.FindName("btnGamingPerfTest").IsEnabled = $true
@@ -1364,9 +1498,299 @@ $xaml = @"
         $grade = $gamingResult.Scores.Grade
         $overall = $gamingResult.Scores.Overall
         $recCount = $gamingResult.Recommendations.Count
+        Invoke-SaveBenchmark -TestType "Gaming"
         Set-Status "Gaming Performance Test complete: Grade $grade ($overall/100)" 100
         Start-Process explorer.exe -ArgumentList $p.OutputFolder
         [System.Windows.MessageBox]::Show($window, "Gaming Performance & Stability Test Complete!`n`nOverall Score: $overall / 100 (Grade $grade)`nThermal Score: $($gamingResult.Scores.Thermal)`nStorage: $($gamingResult.Scores.StorageSpeed)`nFPS Stability: $($gamingResult.Scores.FPSStability)`nPower: $($gamingResult.Scores.PowerStability)`nNetwork: $($gamingResult.Scores.NetworkScore)/100`n`nRecommendations: $recCount`nDuration: $($gamingResult.TotalMinutes) minutes`n`nReport includes time-series SVG charts for:`n- CPU/GPU temperature over time`n- CPU/GPU usage over time`n- Clock speed with throttle detection`n- Fan RPM over time`n- Storage benchmarks (DiskSpd)`n- Network performance`n- FPS analysis (if PresentMon available)", "Gaming Performance Report Ready", "OK", "Information")
+    })
+
+    # ── LCD DISPLAY WEAR & LIFE TEST ──
+    $window.FindName("btnLCDDisplay").Add_Click({
+        $p = Get-Params; if (-not $p) { return }
+        $confirm = [System.Windows.MessageBox]::Show($window, "This will run an LCD Display Wear & Life Test:`n`n- Monitor EDID / panel detection`n- Display adapter & driver analysis`n- Brightness capability check`n- Display/GPU stability event history (180 days)`n- Thermal correlation risk`n- Wear score calculation`n- Visual test page generator (dead pixels, burn-in, etc.)`n`nEstimated time: 1-2 minutes.`n`nProceed?", "LCD Display Test", "YesNo", "Question")
+        if ($confirm -ne [System.Windows.MessageBoxResult]::Yes) { return }
+
+        $window.Dispatcher.Invoke([Action]{
+            $window.FindName("btnLCDDisplay").IsEnabled = $false
+        })
+
+        Set-Status "Starting LCD Display Wear & Life Test..." 5
+
+        Set-Status "Collecting monitor and display data..." 15
+        $lcdResult = Invoke-LCDDisplayTest
+        $Global:DiagResults.LCDDisplay = $lcdResult
+
+        Set-Status "Generating LCD Display Wear Report..." 70
+        $lcdHTML = Build-LCDDisplayReport -Params $p -LCDData $lcdResult
+
+        $safeName = $p.CustomerName -replace '[\\/:*?"<>|]','_'
+        $safeDev = if ($lcdResult.System.ComputerName) { $lcdResult.System.ComputerName -replace '[\\/:*?"<>|]','_' } else { "PC" }
+        $ds = Get-Date -Format "yyyy-MM-dd"
+        $lcdHTMLPath = Join-Path $p.OutputFolder "$safeName - $safeDev - LCD Display Report $ds.html"
+        $lcdPDFPath  = Join-Path $p.OutputFolder "$safeName - $safeDev - LCD Display Report $ds.pdf"
+        $lcdVisualPath = Join-Path $p.OutputFolder "$safeName - $safeDev - LCD Visual Test $ds.html"
+
+        [IO.File]::WriteAllText($lcdHTMLPath, $lcdHTML, [Text.Encoding]::UTF8)
+
+        # Save the visual test page as a separate file
+        if ($lcdResult.VisualTestHTML) {
+            [IO.File]::WriteAllText($lcdVisualPath, $lcdResult.VisualTestHTML, [Text.Encoding]::UTF8)
+        }
+
+        Set-Status "Converting LCD Display Report to PDF..." 85
+        $pdfOK = Convert-ToPDF $lcdHTMLPath $lcdPDFPath
+
+        $window.Dispatcher.Invoke([Action]{
+            $window.FindName("btnLCDDisplay").IsEnabled = $true
+        })
+
+        $lcdScore = $lcdResult.Score.Score
+        $lcdGrade = $lcdResult.Score.Grade
+        $lcdRisk  = $lcdResult.Score.Risk
+        $findingCount = if ($lcdResult.Score.Findings) { $lcdResult.Score.Findings.Count } else { 0 }
+        Set-Status "LCD Display Test complete: $lcdGrade ($lcdScore/100)" 100
+        Start-Process explorer.exe -ArgumentList $p.OutputFolder
+        [System.Windows.MessageBox]::Show($window, "LCD Display Wear & Life Test Complete!`n`nDisplay Wear Score: $lcdScore / 100`nGrade: $lcdGrade`nRisk Level: $lcdRisk`n`nApprox Life: $($lcdResult.Score.ApproxLife)`n`nFindings: $findingCount`nMonitors Detected: $($lcdResult.Monitor.MonitorCount)`nBrightness Supported: $($lcdResult.Brightness.BrightnessSupported)`nDisplay Events (180d): $($lcdResult.Events.EventCount)`nDriver Resets: $($lcdResult.Events.DriverResetCount)`nThermal Events: $($lcdResult.Thermal.ThermalEventCount)`n`nReport saved to output folder.`nA separate LCD Visual Test HTML file has also been saved.", "LCD Display Report Ready", "OK", "Information")
+    })
+
+    # ── QUICK FIX (REMEDIATION DIALOG) ──
+    $window.FindName("btnQuickFix").Add_Click({
+        $qfXaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="PC Plus 360 - Quick Fix" Height="620" Width="560"
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
+        Background="#eef4f8" FontFamily="Segoe UI">
+    <Window.Resources>
+        <Style x:Key="FlatBtn" TargetType="Button">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="bd" Property="Opacity" Value="0.7"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#0a3a56" Padding="16,14">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Border Width="36" Height="36" CornerRadius="8" Margin="0,0,12,0">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                            <GradientStop Color="#f43f5e" Offset="0"/>
+                            <GradientStop Color="#fb7185" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
+                    <TextBlock Text="&#xE15E;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="Quick Fix - One-Click Remediation" FontSize="15" FontWeight="SemiBold" Foreground="White"/>
+                    <TextBlock Text="Select fixes to apply and click Run" FontSize="10.5" Foreground="#fb7185"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Content -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0">
+            <StackPanel Margin="18,14,18,10">
+
+                <!-- Fix Options -->
+                <Border Background="White" CornerRadius="7" Padding="12" Margin="0,0,0,10" BorderBrush="#d8e8f0" BorderThickness="1">
+                    <StackPanel>
+                        <TextBlock Text="SELECT FIXES TO APPLY" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa" Margin="0,0,0,8"/>
+                        <CheckBox x:Name="chkCleanTemp" Margin="0,4" IsChecked="True">
+                            <StackPanel>
+                                <TextBlock Text="Clean Temp Files" FontSize="12" FontWeight="SemiBold" Foreground="#1a2b3c"/>
+                                <TextBlock Text="Remove Windows temp, user temp, prefetch, browser caches" FontSize="9.5" Foreground="#5a7080"/>
+                            </StackPanel>
+                        </CheckBox>
+                        <CheckBox x:Name="chkPowerPlan" Margin="0,4">
+                            <StackPanel>
+                                <TextBlock Text="Optimize Power Plan" FontSize="12" FontWeight="SemiBold" Foreground="#1a2b3c"/>
+                                <TextBlock Text="High Performance (desktop) or Balanced (laptop on battery)" FontSize="9.5" Foreground="#5a7080"/>
+                            </StackPanel>
+                        </CheckBox>
+                        <CheckBox x:Name="chkStartupBloat" Margin="0,4">
+                            <StackPanel>
+                                <TextBlock Text="Disable Startup Bloat" FontSize="12" FontWeight="SemiBold" Foreground="#1a2b3c"/>
+                                <TextBlock Text="Disable Cortana, OneDrive, Teams, Skype, Adobe updater, etc." FontSize="9.5" Foreground="#5a7080"/>
+                            </StackPanel>
+                        </CheckBox>
+                        <CheckBox x:Name="chkDNSCache" Margin="0,4">
+                            <StackPanel>
+                                <TextBlock Text="Clear DNS Cache" FontSize="12" FontWeight="SemiBold" Foreground="#1a2b3c"/>
+                                <TextBlock Text="Flush DNS resolver cache to fix stale lookups" FontSize="9.5" Foreground="#5a7080"/>
+                            </StackPanel>
+                        </CheckBox>
+                        <CheckBox x:Name="chkRepairImage" Margin="0,4">
+                            <StackPanel>
+                                <TextBlock Text="Repair Windows Image" FontSize="12" FontWeight="SemiBold" Foreground="#1a2b3c"/>
+                                <TextBlock Text="Run DISM RestoreHealth + SFC scannow (takes several minutes)" FontSize="9.5" Foreground="#f59e0b"/>
+                            </StackPanel>
+                        </CheckBox>
+                        <CheckBox x:Name="chkUpdateDrivers" Margin="0,4">
+                            <StackPanel>
+                                <TextBlock Text="Check for Driver Updates" FontSize="12" FontWeight="SemiBold" Foreground="#1a2b3c"/>
+                                <TextBlock Text="Opens Windows Update and triggers update scan" FontSize="9.5" Foreground="#5a7080"/>
+                            </StackPanel>
+                        </CheckBox>
+                        <CheckBox x:Name="chkVisualEffects" Margin="0,4">
+                            <StackPanel>
+                                <TextBlock Text="Optimize Visual Effects" FontSize="12" FontWeight="SemiBold" Foreground="#1a2b3c"/>
+                                <TextBlock Text="Set to 'Best Performance' - disables animations and shadows" FontSize="9.5" Foreground="#5a7080"/>
+                            </StackPanel>
+                        </CheckBox>
+                    </StackPanel>
+                </Border>
+
+                <!-- Results Log -->
+                <Border Background="White" CornerRadius="7" Padding="12" Margin="0,0,0,4" BorderBrush="#d8e8f0" BorderThickness="1">
+                    <StackPanel>
+                        <TextBlock Text="RESULTS" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa" Margin="0,0,0,6"/>
+                        <TextBox x:Name="txtQFResults" Height="140" IsReadOnly="True" TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto" FontSize="10.5" FontFamily="Consolas"
+                                 Background="#f8fafc" Foreground="#1a2b3c" BorderBrush="#d8e8f0" Padding="8"
+                                 Text="Select fixes above and click 'Run Selected Fixes' to begin."/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Footer Buttons -->
+        <Border Grid.Row="2" Background="#f0f5f9" Padding="18,10" BorderBrush="#d8e8f0" BorderThickness="0,1,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" VerticalAlignment="Center" FontSize="9.5" Foreground="#5a7080">
+                    <Run Text="PC Plus Computing"/>
+                    <Run Text=" | "/>
+                    <Run Text="Quick Fix Toolkit"/>
+                </TextBlock>
+                <Button x:Name="btnQFClose" Grid.Column="1" Style="{StaticResource FlatBtn}" Background="#e2e8f0" Padding="18,8" Margin="0,0,8,0">
+                    <TextBlock Text="Close" FontSize="11.5" FontWeight="SemiBold" Foreground="#475569"/>
+                </Button>
+                <Button x:Name="btnQFRun" Grid.Column="2" Style="{StaticResource FlatBtn}" Background="#f43f5e" Padding="22,8">
+                    <TextBlock Text="Run Selected Fixes" FontSize="11.5" FontWeight="SemiBold" Foreground="White"/>
+                </Button>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
+"@
+
+        try {
+            $qfReader = [System.Xml.XmlReader]::Create([System.IO.StringReader]::new($qfXaml))
+            $qfDlg = [System.Windows.Markup.XamlReader]::Load($qfReader)
+        }
+        catch {
+            Write-DiagLog "Failed to load Quick Fix dialog XAML: $($_.Exception.Message)" "ERROR"
+            [System.Windows.MessageBox]::Show($window, "Could not open Quick Fix dialog: $($_.Exception.Message)", "Error", "OK", "Error")
+            return
+        }
+
+        # Grab controls
+        $chkCleanTemp    = $qfDlg.FindName("chkCleanTemp")
+        $chkPowerPlan    = $qfDlg.FindName("chkPowerPlan")
+        $chkStartupBloat = $qfDlg.FindName("chkStartupBloat")
+        $chkDNSCache     = $qfDlg.FindName("chkDNSCache")
+        $chkRepairImage  = $qfDlg.FindName("chkRepairImage")
+        $chkUpdateDrivers = $qfDlg.FindName("chkUpdateDrivers")
+        $chkVisualEffects = $qfDlg.FindName("chkVisualEffects")
+        $txtQFResults    = $qfDlg.FindName("txtQFResults")
+        $btnQFRun        = $qfDlg.FindName("btnQFRun")
+        $btnQFClose      = $qfDlg.FindName("btnQFClose")
+
+        $btnQFClose.Add_Click({ $qfDlg.Close() })
+
+        $btnQFRun.Add_Click({
+            $actions = [System.Collections.ArrayList]::new()
+            if ($chkCleanTemp.IsChecked)    { $null = $actions.Add("CleanTempFiles") }
+            if ($chkPowerPlan.IsChecked)    { $null = $actions.Add("OptimizePowerPlan") }
+            if ($chkStartupBloat.IsChecked) { $null = $actions.Add("DisableStartupBloat") }
+            if ($chkDNSCache.IsChecked)     { $null = $actions.Add("ClearDNSCache") }
+            if ($chkRepairImage.IsChecked)  { $null = $actions.Add("RepairWindowsImage") }
+            if ($chkUpdateDrivers.IsChecked){ $null = $actions.Add("UpdateDrivers") }
+            if ($chkVisualEffects.IsChecked){ $null = $actions.Add("OptimizeVisualEffects") }
+
+            if ($actions.Count -eq 0) {
+                $txtQFResults.Text = "Please select at least one fix to run."
+                return
+            }
+
+            $btnQFRun.IsEnabled = $false
+            $btnQFClose.IsEnabled = $false
+            $txtQFResults.Text = "Running $($actions.Count) fix(es)...`r`n"
+            $qfDlg.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Background)
+
+            $totalRecovered = [long]0
+            $successCount = 0
+            $failCount = 0
+
+            foreach ($action in $actions) {
+                $txtQFResults.Text += "`r`n[$action] Running..."
+                $qfDlg.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Background)
+
+                $res = Invoke-Safe { Invoke-QuickRemediation -Action $action } $null
+
+                if ($res -and $res.Success) {
+                    $successCount++
+                    $statusIcon = "OK"
+                    if ($res.BytesRecovered -gt 0) { $totalRecovered += $res.BytesRecovered }
+                }
+                else {
+                    $failCount++
+                    $statusIcon = "FAIL"
+                }
+
+                $detail = if ($res) { $res.Details } else { "Unknown error" }
+                $txtQFResults.Text += "`r`n[$action] $statusIcon - $detail"
+                $qfDlg.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Background)
+            }
+
+            $summaryLine = "`r`n`r`n--- SUMMARY ---`r`nCompleted: $successCount succeeded, $failCount failed"
+            if ($totalRecovered -gt 0) {
+                $summaryLine += " | Space recovered: $([math]::Round($totalRecovered / 1MB, 1)) MB"
+            }
+            $txtQFResults.Text += $summaryLine
+
+            $btnQFRun.IsEnabled = $true
+            $btnQFClose.IsEnabled = $true
+        })
+
+        $qfDlg.ShowDialog() | Out-Null
     })
 
     # ── SEND REPORT (PAPERLESS) ──
@@ -1381,6 +1805,165 @@ $xaml = @"
         if ($reportFiles.Count -eq 0) { [System.Windows.MessageBox]::Show($window, "No reports found. Generate a report first.", "No Reports", "OK", "Warning"); return }
         $latestReport = $reportFiles[0]
         Show-PaperlessDialog -ReportPath $latestReport -CustomerName $p.CustomerName -ComputerName $Global:DiagResults.SystemInfo.ComputerName -TechName $p.TechName -ScanMode $Global:DiagResults.ScanMode
+    })
+
+    # ── BENCHMARKS DATABASE VIEWER ──
+    $window.FindName("btnBenchmarks").Add_Click({
+        try {
+            Set-Status "Loading benchmark database..." 30
+            $benchSummary = Get-BenchmarkSummary
+            if (-not $benchSummary.DatabaseExists -or $benchSummary.TotalBenchmarks -eq 0) {
+                [System.Windows.MessageBox]::Show($window, "No benchmark data yet.`n`nBenchmark results are saved automatically after each scan completes. Run a Quick, Standard, Deep, MRI, or Gaming test to start building your comparison database.", "Benchmark Database", "OK", "Information")
+                Set-Status "Ready" 0
+                return
+            }
+
+            # Build summary message
+            $msg = "BENCHMARK DATABASE SUMMARY`n"
+            $msg += "================================`n`n"
+            $msg += "Total Benchmarks: $($benchSummary.TotalBenchmarks)`n"
+            $msg += "Unique Systems: $($benchSummary.UniqueComputers)`n"
+            $msg += "Unique CPUs: $($benchSummary.UniqueCPUs)`n"
+            $msg += "Last Benchmark: $($benchSummary.LastBenchmarkDate)`n`n"
+
+            $msg += "AVERAGE SCORES`n"
+            $msg += "----------------------------`n"
+            $msg += "Overall:  $($benchSummary.AverageScores.Overall)/100`n"
+            $msg += "Thermal:  $($benchSummary.AverageScores.Thermal)/100`n"
+            $msg += "Storage:  $($benchSummary.AverageScores.Storage)/100`n"
+            $msg += "Network:  $($benchSummary.AverageScores.Network)/100`n"
+            $msg += "Security: $($benchSummary.AverageScores.Security)/100`n`n"
+
+            if ($benchSummary.ScoresByTestType.Count -gt 0) {
+                $msg += "BY TEST TYPE`n"
+                $msg += "----------------------------`n"
+                foreach ($tt in $benchSummary.ScoresByTestType.Keys) {
+                    $ttData = $benchSummary.ScoresByTestType[$tt]
+                    $msg += "$($tt): $($ttData.Count) tests, avg $($ttData.AvgScore)/100`n"
+                }
+                $msg += "`n"
+            }
+
+            if ($benchSummary.HardwareTiers.Count -gt 0) {
+                $msg += "BY HARDWARE TIER`n"
+                $msg += "----------------------------`n"
+                foreach ($tier in $benchSummary.HardwareTiers) {
+                    $msg += "$($tier.RAMRange) RAM: $($tier.Count) systems, avg $($tier.AvgScore)/100`n"
+                }
+                $msg += "`n"
+            }
+
+            if ($benchSummary.Top10.Count -gt 0) {
+                $msg += "TOP PERFORMERS`n"
+                $msg += "----------------------------`n"
+                $rank = 1
+                foreach ($top in $benchSummary.Top10) {
+                    $cpuShort = $top.CPUModel
+                    if ($cpuShort.Length -gt 30) { $cpuShort = $cpuShort.Substring(0, 30) + "..." }
+                    $msg += "$rank. $($top.ComputerName) - $($top.Overall)/100 ($($top.Grade)) - $cpuShort`n"
+                    $rank++
+                }
+            }
+
+            Set-Status "Benchmark database loaded: $($benchSummary.TotalBenchmarks) entries" 100
+            [System.Windows.MessageBox]::Show($window, $msg, "PC Plus 360 - Benchmark Database", "OK", "Information")
+        } catch {
+            Write-DebugLog "Benchmarks ERROR: $($_.Exception.Message)"
+            [System.Windows.MessageBox]::Show($window, "Error loading benchmarks: $($_.Exception.Message)", "Error", "OK", "Error")
+        }
+    })
+
+    # ── CHECK FOR UPDATES (BUTTON) ──
+    $window.FindName("btnCheckUpdate").Add_Click({
+        Write-DiagLog "Manual update check triggered"
+        $window.FindName("lblUpdateStatus").Text = "Checking..."
+        $window.FindName("lblUpdateStatus").Foreground = [System.Windows.Media.Brushes]::Gray
+
+        # Force a UI refresh before the blocking call
+        $frame = New-Object System.Windows.Threading.DispatcherFrame
+        [System.Windows.Threading.Dispatcher]::CurrentDispatcher.BeginInvoke(
+            [System.Windows.Threading.DispatcherPriority]::Background,
+            [System.Action]{ $frame.Continue = $false }
+        )
+        [System.Windows.Threading.Dispatcher]::PushFrame($frame)
+
+        $updateInfo = Test-ToolkitUpdate -CurrentVersion $VERSION -ScriptDir $Global:ScriptDir
+        if ($updateInfo.UpdateAvailable) {
+            Write-DiagLog "Update available: $($updateInfo.LatestVersion) from $($updateInfo.Source)"
+            $window.FindName("lblUpdateStatus").Text = "v$($updateInfo.LatestVersion) available!"
+            $window.FindName("lblUpdateStatus").Foreground = [System.Windows.Media.Brushes]::Orange
+            $answer = [System.Windows.MessageBox]::Show(
+                $window,
+                "A newer version is available!`n`nCurrent: v$($updateInfo.CurrentVersion)`nLatest:  v$($updateInfo.LatestVersion)`nSource:  $($updateInfo.Source)`n`nWould you like to update now?`n(Current files will be backed up with .bak extension)",
+                "PC Plus 360 - Update Available",
+                "YesNo",
+                "Information"
+            )
+            if ($answer -eq [System.Windows.MessageBoxResult]::Yes) {
+                Write-DiagLog "User accepted update"
+                $window.FindName("lblUpdateStatus").Text = "Updating..."
+                $frame2 = New-Object System.Windows.Threading.DispatcherFrame
+                [System.Windows.Threading.Dispatcher]::CurrentDispatcher.BeginInvoke(
+                    [System.Windows.Threading.DispatcherPriority]::Background,
+                    [System.Action]{ $frame2.Continue = $false }
+                )
+                [System.Windows.Threading.Dispatcher]::PushFrame($frame2)
+
+                $result = Invoke-ToolkitUpdate -UpdateInfo $updateInfo -ScriptDir $Global:ScriptDir
+                if ($result.Success) {
+                    Write-DiagLog "Update applied successfully: $($result.Message)"
+                    $window.FindName("lblUpdateStatus").Text = "Updated! Restart required."
+                    $window.FindName("lblUpdateStatus").Foreground = [System.Windows.Media.Brushes]::LimeGreen
+                    [System.Windows.MessageBox]::Show(
+                        $window,
+                        "Update applied successfully!`n`n$($result.Message)`n`nPlease restart PC Plus 360 to use the new version.",
+                        "Update Complete",
+                        "OK",
+                        "Information"
+                    )
+                } else {
+                    Write-DiagLog "Update failed: $($result.Message)"
+                    $window.FindName("lblUpdateStatus").Text = "Update failed"
+                    $window.FindName("lblUpdateStatus").Foreground = [System.Windows.Media.Brushes]::Red
+                    [System.Windows.MessageBox]::Show(
+                        $window,
+                        "Update failed:`n`n$($result.Message)",
+                        "Update Error",
+                        "OK",
+                        "Error"
+                    )
+                }
+            }
+        } else {
+            Write-DiagLog "No update available (current: $VERSION)"
+            $window.FindName("lblUpdateStatus").Text = "Up to date"
+            $window.FindName("lblUpdateStatus").Foreground = [System.Windows.Media.Brushes]::LimeGreen
+            [System.Windows.MessageBox]::Show(
+                $window,
+                "You are running the latest version (v$VERSION).",
+                "PC Plus 360 - No Updates",
+                "OK",
+                "Information"
+            )
+        }
+    })
+
+    # ── STARTUP VERSION CHECK (non-blocking notification) ──
+    $window.Add_ContentRendered({
+        Write-DiagLog "Startup update check..."
+        try {
+            $updateInfo = Test-ToolkitUpdate -CurrentVersion $VERSION -ScriptDir $Global:ScriptDir
+            if ($updateInfo.UpdateAvailable) {
+                Write-DiagLog "Startup check: update available v$($updateInfo.LatestVersion)"
+                $window.FindName("lblUpdateStatus").Text = "v$($updateInfo.LatestVersion) available"
+                $window.FindName("lblUpdateStatus").Foreground = [System.Windows.Media.Brushes]::Orange
+                $window.FindName("txtStatus").Text = "Update available: v$($updateInfo.LatestVersion) from $($updateInfo.Source). Click 'Check for Updates' in the sidebar."
+            } else {
+                Write-DiagLog "Startup check: up to date"
+            }
+        } catch {
+            Write-DiagLog "Startup update check failed: $($_.Exception.Message)" "WARN"
+        }
     })
 
     $window.ShowDialog() | Out-Null
