@@ -83,7 +83,7 @@ $Global:LogLines = [System.Collections.ArrayList]::new()
 $COMPANY      = "PC Plus Computing"
 $PHONE        = "604-760-1662 | 236-500-2700"
 $WEBSITE      = "pcpluscomputing.com"
-$VERSION      = "2.0.0"
+$VERSION      = "2.1.0"
 
 if (-not (Test-Path $Global:ReportsDir)) { New-Item -Path $Global:ReportsDir -ItemType Directory -Force | Out-Null }
 if (-not (Test-Path $Global:ToolsDir)) { New-Item -Path $Global:ToolsDir -ItemType Directory -Force | Out-Null }
@@ -2875,7 +2875,7 @@ $xaml = @"
                         <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="60"/><RowDefinition Height="60"/><RowDefinition Height="60"/><RowDefinition Height="60"/>
+                        <RowDefinition Height="60"/><RowDefinition Height="60"/><RowDefinition Height="60"/><RowDefinition Height="60"/><RowDefinition Height="60"/>
                     </Grid.RowDefinitions>
                     <Button x:Name="btnCPU" Content="CPU Stress Test" Grid.Row="0" Grid.Column="0" Margin="2" Background="#1a3a52" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
                     <Button x:Name="btnRAM" Content="RAM Test" Grid.Row="0" Grid.Column="1" Margin="2" Background="#1a3a52" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
@@ -2888,6 +2888,8 @@ $xaml = @"
                     <Button x:Name="btnDebloat" Content="Windows Debloat" Grid.Row="2" Grid.Column="2" Margin="2" Background="#8B0000" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
                     <Button x:Name="btnRAMIso" Content="RAM Isolation Test" Grid.Row="3" Grid.Column="0" Margin="2" Background="#0b5394" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
                     <Button x:Name="btnPassRecovery" Content="Password Recovery" Grid.Row="3" Grid.Column="1" Margin="2" Background="#0b5394" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
+                    <Button x:Name="btnWinDeep" Content="Windows Deep Test" Grid.Row="3" Grid.Column="2" Margin="2" Background="#0b5394" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
+                    <Button x:Name="btnNirSoft" Content="NirSoft Tools Suite" Grid.Row="4" Grid.Column="0" Margin="2" Background="#6a0dad" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
                 </Grid>
 
                 <!-- PORTABLE TOOLS -->
@@ -3079,6 +3081,24 @@ $xaml = @"
             Start-Process powershell.exe -ArgumentList "-STA -NoProfile -ExecutionPolicy Bypass -File `"$passScript`"" -Verb RunAs
         } else {
             [System.Windows.MessageBox]::Show($window, "PCPlus-PasswordRecovery.ps1 not found in $Global:ScriptDir", "Not Found", "OK", "Warning")
+        }
+    })
+
+    $window.FindName("btnWinDeep").Add_Click({
+        $winDeepScript = Join-Path $Global:ScriptDir "PCPlus-WindowsDeepTest.ps1"
+        if (Test-Path $winDeepScript) {
+            Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$winDeepScript`"" -Verb RunAs
+        } else {
+            [System.Windows.MessageBox]::Show($window, "PCPlus-WindowsDeepTest.ps1 not found in $Global:ScriptDir", "Not Found", "OK", "Warning")
+        }
+    })
+
+    $window.FindName("btnNirSoft").Add_Click({
+        $nirScript = Join-Path $Global:ScriptDir "PCPlus-NirSoftSuite.ps1"
+        if (Test-Path $nirScript) {
+            Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$nirScript`"" -Verb RunAs
+        } else {
+            [System.Windows.MessageBox]::Show($window, "PCPlus-NirSoftSuite.ps1 not found in $Global:ScriptDir", "Not Found", "OK", "Warning")
         }
     })
 
