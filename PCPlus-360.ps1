@@ -364,27 +364,34 @@ $xaml = @"
                     <TextBlock Text="SCAN MODES" FontSize="12" FontWeight="Bold" Foreground="#1a2b3c" Margin="0,0,0,6"/>
                     <Grid Margin="0,0,0,12">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <Button x:Name="btnQuick" Grid.Column="0" Style="{StaticResource FlatBtn}" Background="White" BorderBrush="#d8e8f0" BorderThickness="2" Padding="12" Margin="0,0,4,0" HorizontalContentAlignment="Left">
+                        <Button x:Name="btnQuick" Grid.Column="0" Style="{StaticResource FlatBtn}" Background="White" BorderBrush="#d8e8f0" BorderThickness="2" Padding="10" Margin="0,0,3,0" HorizontalContentAlignment="Left">
                             <StackPanel>
-                                <TextBlock Text="Quick Test" FontSize="13.5" FontWeight="SemiBold" Foreground="#1a2b3c"/>
-                                <TextBlock Text="5 - 10 min" FontSize="10.5" Foreground="#2596be" FontFamily="Consolas" Margin="0,2,0,0"/>
-                                <TextBlock Text="System info, SMART, crash history. No stress tests." FontSize="10" Foreground="#5a7080" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                <TextBlock Text="Quick Test" FontSize="12.5" FontWeight="SemiBold" Foreground="#1a2b3c"/>
+                                <TextBlock Text="5 - 10 min" FontSize="10" Foreground="#2596be" FontFamily="Consolas" Margin="0,2,0,0"/>
+                                <TextBlock Text="System info, SMART, crash history." FontSize="9.5" Foreground="#5a7080" TextWrapping="Wrap" Margin="0,3,0,0"/>
                             </StackPanel>
                         </Button>
-                        <Button x:Name="btnStandard" Grid.Column="1" Style="{StaticResource FlatBtn}" Background="White" BorderBrush="#2596be" BorderThickness="2" Padding="12" Margin="2,0,2,0" HorizontalContentAlignment="Left">
+                        <Button x:Name="btnStandard" Grid.Column="1" Style="{StaticResource FlatBtn}" Background="White" BorderBrush="#2596be" BorderThickness="2" Padding="10" Margin="1,0,2,0" HorizontalContentAlignment="Left">
                             <StackPanel>
-                                <TextBlock Text="Standard Test" FontSize="13.5" FontWeight="SemiBold" Foreground="#1a2b3c"/>
-                                <TextBlock Text="20 - 30 min" FontSize="10.5" Foreground="#2596be" FontFamily="Consolas" Margin="0,2,0,0"/>
-                                <TextBlock Text="Full diagnostic + stress tests, benchmarks, speed test." FontSize="10" Foreground="#5a7080" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                <TextBlock Text="Standard" FontSize="12.5" FontWeight="SemiBold" Foreground="#1a2b3c"/>
+                                <TextBlock Text="20 - 30 min" FontSize="10" Foreground="#2596be" FontFamily="Consolas" Margin="0,2,0,0"/>
+                                <TextBlock Text="Diagnostics + stress tests." FontSize="9.5" Foreground="#5a7080" TextWrapping="Wrap" Margin="0,3,0,0"/>
                             </StackPanel>
                         </Button>
-                        <Button x:Name="btnFull" Grid.Column="2" Style="{StaticResource FlatBtn}" Background="White" BorderBrush="#d8e8f0" BorderThickness="2" Padding="12" Margin="4,0,0,0" HorizontalContentAlignment="Left">
+                        <Button x:Name="btnFull" Grid.Column="2" Style="{StaticResource FlatBtn}" Background="White" BorderBrush="#d8e8f0" BorderThickness="2" Padding="10" Margin="2,0,1,0" HorizontalContentAlignment="Left">
                             <StackPanel>
-                                <TextBlock Text="Deep Test" FontSize="13.5" FontWeight="SemiBold" Foreground="#1a2b3c"/>
-                                <TextBlock Text="60 - 90 min" FontSize="10.5" Foreground="#2596be" FontFamily="Consolas" Margin="0,2,0,0"/>
-                                <TextBlock Text="Extended stress, thermal analysis, history comparison." FontSize="10" Foreground="#5a7080" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                <TextBlock Text="Deep Test" FontSize="12.5" FontWeight="SemiBold" Foreground="#1a2b3c"/>
+                                <TextBlock Text="60 - 90 min" FontSize="10" Foreground="#2596be" FontFamily="Consolas" Margin="0,2,0,0"/>
+                                <TextBlock Text="Extended stress + thermal." FontSize="9.5" Foreground="#5a7080" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="btnMRI" Grid.Column="3" Style="{StaticResource FlatBtn}" Background="#0a3a56" BorderBrush="#2596be" BorderThickness="2" Padding="10" Margin="3,0,0,0" HorizontalContentAlignment="Left">
+                            <StackPanel>
+                                <TextBlock Text="Full MRI" FontSize="12.5" FontWeight="Bold" Foreground="#3bbde0"/>
+                                <TextBlock Text="90 - 120 min" FontSize="10" Foreground="#5aafcc" FontFamily="Consolas" Margin="0,2,0,0"/>
+                                <TextBlock Text="Everything. MRI + X-Ray." FontSize="9.5" Foreground="#8ab8cc" TextWrapping="Wrap" Margin="0,3,0,0"/>
                             </StackPanel>
                         </Button>
                     </Grid>
@@ -698,7 +705,7 @@ $xaml = @"
     })
 
     function Set-ScanButtons($enabled) {
-        foreach ($bn in @("btnQuick","btnStandard","btnFull","btnRunSelected","btnQuickScan")) {
+        foreach ($bn in @("btnQuick","btnStandard","btnFull","btnMRI","btnRunSelected","btnQuickScan")) {
             $b = $window.FindName($bn)
             if ($b) { $b.IsEnabled = $enabled }
         }
@@ -1009,6 +1016,109 @@ $xaml = @"
             Write-DebugLog "Deep Test ERROR: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
             Set-Status "ERROR: $($_.Exception.Message)" 0
             [System.Windows.MessageBox]::Show($window, "Error during Deep Test:`n`n$($_.Exception.Message)", "Error", "OK", "Error")
+        } finally { Set-ScanButtons $true; $lblReadyStatus.Text = "Ready" }
+    })
+
+    # ── FULL MRI (90-120 min) ──
+    $window.FindName("btnMRI").Add_Click({
+        try {
+            $p = Get-Params; if (-not $p) { return }
+            $confirm = [System.Windows.MessageBox]::Show($window, "Full System MRI runs EVERY diagnostic:`n- All hardware info and inventory`n- CPU, RAM, GPU, Disk stress tests`n- SSD life and SMART analysis`n- Deep Windows integrity (SFC, DISM, CHKDSK)`n- Security audit + activation check`n- Thermal monitoring + DPC latency`n- Memory leak detection`n- All event logs and crash history`n- Network + speed test`n- Display, drivers, fragmentation check`n`nThis takes 90-120 minutes. Continue?", "Full System MRI", "YesNo", "Question")
+            if ($confirm -ne "Yes") { return }
+            Set-ScanButtons $false
+            $lblReadyStatus.Text = "MRI Running..."
+            $Global:DiagResults.ScanMode = "MRI"
+
+            Set-Status "MRI Phase 1: System inventory..." 2
+            $Global:DiagResults.SystemInfo = Get-FullSystemInfo
+            Update-SystemInfo
+            Set-Status "MRI Phase 1: Security audit..." 5
+            $Global:DiagResults.Security = Get-FullSecurityInfo
+            Set-Status "MRI Phase 1: Network diagnostics..." 8
+            $Global:DiagResults.Network = Get-NetworkDiagnostics
+            Set-Status "MRI Phase 1: Software inventory..." 10
+            $Global:DiagResults.Software = Get-SoftwareInventory
+            Set-Status "MRI Phase 1: Updates check..." 12
+            $Global:DiagResults.Patches = Get-MissingPatchesList
+            $Global:DiagResults.Scoring = Calculate-Score $Global:DiagResults.Security $Global:DiagResults.Patches
+            Set-Status "MRI Phase 1: License keys..." 14
+            $Global:DiagResults.LicenseKeys = Get-LicenseKeys
+            Set-Status "MRI Phase 1: Performance snapshot..." 16
+            $Global:DiagResults.Performance = Get-PerformanceSnapshot
+            Set-Status "MRI Phase 1: Crash & stability history..." 18
+            $Global:DiagResults.Stability = Get-CrashStabilityHistory
+            Set-Status "MRI Phase 1: Battery report..." 20
+            $Global:DiagResults.BatteryDetail = Get-DetailedBatteryInfo
+            Set-Status "MRI Phase 1: Power stability..." 21
+            $Global:DiagResults.PowerInfo = Get-PowerStabilityInfo
+            Set-Status "MRI Phase 1: Gaming readiness..." 22
+            $Global:DiagResults.Gaming = Get-GamingReadiness
+            Set-Status "MRI Phase 1: Boot performance..." 23
+            $Global:DiagResults.BootPerf = Get-BootPerformance
+            Set-Status "MRI Phase 1: Windows 11 readiness..." 24
+            $Global:DiagResults.Win11Ready = Get-Windows11Readiness
+            Set-Status "MRI Phase 1: Fan info..." 25
+            $Global:DiagResults.FanInfo = Get-FanInfo
+            Set-Status "MRI Phase 1: Display info..." 26
+            $Global:DiagResults.DisplayInfo = Get-DisplayInfo
+            Set-Status "MRI Phase 1: Windows activation..." 27
+            $Global:DiagResults.Activation = Get-WindowsActivation
+            Set-Status "MRI Phase 1: Memory leak check..." 28
+            $Global:DiagResults.MemoryLeaks = Test-MemoryLeaks
+            Set-Status "MRI Phase 1: Thermal snapshot..." 29
+            $Global:DiagResults.Thermal = Get-ThermalSnapshot
+
+            Set-Status "MRI Phase 2: SSD/HDD life report..." 30
+            $Global:DiagResults.SSDLife = Get-SSDLifeReport
+            Set-Status "MRI Phase 2: Disk fragmentation..." 32
+            $Global:DiagResults.Fragmentation = Get-DiskFragmentation
+            Set-Status "MRI Phase 2: CrystalDiskInfo SMART scan..." 34
+            $Global:DiagResults.CrystalDiskInfo = Invoke-CrystalDiskInfoScan
+
+            Set-Status "MRI Phase 3: CPU stress test (2 min)..." 36
+            $Global:DiagResults.CPUStress = Start-CPUStressTest -DurationSeconds 120
+            Set-Status "MRI Phase 3: RAM stress test (2 min)..." 50
+            $Global:DiagResults.RAMStress = Start-RAMStressTest -DurationSeconds 120
+            Set-Status "MRI Phase 3: Disk benchmark (512 MB)..." 64
+            $Global:DiagResults.DiskBench = Start-DiskBenchmark -FileSizeMB 512
+            Set-Status "MRI Phase 3: GPU stress test (90 sec)..." 70
+            $Global:DiagResults.GPUStress = Start-GPUStressTest -DurationSeconds 90
+            $Global:DiagResults.StressResults = @{ CPU=$Global:DiagResults.CPUStress; RAM=$Global:DiagResults.RAMStress; Disk=$Global:DiagResults.DiskBench; GPU=$Global:DiagResults.GPUStress }
+
+            Set-Status "MRI Phase 4: Deep Windows integrity (SFC, DISM, services)..." 78
+            $Global:DiagResults.WindowsDeep = Invoke-DeepWindowsTest
+            Set-Status "MRI Phase 4: DPC latency check..." 90
+            $Global:DiagResults.DPCLatency = Test-DPCLatency
+
+            Set-Status "MRI Phase 5: Internet speed test..." 93
+            $Global:DiagResults.SpeedTest2 = Invoke-SpeedtestCLI
+            if (-not $Global:DiagResults.SpeedTest) { $Global:DiagResults.SpeedTest = Get-NetworkSpeedTest }
+
+            Set-Status "MRI: Calculating overall score..." 97
+            $overallScore = 100; $issues = @()
+            $cs = $Global:DiagResults.CPUStress; $rs = $Global:DiagResults.RAMStress; $gs = $Global:DiagResults.GPUStress; $ds = $Global:DiagResults.DiskBench
+            if ($cs -and -not $cs.Passed) { $overallScore -= 15; $issues += "CPU stress failed" }
+            if ($rs -and -not $rs.Passed) { $overallScore -= 15; $issues += "RAM stress failed" }
+            if ($gs -and -not $gs.Passed) { $overallScore -= 10; $issues += "GPU stress failed" }
+            if ($Global:DiagResults.WindowsDeep) { $wdScore = $Global:DiagResults.WindowsDeep.Score; $overallScore -= [math]::Max(0, 20 - [math]::Round($wdScore * 0.2)) }
+            if ($Global:DiagResults.Scoring) { $overallScore -= [math]::Max(0, 25 - [math]::Round($Global:DiagResults.Scoring.Score * 0.25)) }
+            if ($Global:DiagResults.Thermal -and $Global:DiagResults.Thermal.OverheatDetected) { $overallScore -= 10; $issues += "Overheating" }
+            if ($overallScore -lt 0) { $overallScore = 0 }
+            $mriGrade = if ($overallScore -ge 90){"A"} elseif ($overallScore -ge 80){"B"} elseif ($overallScore -ge 70){"C"} elseif ($overallScore -ge 60){"D"} else {"F"}
+            $Global:DiagResults.MRIScore = $overallScore
+            $Global:DiagResults.MRIGrade = $mriGrade
+
+            Set-Status "DONE! Full System MRI complete. Score: $overallScore/100 ($mriGrade)" 100
+            Complete-Scan
+            $msg = "Full System MRI Complete!`n`nOverall Score: $overallScore/100 ($mriGrade)`n`nCPU: $(if($cs.Passed){'PASS'}else{'FAIL'})`nRAM: $(if($rs.Passed){'PASS'}else{'FAIL'})`nGPU: $(if($gs.Passed){'PASS'}else{'FAIL'})`nDisk: W=$($ds.SeqWriteMBps) / R=$($ds.SeqReadMBps) MB/s"
+            if ($Global:DiagResults.WindowsDeep) { $msg += "`nWindows Health: $($Global:DiagResults.WindowsDeep.Score)/100 ($($Global:DiagResults.WindowsDeep.Grade))" }
+            if ($Global:DiagResults.Scoring) { $msg += "`nSecurity: $($Global:DiagResults.Scoring.Score)/100 ($($Global:DiagResults.Scoring.Grade))" }
+            $msg += "`n`nClick Report buttons in sidebar to generate PDFs."
+            [System.Windows.MessageBox]::Show($window, $msg, "Full System MRI Complete", "OK", "Information")
+        } catch {
+            Write-DebugLog "MRI ERROR: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
+            Set-Status "ERROR: $($_.Exception.Message)" 0
+            [System.Windows.MessageBox]::Show($window, "Error during MRI:`n`n$($_.Exception.Message)", "Error", "OK", "Error")
         } finally { Set-ScanButtons $true; $lblReadyStatus.Text = "Ready" }
     })
 

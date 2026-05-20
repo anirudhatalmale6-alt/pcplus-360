@@ -1124,76 +1124,517 @@ function Start-GPUStressTest {
     $results = @{
         Duration = $DurationSeconds; Passed = $true; GPUName = "N/A"
         StartTemp = "N/A"; EndTemp = "N/A"; MaxTemp = "N/A"
-        TempLog = @(); ThrottleDetected = $false; Method = "Compute"
+        TempLog = @(); ThrottleDetected = $false; Method = "GDI+"
+        FurMarkUsed = $false; FurMarkScore = $null; VRAM_MB = 0
+        DriverVersion = "N/A"; Resolution = "N/A"
     }
 
     $gpu = Invoke-Safe { Get-CimInstance Win32_VideoController -ErrorAction Stop | Where-Object { $_.AdapterRAM -gt 0 } | Select-Object -First 1 } $null
-    if ($gpu) { $results.GPUName = $gpu.Name }
+    if ($gpu) {
+        $results.GPUName = $gpu.Name
+        $results.VRAM_MB = [math]::Round($gpu.AdapterRAM / 1MB, 0)
+        $results.DriverVersion = $gpu.DriverVersion
+        $results.Resolution = "$($gpu.CurrentHorizontalResolution)x$($gpu.CurrentVerticalResolution)"
+    }
 
-    # Try to get GPU temp from WMI (works on some systems)
-    $results.StartTemp = Invoke-Safe {
-        $t = Get-CimInstance -Namespace root/cimv2 -ClassName Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory -ErrorAction Stop
-        "N/A"
-    } "N/A"
+    function Get-ThermalTemp {
+        Invoke-Safe {
+            $t = Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction Stop | Select-Object -First 1
+            [math]::Round(($t.CurrentTemperature / 10) - 273.15, 1)
+        } $null
+    }
 
-    # GPU stress via .NET DirectX compute or GDI+ fallback
-    $endTime = (Get-Date).AddSeconds($DurationSeconds)
-    $startTime = Get-Date
-    $iterations = 0; $errors = 0; $tempLog = @()
+    $results.StartTemp = Get-ThermalTemp
 
-    try {
-        Add-Type -AssemblyName System.Drawing
-        while ((Get-Date) -lt $endTime) {
-            # GDI+ rendering stress - creates GPU load via bitmap operations
-            $bmp = New-Object System.Drawing.Bitmap(2048, 2048)
-            $g = [System.Drawing.Graphics]::FromImage($bmp)
-            $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
-            for ($i = 0; $i -lt 50; $i++) {
-                $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb((Get-Random -Max 256),(Get-Random -Max 256),(Get-Random -Max 256)))
-                $g.FillEllipse($brush, (Get-Random -Max 1800), (Get-Random -Max 1800), (Get-Random -Min 50 -Max 500), (Get-Random -Min 50 -Max 500))
-                $pen = New-Object System.Drawing.Pen($brush.Color, (Get-Random -Min 1 -Max 10))
-                $g.DrawLine($pen, (Get-Random -Max 2048), (Get-Random -Max 2048), (Get-Random -Max 2048), (Get-Random -Max 2048))
-                $brush.Dispose(); $pen.Dispose()
-            }
-            # Matrix transform stress
-            $matrix = New-Object System.Drawing.Drawing2D.Matrix
-            $matrix.Rotate((Get-Random -Max 360))
-            $matrix.Scale(1.5, 1.5)
-            $g.Transform = $matrix
-            $g.DrawImage($bmp, 0, 0)
-            $matrix.Dispose()
-            $g.Dispose(); $bmp.Dispose()
-            $iterations++
+    # Try FurMark portable first
+    $furmark = Find-Tool "FurMark" @("FurMark.exe", "FurMark_GUI.exe")
+    if (-not $furmark) {
+        $furmark = Get-ChildItem $Global:ToolsDir -Recurse -Filter "FurMark*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($furmark) { $furmark = $furmark.FullName }
+    }
 
-            # Log temp every 5 iterations
-            if ($iterations % 5 -eq 0) {
+    if ($furmark) {
+        Write-DiagLog "FurMark found at $furmark - using hardware GPU stress"
+        $results.Method = "FurMark"
+        $results.FurMarkUsed = $true
+        $logFile = Join-Path $env:TEMP "pcplus_furmark_$(Get-Random).txt"
+
+        try {
+            $fmArgs = "/nogui /width=1280 /height=720 /msaa=0 /run_mode=1 /max_time=$DurationSeconds /log_temperature /log_file=`"$logFile`""
+            $proc = Start-Process -FilePath $furmark -ArgumentList $fmArgs -PassThru -WindowStyle Minimized -ErrorAction Stop
+            $startTime = Get-Date; $tempLog = @()
+
+            while (-not $proc.HasExited -and ((Get-Date) - $startTime).TotalSeconds -lt ($DurationSeconds + 30)) {
+                Start-Sleep -Seconds 5
+                $temp = Get-ThermalTemp
                 $elapsed = [math]::Round(((Get-Date) - $startTime).TotalSeconds)
-                $temp = Invoke-Safe {
-                    $t = Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction Stop | Select-Object -First 1
-                    [math]::Round(($t.CurrentTemperature / 10) - 273.15, 1)
-                } $null
                 if ($temp) { $tempLog += @{ Time = $elapsed; TempC = $temp } }
             }
+
+            if (-not $proc.HasExited) {
+                try { $proc.Kill() } catch {}
+            }
+
+            $results.TempLog = $tempLog
+
+            if (Test-Path $logFile) {
+                $fmLog = Get-Content $logFile -ErrorAction SilentlyContinue
+                foreach ($line in $fmLog) {
+                    if ($line -match "Score:\s*(\d+)") { $results.FurMarkScore = [int]$matches[1] }
+                }
+                Remove-Item $logFile -Force -ErrorAction SilentlyContinue
+            }
+        } catch {
+            Write-DiagLog "FurMark launch failed, falling back to GDI+: $($_.Exception.Message)" "WARN"
+            $results.Method = "GDI+ (FurMark failed)"
+            $results.FurMarkUsed = $false
+        }
+    }
+
+    if (-not $results.FurMarkUsed) {
+        $endTime = (Get-Date).AddSeconds($DurationSeconds)
+        $startTime = Get-Date
+        $iterations = 0; $errors = 0; $tempLog = @()
+
+        try {
+            Add-Type -AssemblyName System.Drawing
+            while ((Get-Date) -lt $endTime) {
+                $bmp = New-Object System.Drawing.Bitmap(2048, 2048)
+                $g = [System.Drawing.Graphics]::FromImage($bmp)
+                $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+                for ($i = 0; $i -lt 50; $i++) {
+                    $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb((Get-Random -Max 256),(Get-Random -Max 256),(Get-Random -Max 256)))
+                    $g.FillEllipse($brush, (Get-Random -Max 1800), (Get-Random -Max 1800), (Get-Random -Min 50 -Max 500), (Get-Random -Min 50 -Max 500))
+                    $pen = New-Object System.Drawing.Pen($brush.Color, (Get-Random -Min 1 -Max 10))
+                    $g.DrawLine($pen, (Get-Random -Max 2048), (Get-Random -Max 2048), (Get-Random -Max 2048), (Get-Random -Max 2048))
+                    $brush.Dispose(); $pen.Dispose()
+                }
+                $matrix = New-Object System.Drawing.Drawing2D.Matrix
+                $matrix.Rotate((Get-Random -Max 360))
+                $matrix.Scale(1.5, 1.5)
+                $g.Transform = $matrix
+                $g.DrawImage($bmp, 0, 0)
+                $matrix.Dispose()
+                $g.Dispose(); $bmp.Dispose()
+                $iterations++
+
+                if ($iterations % 5 -eq 0) {
+                    $elapsed = [math]::Round(((Get-Date) - $startTime).TotalSeconds)
+                    $temp = Get-ThermalTemp
+                    if ($temp) { $tempLog += @{ Time = $elapsed; TempC = $temp } }
+                }
+            }
+        } catch {
+            $errors++
+            Write-DiagLog "GPU stress error: $($_.Exception.Message)" "WARN"
+        }
+
+        $results.TempLog = $tempLog
+        $results.Iterations = $iterations
+        if ($errors -gt 0) { $results.Passed = $false }
+    }
+
+    $results.EndTemp = Get-ThermalTemp
+    if ($results.TempLog.Count -gt 0) {
+        $temps = $results.TempLog | ForEach-Object { $_.TempC }
+        $results.MaxTemp = ($temps | Measure-Object -Maximum).Maximum
+        if ($results.MaxTemp -and $results.MaxTemp -gt 95) {
+            $results.ThrottleDetected = $true
+            $results.Passed = $false
+            Write-DiagLog "GPU OVERHEAT WARNING: Max temp $($results.MaxTemp)C" "WARN"
+        }
+    }
+
+    Write-DiagLog "GPU stress: Method=$($results.Method), MaxTemp=$($results.MaxTemp), FurMarkScore=$($results.FurMarkScore), Passed=$($results.Passed)"
+    return $results
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# THERMAL & THROTTLE MONITORING
+# ─────────────────────────────────────────────────────────────────────────────
+function Get-ThermalSnapshot {
+    Write-DiagLog "Taking thermal snapshot..."
+    $results = @{ Zones = @(); CPUTemp = $null; OverheatDetected = $false }
+
+    $zones = Invoke-Safe {
+        Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction Stop | ForEach-Object {
+            $tempC = [math]::Round(($_.CurrentTemperature / 10) - 273.15, 1)
+            @{ Name = $_.InstanceName; TempC = $tempC }
+        }
+    } @()
+
+    $results.Zones = $zones
+    if ($zones.Count -gt 0) {
+        $maxTemp = ($zones | ForEach-Object { $_.TempC } | Measure-Object -Maximum).Maximum
+        $results.CPUTemp = $maxTemp
+        if ($maxTemp -gt 90) { $results.OverheatDetected = $true }
+    }
+
+    $cpuLoad = Invoke-Safe { [math]::Round((Get-Counter '\Processor(_Total)\% Processor Time' -ErrorAction Stop).CounterSamples[0].CookedValue, 1) } $null
+    $results.CPULoad = $cpuLoad
+
+    $cpu = Invoke-Safe { Get-CimInstance Win32_Processor -ErrorAction Stop | Select-Object -First 1 } $null
+    if ($cpu) {
+        $results.CPUCurrentMHz = $cpu.CurrentClockSpeed
+        $results.CPUMaxMHz = $cpu.MaxClockSpeed
+        if ($cpu.MaxClockSpeed -gt 0 -and $cpu.CurrentClockSpeed -lt ($cpu.MaxClockSpeed * 0.7)) {
+            $results.ThrottlingLikely = $true
+            Write-DiagLog "CPU may be throttling: Current=$($cpu.CurrentClockSpeed) MHz vs Max=$($cpu.MaxClockSpeed) MHz" "WARN"
+        }
+    }
+
+    Write-DiagLog "Thermal: CPUTemp=$($results.CPUTemp)C, CPULoad=$cpuLoad%, Overheat=$($results.OverheatDetected)"
+    return $results
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DPC LATENCY CHECK (audio/gaming stutter detection)
+# ─────────────────────────────────────────────────────────────────────────────
+function Test-DPCLatency {
+    Write-DiagLog "Checking DPC/ISR latency (stutter detection)..."
+    $results = @{ Samples = @(); MaxLatencyUS = 0; AvgLatencyUS = 0; StutterRisk = "Low"; Passed = $true }
+
+    try {
+        $samples = @()
+        for ($i = 0; $i -lt 10; $i++) {
+            $counter = Get-Counter '\Processor(_Total)\% DPC Time','\Processor(_Total)\% Interrupt Time' -ErrorAction Stop
+            $dpcPct = [math]::Round($counter.CounterSamples[0].CookedValue, 2)
+            $isrPct = [math]::Round($counter.CounterSamples[1].CookedValue, 2)
+            $samples += @{ DPCPercent = $dpcPct; ISRPercent = $isrPct }
+            Start-Sleep -Milliseconds 500
+        }
+        $results.Samples = $samples
+        $maxDPC = ($samples | ForEach-Object { $_.DPCPercent } | Measure-Object -Maximum).Maximum
+        $avgDPC = ($samples | ForEach-Object { $_.DPCPercent } | Measure-Object -Average).Average
+        $results.MaxDPCPercent = $maxDPC
+        $results.AvgDPCPercent = [math]::Round($avgDPC, 2)
+
+        if ($maxDPC -gt 10) {
+            $results.StutterRisk = "High"
+            $results.Passed = $false
+        } elseif ($maxDPC -gt 5) {
+            $results.StutterRisk = "Medium"
         }
     } catch {
-        $errors++
-        Write-DiagLog "GPU stress error: $($_.Exception.Message)" "WARN"
+        Write-DiagLog "DPC latency check error: $($_.Exception.Message)" "WARN"
     }
 
-    $results.EndTemp = Invoke-Safe {
-        $t = Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction Stop | Select-Object -First 1
-        [math]::Round(($t.CurrentTemperature / 10) - 273.15, 1)
-    } "N/A"
-
-    $results.TempLog = $tempLog
-    if ($tempLog.Count -gt 0) {
-        $temps = $tempLog | ForEach-Object { $_.TempC }
-        $results.MaxTemp = ($temps | Measure-Object -Maximum).Maximum
-    }
-    $results.Iterations = $iterations
-    $results.Passed = $errors -eq 0
-    Write-DiagLog "GPU stress: $iterations rendering iterations, $errors errors, MaxTemp=$($results.MaxTemp), Passed=$($results.Passed)"
+    Write-DiagLog "DPC: MaxDPC=$($results.MaxDPCPercent)%, StutterRisk=$($results.StutterRisk)"
     return $results
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DISPLAY & MONITOR INFO
+# ─────────────────────────────────────────────────────────────────────────────
+function Get-DisplayInfo {
+    Write-DiagLog "Collecting display/monitor information..."
+    $results = @{ Monitors = @(); GPUs = @() }
+
+    $results.GPUs = @(Invoke-Safe {
+        Get-CimInstance Win32_VideoController -ErrorAction Stop | ForEach-Object {
+            @{
+                Name = $_.Name; VRAM_MB = [math]::Round($_.AdapterRAM / 1MB, 0)
+                DriverVersion = $_.DriverVersion; DriverDate = $_.DriverDate
+                Resolution = "$($_.CurrentHorizontalResolution)x$($_.CurrentVerticalResolution)"
+                RefreshRate = "$($_.CurrentRefreshRate) Hz"; Status = $_.Status
+                VideoMode = $_.VideoModeDescription
+            }
+        }
+    } @())
+
+    $results.Monitors = @(Invoke-Safe {
+        Get-CimInstance WmiMonitorID -Namespace root\wmi -ErrorAction Stop | ForEach-Object {
+            $name = if ($_.UserFriendlyName) { ($_.UserFriendlyName | Where-Object { $_ -ne 0 } | ForEach-Object { [char]$_ }) -join '' } else { "Unknown" }
+            $mfr = if ($_.ManufacturerName) { ($_.ManufacturerName | Where-Object { $_ -ne 0 } | ForEach-Object { [char]$_ }) -join '' } else { "Unknown" }
+            $serial = if ($_.SerialNumberID) { ($_.SerialNumberID | Where-Object { $_ -ne 0 } | ForEach-Object { [char]$_ }) -join '' } else { "N/A" }
+            @{ Name = $name; Manufacturer = $mfr; Serial = $serial; YearOfManufacture = $_.YearOfManufacture }
+        }
+    } @())
+
+    Write-DiagLog "Display: $($results.GPUs.Count) GPU(s), $($results.Monitors.Count) monitor(s)"
+    return $results
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MEMORY LEAK DETECTION
+# ─────────────────────────────────────────────────────────────────────────────
+function Test-MemoryLeaks {
+    Write-DiagLog "Checking for memory leaks (top consumers)..."
+    $results = @{ TopConsumers = @(); CommittedGB = 0; AvailableGB = 0; PageFileUsagePercent = 0; LeakSuspect = $false }
+
+    $os = Invoke-Safe { Get-CimInstance Win32_OperatingSystem -ErrorAction Stop } $null
+    if ($os) {
+        $results.CommittedGB = [math]::Round(($os.TotalVirtualMemorySize - $os.FreeVirtualMemory) * 1KB / 1GB, 2)
+        $results.AvailableGB = [math]::Round($os.FreePhysicalMemory * 1KB / 1GB, 2)
+        $totalPhysGB = [math]::Round($os.TotalVisibleMemorySize * 1KB / 1GB, 2)
+        $usedPercent = [math]::Round((1 - ($os.FreePhysicalMemory / $os.TotalVisibleMemorySize)) * 100, 1)
+        $results.MemoryUsedPercent = $usedPercent
+    }
+
+    $results.TopConsumers = @(Get-Process -ErrorAction SilentlyContinue |
+        Sort-Object WorkingSet64 -Descending | Select-Object -First 15 |
+        ForEach-Object {
+            @{
+                Name = $_.ProcessName; PID = $_.Id
+                WorkingSetMB = [math]::Round($_.WorkingSet64 / 1MB, 1)
+                PrivateMB = [math]::Round($_.PrivateMemorySize64 / 1MB, 1)
+                HandleCount = $_.HandleCount
+            }
+        })
+
+    $pageFile = Invoke-Safe { Get-CimInstance Win32_PageFileUsage -ErrorAction Stop | Select-Object -First 1 } $null
+    if ($pageFile -and $pageFile.AllocatedBaseSize -gt 0) {
+        $results.PageFileUsagePercent = [math]::Round(($pageFile.CurrentUsage / $pageFile.AllocatedBaseSize) * 100, 1)
+    }
+
+    $highHandles = @($results.TopConsumers | Where-Object { $_.HandleCount -gt 5000 })
+    if ($highHandles.Count -gt 0 -or $results.PageFileUsagePercent -gt 80) {
+        $results.LeakSuspect = $true
+    }
+
+    Write-DiagLog "Memory: Used=$($results.MemoryUsedPercent)%, PageFile=$($results.PageFileUsagePercent)%, LeakSuspect=$($results.LeakSuspect)"
+    return $results
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WINDOWS ACTIVATION STATUS
+# ─────────────────────────────────────────────────────────────────────────────
+function Get-WindowsActivation {
+    Write-DiagLog "Checking Windows activation status..."
+    $results = @{ Activated = $false; LicenseStatus = "Unknown"; ProductKey = "N/A"; Edition = "N/A" }
+
+    $lic = Invoke-Safe { Get-CimInstance SoftwareLicensingProduct -ErrorAction Stop | Where-Object { $_.PartialProductKey -and $_.Name -like "*Windows*" } | Select-Object -First 1 } $null
+    if ($lic) {
+        $statusMap = @{ 0="Unlicensed"; 1="Licensed"; 2="OOBGrace"; 3="OOTGrace"; 4="NonGenuineGrace"; 5="Notification"; 6="ExtendedGrace" }
+        $results.LicenseStatus = if ($statusMap.ContainsKey($lic.LicenseStatus)) { $statusMap[$lic.LicenseStatus] } else { "Unknown ($($lic.LicenseStatus))" }
+        $results.Activated = ($lic.LicenseStatus -eq 1)
+        $results.Edition = $lic.Name
+        $results.PartialKey = $lic.PartialProductKey
+    }
+
+    Write-DiagLog "Activation: $($results.LicenseStatus), Key=***$($results.PartialKey)"
+    return $results
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DISK FRAGMENTATION CHECK
+# ─────────────────────────────────────────────────────────────────────────────
+function Get-DiskFragmentation {
+    Write-DiagLog "Checking disk fragmentation..."
+    $results = @()
+
+    $volumes = Invoke-Safe { Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" -ErrorAction Stop } @()
+    foreach ($v in $volumes) {
+        $letter = $v.DeviceID
+        $fragPercent = $null
+        $needsDefrag = $false
+
+        try {
+            $defrag = Invoke-CimMethod -ClassName Win32_Volume -MethodName DefragAnalysis -Arguments @{} -Filter "DriveLetter='$letter'" -ErrorAction Stop
+            if ($defrag.DefragAnalysis) {
+                $fragPercent = $defrag.DefragAnalysis.FilePercentFragmentation
+                $needsDefrag = ($defrag.DefragRecommended -eq $true)
+            }
+        } catch {
+            $output = Invoke-Safe { (defrag.exe $letter /A 2>&1) -join " " } ""
+            if ($output -match "(\d+)%\s*fragmented") { $fragPercent = [int]$matches[1] }
+            if ($output -match "You do not need to defragment") { $needsDefrag = $false }
+            elseif ($fragPercent -and $fragPercent -gt 10) { $needsDefrag = $true }
+        }
+
+        $mediaType = Invoke-Safe {
+            $pd = Get-PhysicalDisk -ErrorAction Stop | Select-Object -First 1
+            $pd.MediaType
+        } "Unknown"
+
+        $results += @{
+            Drive = $letter
+            FragmentPercent = $fragPercent
+            NeedsDefrag = $needsDefrag
+            MediaType = $mediaType
+            Note = if ($mediaType -eq "SSD") { "SSD - defrag not recommended, use TRIM instead" } else { $null }
+        }
+        Write-DiagLog "Fragmentation $letter`: $fragPercent% fragmented, NeedsDefrag=$needsDefrag"
+    }
+    return $results
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PORTABLE TOOL ENHANCED DIAGNOSTICS
+# ─────────────────────────────────────────────────────────────────────────────
+function Invoke-CrystalDiskInfoScan {
+    Write-DiagLog "Checking for CrystalDiskInfo portable..."
+    $cdi = Find-Tool "CrystalDiskInfo" @("DiskInfo64.exe", "DiskInfo32.exe", "CrystalDiskInfo.exe")
+    if (-not $cdi) {
+        Write-DiagLog "CrystalDiskInfo not found - using WMI SMART data only"
+        return @{ Available = $false; Drives = @() }
+    }
+
+    Write-DiagLog "CrystalDiskInfo found: $cdi"
+    $exportDir = Join-Path $env:TEMP "pcplus_cdi_$(Get-Random)"
+    New-Item -ItemType Directory -Path $exportDir -Force | Out-Null
+    $exportFile = Join-Path $exportDir "smart.txt"
+
+    try {
+        Start-Process -FilePath $cdi -ArgumentList "/CopyExit `"$exportFile`"" -Wait -WindowStyle Hidden -ErrorAction Stop
+        Start-Sleep -Seconds 2
+
+        $results = @{ Available = $true; Drives = @(); RawOutput = "" }
+        if (Test-Path $exportFile) {
+            $results.RawOutput = Get-Content $exportFile -Raw -ErrorAction SilentlyContinue
+        }
+        Remove-Item $exportDir -Recurse -Force -ErrorAction SilentlyContinue
+        return $results
+    } catch {
+        Write-DiagLog "CrystalDiskInfo error: $($_.Exception.Message)" "WARN"
+        Remove-Item $exportDir -Recurse -Force -ErrorAction SilentlyContinue
+        return @{ Available = $false; Error = $_.Exception.Message }
+    }
+}
+
+function Invoke-SpeedtestCLI {
+    Write-DiagLog "Checking for Speedtest CLI..."
+    $speedtest = Find-Tool "Speedtest" @("speedtest.exe")
+    if (-not $speedtest) {
+        $speedtest = Get-ChildItem $Global:ToolsDir -Recurse -Filter "speedtest.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($speedtest) { $speedtest = $speedtest.FullName }
+    }
+
+    if (-not $speedtest) {
+        Write-DiagLog "Speedtest CLI not found - using basic ping test only"
+        return @{ Available = $false; DownloadMbps = $null; UploadMbps = $null; PingMS = $null }
+    }
+
+    Write-DiagLog "Speedtest CLI found: $speedtest"
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $speedtest
+        $psi.Arguments = "--accept-license --format=json"
+        $psi.RedirectStandardOutput = $true
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $p = New-Object System.Diagnostics.Process
+        $p.StartInfo = $psi
+        $null = $p.Start()
+        $output = $p.StandardOutput.ReadToEnd()
+        $p.WaitForExit()
+
+        $json = $output | ConvertFrom-Json -ErrorAction SilentlyContinue
+        if ($json) {
+            $dl = [math]::Round($json.download.bandwidth * 8 / 1MB, 1)
+            $ul = [math]::Round($json.upload.bandwidth * 8 / 1MB, 1)
+            $ping = [math]::Round($json.ping.latency, 1)
+            Write-DiagLog "Speedtest: Download=$dl Mbps, Upload=$ul Mbps, Ping=$ping ms"
+            return @{ Available = $true; DownloadMbps = $dl; UploadMbps = $ul; PingMS = $ping; Server = $json.server.name; ISP = $json.isp }
+        }
+    } catch {
+        Write-DiagLog "Speedtest error: $($_.Exception.Message)" "WARN"
+    }
+    return @{ Available = $false; Error = "Failed to parse results" }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FULL SYSTEM MRI (runs everything)
+# ─────────────────────────────────────────────────────────────────────────────
+function Invoke-FullSystemMRI {
+    param($Params)
+    Write-DiagLog "=== FULL SYSTEM MRI STARTING ==="
+    $mri = @{
+        StartTime = Get-Date
+        SystemInfo = $null; Security = $null; Network = $null
+        Patches = $null; Scoring = $null; LicenseKeys = $null
+        BatteryDetail = $null; SSDLife = $null; CPUStress = $null
+        RAMStress = $null; DiskBench = $null; GPUStress = $null
+        Thermal = $null; DPCLatency = $null; DisplayInfo = $null
+        MemoryLeaks = $null; Activation = $null; Fragmentation = $null
+        WindowsDeep = $null; SpeedTest = $null; CrystalDiskInfo = $null
+        Stability = $null; Software = $null; Performance = $null
+        BootPerf = $null; Win11Ready = $null; FanInfo = $null
+        ToolStatus = $null
+    }
+
+    Write-DiagLog "Phase 1: System inventory and info gathering..."
+    $mri.ToolStatus = Get-ToolStatus
+    $mri.SystemInfo = Get-FullSystemInfo
+    $mri.Security = Get-FullSecurityInfo
+    $mri.Patches = Get-MissingPatchesList
+    $mri.Scoring = Calculate-Score $mri.Security $mri.Patches
+    $mri.LicenseKeys = Get-LicenseKeys
+    $mri.Network = Get-NetworkDiagnostics
+    $mri.BatteryDetail = Get-DetailedBatteryInfo
+    $mri.Software = Get-SoftwareInventory
+    $mri.Performance = Get-PerformanceSnapshot
+    $mri.Stability = Get-CrashStabilityHistory
+    $mri.BootPerf = Get-BootPerformance
+    $mri.Win11Ready = Get-Windows11Readiness
+    $mri.FanInfo = Get-FanInfo
+    $mri.DisplayInfo = Get-DisplayInfo
+    $mri.Activation = Get-WindowsActivation
+    $mri.MemoryLeaks = Test-MemoryLeaks
+    $mri.Thermal = Get-ThermalSnapshot
+
+    Write-DiagLog "Phase 2: Storage and drive health..."
+    $mri.SSDLife = Get-SSDLifeReport
+    $mri.Fragmentation = Get-DiskFragmentation
+    $mri.CrystalDiskInfo = Invoke-CrystalDiskInfoScan
+
+    Write-DiagLog "Phase 3: Stress testing..."
+    $mri.CPUStress = Start-CPUStressTest -DurationSeconds 120
+    $mri.RAMStress = Start-RAMStressTest -DurationSeconds 120
+    $mri.DiskBench = Start-DiskBenchmark -FileSizeMB 512
+    $mri.GPUStress = Start-GPUStressTest -DurationSeconds 90
+
+    Write-DiagLog "Phase 4: Deep Windows integrity..."
+    $mri.WindowsDeep = Invoke-DeepWindowsTest
+    $mri.DPCLatency = Test-DPCLatency
+
+    Write-DiagLog "Phase 5: Network speed..."
+    $mri.SpeedTest = Invoke-SpeedtestCLI
+
+    $mri.EndTime = Get-Date
+    $mri.TotalMinutes = [math]::Round(((Get-Date) - $mri.StartTime).TotalMinutes, 1)
+
+    # Calculate overall MRI score
+    $overallScore = 100; $issues = @()
+
+    # Hardware health (30%)
+    $hwDeductions = 0
+    if ($mri.CPUStress -and -not $mri.CPUStress.Passed) { $hwDeductions += 15; $issues += "CPU stress test failed" }
+    if ($mri.RAMStress -and -not $mri.RAMStress.Passed) { $hwDeductions += 15; $issues += "RAM stress test failed" }
+    if ($mri.GPUStress -and -not $mri.GPUStress.Passed) { $hwDeductions += 10; $issues += "GPU stress test failed" }
+    if ($mri.Thermal -and $mri.Thermal.OverheatDetected) { $hwDeductions += 10; $issues += "Overheating detected" }
+    if ($mri.DPCLatency -and -not $mri.DPCLatency.Passed) { $hwDeductions += 5; $issues += "High DPC latency (stutter risk)" }
+
+    # Storage health (25%)
+    $storDeductions = 0
+    if ($mri.SSDLife) {
+        foreach ($d in $mri.SSDLife.Drives) {
+            if ($d.Grade -eq "F") { $storDeductions += 20; $issues += "Drive $($d.Model) critical wear" }
+            elseif ($d.Grade -eq "D") { $storDeductions += 10; $issues += "Drive $($d.Model) high wear" }
+            if ($d.HealthStatus -ne "Healthy") { $storDeductions += 10; $issues += "Drive $($d.Model) unhealthy" }
+        }
+    }
+    if ($mri.DiskBench -and $mri.DiskBench.SeqReadMBps -lt 50) { $storDeductions += 5; $issues += "Slow disk read speed" }
+
+    # Security (25%)
+    $secDeductions = 0
+    if ($mri.Scoring) { $secDeductions = 25 - [math]::Round($mri.Scoring.Score * 0.25) }
+    if ($mri.Activation -and -not $mri.Activation.Activated) { $secDeductions += 5; $issues += "Windows not activated" }
+
+    # Windows health (20%)
+    $winDeductions = 0
+    if ($mri.WindowsDeep) { $winDeductions = 20 - [math]::Round($mri.WindowsDeep.Score * 0.20) }
+    if ($mri.MemoryLeaks -and $mri.MemoryLeaks.LeakSuspect) { $winDeductions += 3; $issues += "Possible memory leak detected" }
+
+    $overallScore = 100 - [math]::Min(30, $hwDeductions) - [math]::Min(25, $storDeductions) - [math]::Min(25, $secDeductions) - [math]::Min(20, $winDeductions)
+    if ($overallScore -lt 0) { $overallScore = 0 }
+
+    $mri.OverallScore = $overallScore
+    $mri.OverallGrade = if ($overallScore -ge 90){"A"} elseif ($overallScore -ge 80){"B"} elseif ($overallScore -ge 70){"C"} elseif ($overallScore -ge 60){"D"} else {"F"}
+    $mri.Issues = $issues
+
+    Write-DiagLog "=== FULL SYSTEM MRI COMPLETE: Score=$overallScore ($($mri.OverallGrade)), Duration=$($mri.TotalMinutes) min ==="
+    return $mri
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
