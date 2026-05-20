@@ -2660,319 +2660,754 @@ function Show-PaperlessDialog {
     return $dialogResult
 }
 
+
 # ─────────────────────────────────────────────────────────────────────────────
-# GAMING PC REPORT - Visual charts for gaming/performance diagnostics
+# GAMING PC / LAPTOP DIAGNOSTIC REPORT (SVG visual graphs, print-ready A4)
 # ─────────────────────────────────────────────────────────────────────────────
 
 function Build-GamingPCReport {
-    param($Params, $SystemInfo, $StressResults, $Network, $SpeedTest, $SSDLife, $Thermal, $Gaming, $BatteryDetail, $Performance, $FanInfo, $ScanMode)
-    $date = Get-Date -Format "MMMM dd, yyyy 'at' h:mm tt"
+    param(
+        $Params,          # CustomerName, TechName, ContactName, TechNotes
+        $SystemInfo,      # CPU, RAM, GPU, disks, SMART, Temperatures, etc.
+        $StressResults,   # CPU, RAM, GPU, Disk stress test results
+        $Network,         # Network diagnostics
+        $SpeedTest,       # Download/Upload speeds
+        $SSDLife,         # Drive health/wear  (.Drives[] with .Model, .LifeRemainingPct, .PowerOnHours, .Grade)
+        $Thermal,         # Temperature data   (.CPUTemp, .GPUTemp, .OverheatDetected)
+        $Gaming,          # Gaming readiness    (.Score, .Tier, .GPUTier, .CPUTier)
+        $BatteryDetail,   # Battery info        (.Present, .HealthPct, .CycleCount)
+        $Performance,     # Perf snapshot       (.CPUUsage, .MemUsedGB, .MemTotalGB)
+        $FanInfo,         # Fan speeds          (.Fans[] with .Name, .RPM, .MaxRPM)
+        $ScanMode         # Which scan was run
+    )
 
+    $date = Get-Date -Format "MMMM dd, yyyy 'at' h:mm tt"
+    $iconPass = "&#10004;"; $iconFail = "&#10008;"; $iconWarn = "&#9888;"
+
+    # ── Safe accessors ──────────────────────────────────────────────────────
+    $customerName   = if ($Params.CustomerName)    { $Params.CustomerName }   else { "Customer" }
+    $techName       = if ($Params.TechName)        { $Params.TechName }       else { "Technician" }
+    $contactName    = if ($Params.ContactName)     { $Params.ContactName }    else { "" }
+
+    $cpuModel       = if ($SystemInfo.CPUModel)    { $SystemInfo.CPUModel }   else { "Unknown CPU" }
+    $ramTotalGB     = if ($SystemInfo.RAMTotal)     { $SystemInfo.RAMTotal }   else { 0 }
+    $gpuName        = if ($SystemInfo.GPUs -and $SystemInfo.GPUs.Count -gt 0) { $SystemInfo.GPUs[0].Name } else { "Unknown GPU" }
+    $compName       = if ($SystemInfo.ComputerName) { $SystemInfo.ComputerName } else { "PC" }
+
+    # Stress results (safe)
+    $cpuStress  = $StressResults.CPU
+    $ramStress  = $StressResults.RAM
+    $gpuStress  = $StressResults.GPU
+    $diskStress = $StressResults.Disk
+
+    # Thermal (safe)
+    $cpuTemp    = if ($Thermal -and $Thermal.CPUTemp)  { [double]$Thermal.CPUTemp }  else { 0 }
+    $gpuTemp    = if ($Thermal -and $Thermal.GPUTemp)  { [double]$Thermal.GPUTemp }  else { 0 }
+    $overheat   = if ($Thermal) { $Thermal.OverheatDetected } else { $false }
+
+    # SpeedTest (safe)
+    $dlMbps     = if ($SpeedTest -and $SpeedTest.DownloadMbps) { [double]($SpeedTest.DownloadMbps -replace '[^\d.]','') } else { 0 }
+    $ulMbps     = if ($SpeedTest -and $SpeedTest.UploadMbps)   { [double]($SpeedTest.UploadMbps -replace '[^\d.]','') }  else { 0 }
+    $pingMs     = if ($SpeedTest -and $SpeedTest.Ping)         { $SpeedTest.Ping } elseif ($SpeedTest -and $SpeedTest.PingMs) { $SpeedTest.PingMs } else { "N/A" }
+
+    # Gaming (safe)
+    $gamingScore = if ($Gaming -and $Gaming.Score) { [int]$Gaming.Score } else { 0 }
+    $gamingTier  = if ($Gaming -and $Gaming.Tier)  { $Gaming.Tier }       else { "N/A" }
+    $gpuTier     = if ($Gaming -and $Gaming.GPUTier) { $Gaming.GPUTier }  else { "N/A" }
+    $cpuTier     = if ($Gaming -and $Gaming.CPUTier) { $Gaming.CPUTier }  else { "N/A" }
+
+    # Performance (safe)
+    $cpuUsage    = if ($Performance -and $Performance.CPUUsage -ne $null)  { [double]$Performance.CPUUsage }  else { 0 }
+    $memUsedGB   = if ($Performance -and $Performance.MemUsedGB -ne $null) { [double]$Performance.MemUsedGB } else { 0 }
+    $memTotalGB  = if ($Performance -and $Performance.MemTotalGB -ne $null){ [double]$Performance.MemTotalGB} else { if ($ramTotalGB -gt 0) { $ramTotalGB } else { 1 } }
+
+    # Battery (safe)
+    $battPresent = if ($BatteryDetail -and $BatteryDetail.Present) { $true } else { $false }
+    $battHealth  = if ($battPresent -and $BatteryDetail.HealthPct) { [int]$BatteryDetail.HealthPct } else { 0 }
+    $battCycles  = if ($battPresent -and $BatteryDetail.CycleCount) { $BatteryDetail.CycleCount } else { "N/A" }
+
+    # SSD Life (safe)
+    $ssdDrives   = if ($SSDLife -and $SSDLife.Drives) { @($SSDLife.Drives) } else { @() }
+
+    # FanInfo (safe)
+    $fans        = if ($FanInfo -and $FanInfo.Fans) { @($FanInfo.Fans) } else { @() }
+
+    # ── Compute component health scores ─────────────────────────────────────
+    $cpuHealth = 100
+    if ($cpuStress -and -not $cpuStress.Passed) { $cpuHealth -= 40 }
+    if ($cpuTemp -gt 85) { $cpuHealth -= 30 } elseif ($cpuTemp -gt 70) { $cpuHealth -= 15 }
+    if ($cpuStress -and $cpuStress.ThrottleDetected) { $cpuHealth -= 20 }
+    $cpuHealth = [math]::Max($cpuHealth, 0)
+
+    $ramHealth = 100
+    if ($ramStress -and -not $ramStress.Passed) { $ramHealth -= 50 }
+    if ($ramStress -and $ramStress.Errors -gt 0) { $ramHealth -= 20 }
+    if ($memTotalGB -gt 0 -and ($memUsedGB / $memTotalGB) -gt 0.95) { $ramHealth -= 15 }
+    $ramHealth = [math]::Max($ramHealth, 0)
+
+    $gpuHealth = 100
+    if ($gpuStress -and -not $gpuStress.Passed) { $gpuHealth -= 40 }
+    if ($gpuTemp -gt 85) { $gpuHealth -= 30 } elseif ($gpuTemp -gt 70) { $gpuHealth -= 15 }
+    $gpuHealth = [math]::Max($gpuHealth, 0)
+
+    $storageHealth = 100
+    if ($ssdDrives.Count -gt 0) {
+        $avgLife = ($ssdDrives | ForEach-Object { if ($_.LifeRemainingPct) { [int]$_.LifeRemainingPct } else { 100 } } | Measure-Object -Average).Average
+        $storageHealth = [math]::Round($avgLife)
+    }
+    if ($diskStress -and -not $diskStress.Passed) { $storageHealth -= 20 }
+    foreach ($d in $SystemInfo.SMART) { if ($d.Health -ne "Healthy") { $storageHealth -= 25 } }
+    $storageHealth = [math]::Max([math]::Min($storageHealth, 100), 0)
+
+    $networkHealth = 100
+    if ($Network -and -not $Network.InternetTest.Success) { $networkHealth -= 40 }
+    if ($dlMbps -gt 0 -and $dlMbps -lt 10) { $networkHealth -= 20 } elseif ($dlMbps -gt 0 -and $dlMbps -lt 25) { $networkHealth -= 10 }
+    if ($SpeedTest -and $SpeedTest.PacketLoss -and $SpeedTest.PacketLoss -ne "0%" -and $SpeedTest.PacketLoss -ne "N/A") {
+        $lv = [int]($SpeedTest.PacketLoss -replace '%','')
+        if ($lv -ge 5) { $networkHealth -= 20 }
+    }
+    $networkHealth = [math]::Max($networkHealth, 0)
+
+    $batteryHealth = if ($battPresent) { $battHealth } else { 100 }
+
+    # Overall score (weighted)
+    $overallScore = [math]::Round(
+        ($cpuHealth * 0.20) + ($ramHealth * 0.15) + ($gpuHealth * 0.20) +
+        ($storageHealth * 0.20) + ($networkHealth * 0.10) +
+        ($(if ($battPresent) { $batteryHealth * 0.15 } else { 100 * 0.15 }))
+    )
+    $overallScore = [math]::Max([math]::Min($overallScore, 100), 0)
+    $overallGrade = if ($overallScore -ge 90){"A"} elseif ($overallScore -ge 80){"B"} elseif ($overallScore -ge 70){"C"} elseif ($overallScore -ge 60){"D"} else {"F"}
+    $overallColor = if ($overallScore -ge 80){"#22c55e"} elseif ($overallScore -ge 60){"#f59e0b"} else {"#dc2626"}
+
+    # ── Helper: badge ───────────────────────────────────────────────────────
+    function Get-GamingBadge($score) {
+        if ($score -ge 80) { return @{ Text="PASS"; Color="#16a34a"; Bg="#dcfce7" } }
+        elseif ($score -ge 60) { return @{ Text="WARNING"; Color="#92400e"; Bg="#fef3c7" } }
+        else { return @{ Text="FAIL"; Color="#991b1b"; Bg="#fee2e2" } }
+    }
+
+    # ── Load logo ───────────────────────────────────────────────────────────
     $logoDataUri = ""
     $logoPath = Join-Path $Global:ScriptDir "logo-base64.txt"
-    if (Test-Path $logoPath) { try { $logoDataUri = "data:image/png;base64,$((Get-Content $logoPath -Raw).Trim())" } catch {} }
-    $logoHTML = if ($logoDataUri) { "<img src='$logoDataUri' alt='PC Plus Computing' style='width:240px;'/>" } else { "<div style='font-size:18pt;font-weight:700;color:white;letter-spacing:2px;'>PC PLUS COMPUTING</div>" }
-
-    # ── Helper: SVG Donut ──
-    function Get-GPDonut([int]$score, [int]$max, [string]$label, [string]$subtitle) {
-        $pct = if ($max -gt 0) { [math]::Min(100, [math]::Round(($score / $max) * 100)) } else { 0 }
-        $r = 40; $c = 251.3; $dash = [math]::Round($c * $pct / 100, 1); $gap = [math]::Round($c - $dash, 1)
-        $color = if ($pct -ge 80) { "#22c55e" } elseif ($pct -ge 60) { "#f59e0b" } else { "#ef4444" }
-        $badge = if ($pct -ge 80) { "PASS" } elseif ($pct -ge 60) { "WARN" } else { "FAIL" }
-        $badgeBg = if ($pct -ge 80) { "#dcfce7" } elseif ($pct -ge 60) { "#fef3c7" } else { "#fee2e2" }
-        return @"
-<div style="display:inline-block;text-align:center;margin:8px 12px;width:110px;vertical-align:top;">
-<svg width="90" height="90" viewBox="0 0 90 90">
-<circle cx="45" cy="45" r="$r" fill="none" stroke="#1e293b" stroke-width="8"/>
-<circle cx="45" cy="45" r="$r" fill="none" stroke="$color" stroke-width="8" stroke-dasharray="$dash $gap" stroke-dashoffset="62.83" stroke-linecap="round" transform="rotate(-90 45 45)"/>
-<text x="45" y="42" text-anchor="middle" font-size="18" font-weight="bold" fill="$color">$score</text>
-<text x="45" y="56" text-anchor="middle" font-size="8" fill="#94a3b8">/ $max</text>
-</svg>
-<div style="font-size:9pt;font-weight:700;color:#e2e8f0;margin-top:2px;">$label</div>
-<div style="display:inline-block;background:$badgeBg;color:$color;font-size:7pt;font-weight:700;padding:1px 8px;border-radius:8px;margin-top:2px;">$badge</div>
-$(if($subtitle){"<div style='font-size:7.5pt;color:#64748b;margin-top:2px;'>$subtitle</div>"})
-</div>
-"@
+    if (Test-Path $logoPath) {
+        try { $logoDataUri = "data:image/png;base64,$((Get-Content $logoPath -Raw).Trim())" } catch {}
     }
-
-    # ── Helper: Horizontal Bar ──
-    function Get-HBar([string]$label, [double]$value, [double]$max, [string]$unit, [string]$color, [double]$refLine, [string]$refLabel) {
-        $pct = if ($max -gt 0) { [math]::Min(100, [math]::Round(($value / $max) * 100)) } else { 0 }
-        $refPct = if ($refLine -gt 0 -and $max -gt 0) { [math]::Min(100, [math]::Round(($refLine / $max) * 100)) } else { 0 }
-        $refSVG = if ($refPct -gt 0) { "<line x1='$($refPct * 5.6)' y1='0' x2='$($refPct * 5.6)' y2='26' stroke='#f59e0b' stroke-width='2' stroke-dasharray='3,2'/><text x='$($refPct * 5.6)' y='-2' font-size='7' fill='#f59e0b' text-anchor='middle'>$refLabel</text>" } else { "" }
-        return @"
-<div style="margin-bottom:8px;">
-<div style="display:flex;justify-content:space-between;margin-bottom:2px;">
-<span style="font-size:9pt;font-weight:600;color:#e2e8f0;">$label</span>
-<span style="font-size:9pt;font-weight:700;color:$color;">$value $unit</span>
-</div>
-<svg width="560" height="26" viewBox="0 0 560 26">
-<rect x="0" y="4" width="560" height="18" rx="4" fill="#1e293b"/>
-<rect x="0" y="4" width="$([math]::Round($pct * 5.6))" height="18" rx="4" fill="$color"/>
-$refSVG
-</svg>
-</div>
-"@
-    }
-
-    # ── Helper: Temperature Bar (color zones) ──
-    function Get-TempBar([string]$label, [double]$temp) {
-        if ($null -eq $temp -or $temp -le 0) { $temp = 0 }
-        $maxTemp = 110
-        $pct = [math]::Min(100, [math]::Round(($temp / $maxTemp) * 100))
-        $color = if ($temp -lt 60) { "#22c55e" } elseif ($temp -lt 75) { "#f59e0b" } elseif ($temp -lt 90) { "#f97316" } else { "#ef4444" }
-        $zone = if ($temp -lt 60) { "Cool" } elseif ($temp -lt 75) { "Normal" } elseif ($temp -lt 90) { "Warm" } else { "HOT!" }
-        return @"
-<div style="margin-bottom:10px;">
-<div style="display:flex;justify-content:space-between;margin-bottom:2px;">
-<span style="font-size:9pt;font-weight:600;color:#e2e8f0;">$label</span>
-<span style="font-size:9pt;font-weight:700;color:$color;">${temp}C - $zone</span>
-</div>
-<svg width="560" height="22" viewBox="0 0 560 22">
-<defs>
-<linearGradient id="tempGrad" x1="0" y1="0" x2="1" y2="0">
-<stop offset="0%" stop-color="#22c55e"/><stop offset="55%" stop-color="#22c55e"/>
-<stop offset="68%" stop-color="#f59e0b"/><stop offset="82%" stop-color="#f97316"/>
-<stop offset="100%" stop-color="#ef4444"/>
-</linearGradient>
-</defs>
-<rect x="0" y="2" width="560" height="18" rx="4" fill="#1e293b"/>
-<rect x="0" y="2" width="$([math]::Round($pct * 5.6))" height="18" rx="4" fill="$color"/>
-<line x1="305" y1="0" x2="305" y2="22" stroke="#ffffff33" stroke-width="1" stroke-dasharray="2,2"/>
-<text x="308" y="14" font-size="7" fill="#64748b">70C</text>
-<line x1="458" y1="0" x2="458" y2="22" stroke="#ffffff33" stroke-width="1" stroke-dasharray="2,2"/>
-<text x="461" y="14" font-size="7" fill="#64748b">90C</text>
-</svg>
-</div>
-"@
-    }
-
-    # ── Helper: Speed Gauge (semi-circle) ──
-    function Get-SpeedGauge([string]$label, [double]$value, [double]$max, [string]$unit, [string]$color) {
-        if ($max -le 0) { $max = 1000 }
-        $pct = [math]::Min(100, [math]::Round(($value / $max) * 100))
-        $r = 55; $halfC = 173; $dash = [math]::Round($halfC * $pct / 100, 1); $gap = [math]::Round($halfC - $dash, 1)
-        return @"
-<div style="display:inline-block;text-align:center;margin:8px 20px;width:140px;">
-<svg width="130" height="80" viewBox="0 0 130 80">
-<path d="M 10 75 A 55 55 0 0 1 120 75" fill="none" stroke="#1e293b" stroke-width="10" stroke-linecap="round"/>
-<path d="M 10 75 A 55 55 0 0 1 120 75" fill="none" stroke="$color" stroke-width="10" stroke-linecap="round" stroke-dasharray="$dash $gap"/>
-<text x="65" y="65" text-anchor="middle" font-size="20" font-weight="bold" fill="$color">$value</text>
-<text x="65" y="78" text-anchor="middle" font-size="9" fill="#94a3b8">$unit</text>
-</svg>
-<div style="font-size:9pt;font-weight:600;color:#e2e8f0;margin-top:2px;">$label</div>
-</div>
-"@
-    }
-
-    # ── Collect data safely ──
-    $cpuTemp = if ($Thermal -and $Thermal.CPUTemp) { $Thermal.CPUTemp } else { 0 }
-    $gpuTemp = if ($Thermal -and $Thermal.GPUTemp) { $Thermal.GPUTemp } elseif ($StressResults -and $StressResults.GPU -and $StressResults.GPU.MaxTemp) { $StressResults.GPU.MaxTemp } else { 0 }
-    $cpuMaxTemp = if ($StressResults -and $StressResults.CPU -and $StressResults.CPU.MaxTemp) { $StressResults.CPU.MaxTemp } else { $cpuTemp }
-
-    $diskRead = if ($StressResults -and $StressResults.Disk) { $StressResults.Disk.SeqReadMBps } else { 0 }
-    $diskWrite = if ($StressResults -and $StressResults.Disk) { $StressResults.Disk.SeqWriteMBps } else { 0 }
-
-    $dlSpeed = if ($SpeedTest -and $SpeedTest.DownloadMbps) { $SpeedTest.DownloadMbps } else { 0 }
-    $ulSpeed = if ($SpeedTest -and $SpeedTest.UploadMbps) { $SpeedTest.UploadMbps } else { 0 }
-    $ping = if ($SpeedTest -and $SpeedTest.PingMs) { $SpeedTest.PingMs } elseif ($SpeedTest -and $SpeedTest.Ping) { $SpeedTest.Ping } else { 0 }
-
-    $cpuScore = 100; $ramScore = 100; $gpuScore = 100; $storScore = 100; $netScore = 100; $battScore = 100
-
-    if ($StressResults -and $StressResults.CPU) { if (-not $StressResults.CPU.Passed) { $cpuScore = 40 } elseif ($cpuMaxTemp -gt 85) { $cpuScore = 65 } }
-    if ($StressResults -and $StressResults.RAM) { if (-not $StressResults.RAM.Passed) { $ramScore = 30 } }
-    if ($StressResults -and $StressResults.GPU) { if (-not $StressResults.GPU.Passed) { $gpuScore = 35 } elseif ($gpuTemp -gt 90) { $gpuScore = 60 } }
-    if ($diskRead -gt 0) { if ($diskRead -lt 100) { $storScore = 50 } elseif ($diskRead -lt 300) { $storScore = 70 } }
-    if ($dlSpeed -gt 0) { if ($dlSpeed -lt 10) { $netScore = 40 } elseif ($dlSpeed -lt 50) { $netScore = 65 } elseif ($dlSpeed -lt 100) { $netScore = 80 } }
-    if ($BatteryDetail -and $BatteryDetail.Present) { $battScore = if ($BatteryDetail.HealthPct) { [math]::Min(100, $BatteryDetail.HealthPct) } else { 100 } } else { $battScore = 100 }
-
-    $gamingScore = if ($Gaming -and $Gaming.Score) { $Gaming.Score } else { [math]::Round(($cpuScore + $ramScore + $gpuScore + $storScore + $netScore) / 5) }
-    $gamingTier = if ($Gaming -and $Gaming.Tier) { $Gaming.Tier } else { if ($gamingScore -ge 85) { "High-End" } elseif ($gamingScore -ge 70) { "Mid-Range" } elseif ($gamingScore -ge 50) { "Entry-Level" } else { "Not Gaming Ready" } }
-
-    # ── Component donuts ──
-    $cpuSub = if ($StressResults -and $StressResults.CPU -and $StressResults.CPU.Iterations) { "$($StressResults.CPU.Iterations) iter" } else { "" }
-    $gpuSub = if ($StressResults -and $StressResults.GPU -and $StressResults.GPU.GPUName) { $StressResults.GPU.GPUName.Substring(0, [math]::Min(15, $StressResults.GPU.GPUName.Length)) } else { "" }
-    $ramSub = if ($Performance -and $Performance.MemTotalGB) { "$($Performance.MemTotalGB) GB" } elseif ($SystemInfo -and $SystemInfo.RAMTotal) { "$($SystemInfo.RAMTotal) GB" } else { "" }
-    $storSub = if ($diskRead -gt 0) { "R:${diskRead} W:${diskWrite}" } else { "" }
-    $netSub = if ($dlSpeed -gt 0) { "${dlSpeed} Mbps" } else { "" }
-    $battSub = if ($BatteryDetail -and $BatteryDetail.Present) { "$($BatteryDetail.HealthPct)% health" } else { "N/A" }
-
-    $donutsHTML = ""
-    $donutsHTML += Get-GPDonut $cpuScore 100 "CPU" $cpuSub
-    $donutsHTML += Get-GPDonut $ramScore 100 "RAM" $ramSub
-    $donutsHTML += Get-GPDonut $gpuScore 100 "GPU" $gpuSub
-    $donutsHTML += Get-GPDonut $storScore 100 "Storage" $storSub
-    $donutsHTML += Get-GPDonut $netScore 100 "Network" $netSub
-    $donutsHTML += Get-GPDonut $battScore 100 "Battery" $battSub
-
-    # ── Temperature bars ──
-    $tempBars = ""
-    $tempBars += Get-TempBar "CPU Temperature (Idle/Current)" $cpuTemp
-    if ($cpuMaxTemp -gt 0 -and $cpuMaxTemp -ne $cpuTemp) { $tempBars += Get-TempBar "CPU Temperature (Stress Peak)" $cpuMaxTemp }
-    if ($gpuTemp -gt 0) { $tempBars += Get-TempBar "GPU Temperature" $gpuTemp }
-
-    # ── Storage speed bars ──
-    $storageBars = ""
-    $maxDisk = [math]::Max(600, [math]::Max($diskRead, $diskWrite) * 1.2)
-    $readColor = if ($diskRead -ge 400) { "#22c55e" } elseif ($diskRead -ge 150) { "#3b82f6" } else { "#f59e0b" }
-    $writeColor = if ($diskWrite -ge 300) { "#22c55e" } elseif ($diskWrite -ge 100) { "#3b82f6" } else { "#f59e0b" }
-    $storageBars += Get-HBar "Sequential Read" $diskRead $maxDisk "MB/s" $readColor 500 "SSD Good"
-    $storageBars += Get-HBar "Sequential Write" $diskWrite $maxDisk "MB/s" $writeColor 400 "SSD Good"
-
-    # ── Network speed gauges ──
-    $maxNet = [math]::Max(200, $dlSpeed * 1.5)
-    $dlColor = if ($dlSpeed -ge 100) { "#22c55e" } elseif ($dlSpeed -ge 25) { "#3b82f6" } else { "#f59e0b" }
-    $ulColor = if ($ulSpeed -ge 50) { "#22c55e" } elseif ($ulSpeed -ge 10) { "#3b82f6" } else { "#f59e0b" }
-    $pingColor = if ($ping -lt 20) { "#22c55e" } elseif ($ping -lt 60) { "#3b82f6" } else { "#ef4444" }
-
-    $netGauges = ""
-    $netGauges += Get-SpeedGauge "Download" $dlSpeed $maxNet "Mbps" $dlColor
-    $netGauges += Get-SpeedGauge "Upload" $ulSpeed ([math]::Max(100, $ulSpeed * 2)) "Mbps" $ulColor
-    $netGauges += Get-SpeedGauge "Ping" $ping 200 "ms" $pingColor
-
-    # ── RAM usage bar ──
-    $memUsed = if ($Performance -and $Performance.MemUsedGB) { $Performance.MemUsedGB } else { 0 }
-    $memTotal = if ($Performance -and $Performance.MemTotalGB) { $Performance.MemTotalGB } elseif ($SystemInfo -and $SystemInfo.RAMTotal) { $SystemInfo.RAMTotal } else { 16 }
-    $memPct = if ($memTotal -gt 0) { [math]::Round(($memUsed / $memTotal) * 100) } else { 0 }
-    $memColor = if ($memPct -lt 60) { "#22c55e" } elseif ($memPct -lt 80) { "#f59e0b" } else { "#ef4444" }
-
-    # ── Fan speeds ──
-    $fanHTML = ""
-    if ($FanInfo -and $FanInfo.Fans -and $FanInfo.Fans.Count -gt 0) {
-        foreach ($fan in $FanInfo.Fans) {
-            $rpm = if ($fan.RPM) { $fan.RPM } else { 0 }
-            $maxRPM = if ($fan.MaxRPM -and $fan.MaxRPM -gt 0) { $fan.MaxRPM } else { 3000 }
-            $fanPct = [math]::Min(100, [math]::Round(($rpm / $maxRPM) * 100))
-            $fanColor = if ($fanPct -lt 50) { "#22c55e" } elseif ($fanPct -lt 80) { "#3b82f6" } else { "#f59e0b" }
-            $fanHTML += "<div style='display:inline-block;margin:4px 10px;'><div style='font-size:8pt;color:#94a3b8;'>$($fan.Name)</div><div style='font-size:14pt;font-weight:700;color:$fanColor;'>$rpm <span style='font-size:8pt;color:#64748b;'>RPM</span></div></div>"
-        }
+    $logoHTML = if ($logoDataUri) {
+        "<img src='$logoDataUri' alt='PC Plus Computing' style='width:320px;max-width:85%;'/>"
     } else {
-        $fanHTML = "<div style='font-size:9pt;color:#64748b;padding:6px;'>Fan data not available (use HWiNFO for detailed fan monitoring)</div>"
+        "<div style='background:linear-gradient(135deg,#0a1628,#0d4b71);color:#fff;padding:16px 40px;font-size:20pt;font-weight:bold;letter-spacing:3px;border-radius:8px;display:inline-block;'>PC PLUS COMPUTING</div>"
     }
 
-    # ── System info ──
-    $cpuName = if ($SystemInfo -and $SystemInfo.CPUModel) { $SystemInfo.CPUModel -replace '\(R\)','' -replace '\(TM\)','' -replace 'CPU ','' } else { "Unknown" }
-    $gpuName = ""
-    if ($StressResults -and $StressResults.GPU -and $StressResults.GPU.GPUName) { $gpuName = $StressResults.GPU.GPUName }
-    elseif ($SystemInfo -and $SystemInfo.GPU) { $gpuName = $SystemInfo.GPU }
-    if (-not $gpuName) { $gpuName = "Unknown" }
-    $ramInfo = if ($SystemInfo -and $SystemInfo.RAMTotal) { "$($SystemInfo.RAMTotal) GB" } else { "Unknown" }
-    $osInfo = if ($SystemInfo -and $SystemInfo.OSVersion) { $SystemInfo.OSVersion -replace 'Microsoft ','' } else { "Unknown" }
+    # ── Load QR codes ───────────────────────────────────────────────────────
+    $qrAppUri = ""; $qrSvcUri = ""
+    $qrAppPath = Join-Path $Global:ScriptDir "qr-appointments.txt"
+    $qrSvcPath = Join-Path $Global:ScriptDir "qr-service-requests.txt"
+    if (Test-Path $qrAppPath) { try { $qrAppUri = "data:image/png;base64,$((Get-Content $qrAppPath -Raw).Trim())" } catch {} }
+    if (Test-Path $qrSvcPath) { try { $qrSvcUri = "data:image/png;base64,$((Get-Content $qrSvcPath -Raw).Trim())" } catch {} }
 
-    $tierColor = switch -Wildcard ($gamingTier) { "High*" { "#22c55e" }; "Mid*" { "#3b82f6" }; "Entry*" { "#f59e0b" }; default { "#ef4444" } }
+    # ── Load gaming banner ──────────────────────────────────────────────────
+    $bannerGamingUri = ""
+    $bgPath = Join-Path $Global:ScriptDir "banner-gaming-top.txt"
+    if (Test-Path $bgPath) { try { $bannerGamingUri = "data:image/jpeg;base64,$((Get-Content $bgPath -Raw).Trim())" } catch {} }
 
-    $html = @"
-<!DOCTYPE html>
-<html><head><meta charset="utf-8"/><title>Gaming PC Report - $($Params.CustomerName)</title>
-<style>
-@page { size:A4; margin:10mm; }
-body { font-family:'Segoe UI',Tahoma,sans-serif; margin:0; padding:0; background:#0f172a; color:#e2e8f0; font-size:10pt; }
-.page { max-width:800px; margin:0 auto; background:#0f172a; padding:24px; }
-.header { background:linear-gradient(135deg,#0d4b71,#1a1a2e); border-radius:10px; padding:18px 24px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; border:1px solid #2596be33; }
-.header-left { display:flex; align-items:center; gap:14px; }
-.section { background:#1e293b; border-radius:8px; padding:16px 20px; margin-bottom:12px; border:1px solid #334155; }
-.section-title { font-size:11pt; font-weight:700; color:#3bbde0; margin-bottom:10px; text-transform:uppercase; letter-spacing:1px; }
-.divider { height:1px; background:linear-gradient(to right,transparent,#2596be,transparent); margin:4px 0 12px; }
-.specs-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-.spec-item { background:#0f172a; border-radius:6px; padding:8px 12px; border:1px solid #334155; }
-.spec-label { font-size:7.5pt; color:#64748b; text-transform:uppercase; letter-spacing:1px; }
-.spec-value { font-size:10pt; font-weight:600; color:#e2e8f0; margin-top:1px; }
-.tier-badge { display:inline-block; padding:6px 18px; border-radius:20px; font-weight:800; font-size:13pt; letter-spacing:1px; }
-.donut-row { display:flex; flex-wrap:wrap; justify-content:center; }
-.gauge-row { display:flex; justify-content:center; flex-wrap:wrap; }
-.mem-bar-outer { background:#0f172a; border-radius:6px; height:28px; width:100%; position:relative; border:1px solid #334155; }
-.mem-bar-inner { border-radius:6px; height:28px; display:flex; align-items:center; justify-content:center; font-size:9pt; font-weight:700; color:white; }
-.footer { text-align:center; border-top:1px solid #334155; padding-top:10px; margin-top:16px; font-size:8pt; color:#475569; }
-@media print { body { background:#0f172a; -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
-</style></head><body>
-<div class="page">
+    # ══════════════════════════════════════════════════════════════════════════
+    # SVG CHART BUILDERS
+    # ══════════════════════════════════════════════════════════════════════════
 
-    <!-- Header -->
-    <div class="header">
-        <div class="header-left">
-            $logoHTML
-        </div>
-        <div style="text-align:right;">
-            <div style="font-size:14pt;font-weight:800;color:#3bbde0;">GAMING PC</div>
-            <div style="font-size:9pt;color:#94a3b8;">Performance Report</div>
-            <div style="margin-top:6px;">
-                <span class="tier-badge" style="background:$tierColor;color:white;font-size:10pt;padding:3px 12px;">$gamingTier</span>
-            </div>
-        </div>
-    </div>
+    # ── 1. System Health Donut ──────────────────────────────────────────────
+    $donutR = 45; $donutCirc = [math]::Round(2 * [math]::PI * $donutR, 1)
+    $donutOffset = [math]::Round($donutCirc - ($donutCirc * $overallScore / 100), 1)
+    $svgHealthDonut = @"
+<svg viewBox="0 0 200 200" width="180" height="180" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="100" cy="100" r="$donutR" fill="none" stroke="#1a1a2e" stroke-width="3" opacity="0.1"/>
+  <circle cx="100" cy="100" r="$donutR" fill="none" stroke="#e5e7eb" stroke-width="12"/>
+  <circle cx="100" cy="100" r="$donutR" fill="none" stroke="$overallColor" stroke-width="12"
+    stroke-dasharray="$donutCirc" stroke-dashoffset="$donutOffset"
+    transform="rotate(-90 100 100)" stroke-linecap="round"/>
+  <text x="100" y="90" text-anchor="middle" font-size="36" font-weight="bold" fill="$overallColor" font-family="Segoe UI,sans-serif">$overallGrade</text>
+  <text x="100" y="112" text-anchor="middle" font-size="14" fill="#64748b" font-family="Segoe UI,sans-serif">$overallScore / 100</text>
+  <text x="100" y="132" text-anchor="middle" font-size="11" fill="#94a3b8" font-family="Segoe UI,sans-serif">System Health</text>
+</svg>
+"@
 
-    <!-- Customer / System Info -->
-    <div class="section">
-        <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-            <div><span style="color:#64748b;">Customer:</span> <strong>$($Params.CustomerName)</strong></div>
-            <div><span style="color:#64748b;">Computer:</span> <strong>$(if($SystemInfo){$SystemInfo.ComputerName}else{'N/A'})</strong></div>
-            <div><span style="color:#64748b;">Date:</span> <strong>$date</strong></div>
-        </div>
-        <div class="specs-grid">
-            <div class="spec-item"><div class="spec-label">Processor</div><div class="spec-value">$cpuName</div></div>
-            <div class="spec-item"><div class="spec-label">Graphics</div><div class="spec-value">$gpuName</div></div>
-            <div class="spec-item"><div class="spec-label">Memory</div><div class="spec-value">$ramInfo</div></div>
-            <div class="spec-item"><div class="spec-label">Operating System</div><div class="spec-value">$osInfo</div></div>
-        </div>
-    </div>
+    # ── 2. Temperature Bar Chart ────────────────────────────────────────────
+    $tempBars = @()
+    if ($cpuTemp -gt 0) { $tempBars += @{ Label="CPU"; Temp=$cpuTemp } }
+    if ($gpuTemp -gt 0) { $tempBars += @{ Label="GPU"; Temp=$gpuTemp } }
+    if ($SystemInfo.Temperatures) {
+        foreach ($t in $SystemInfo.Temperatures) {
+            if ($t.Zone -notmatch "CPU|GPU" -and $t.TempC -gt 0) {
+                $tempBars += @{ Label=$t.Zone; Temp=[double]$t.TempC }
+            }
+        }
+    }
+    $tempBarCount = $tempBars.Count
+    if ($tempBarCount -eq 0) { $tempBarCount = 1; $tempBars += @{ Label="N/A"; Temp=0 } }
+    $tempSvgH = 40 + ($tempBarCount * 45)
+    $tempBarSVG = "<svg viewBox='0 0 500 $tempSvgH' width='100%' height='${tempSvgH}px' xmlns='http://www.w3.org/2000/svg'>`n"
+    $tempBarSVG += "  <rect x='300' y='5' width='12' height='12' rx='2' fill='#22c55e'/><text x='316' y='15' font-size='10' fill='#64748b' font-family='Segoe UI,sans-serif'>&lt;70C Safe</text>`n"
+    $tempBarSVG += "  <rect x='370' y='5' width='12' height='12' rx='2' fill='#f59e0b'/><text x='386' y='15' font-size='10' fill='#64748b' font-family='Segoe UI,sans-serif'>70-85C Warm</text>`n"
+    $tempBarSVG += "  <rect x='448' y='5' width='12' height='12' rx='2' fill='#dc2626'/><text x='464' y='15' font-size='10' fill='#64748b' font-family='Segoe UI,sans-serif'>&gt;85C Hot</text>`n"
+    $yOff = 35
+    foreach ($tb in $tempBars) {
+        $tColor = if ($tb.Temp -lt 70) { "#22c55e" } elseif ($tb.Temp -le 85) { "#f59e0b" } else { "#dc2626" }
+        $barW = [math]::Min([math]::Round($tb.Temp / 110 * 380), 380)
+        $tempBarSVG += "  <text x='0' y='$($yOff + 16)' font-size='12' font-weight='600' fill='#334155' font-family='Segoe UI,sans-serif'>$($tb.Label)</text>`n"
+        $tempBarSVG += "  <rect x='60' y='$($yOff + 2)' width='380' height='22' rx='4' fill='#e5e7eb'/>`n"
+        if ($barW -gt 0) {
+            $tempBarSVG += "  <rect x='60' y='$($yOff + 2)' width='$barW' height='22' rx='4' fill='$tColor'/>`n"
+        }
+        $line70 = [math]::Round(70 / 110 * 380) + 60
+        $line85 = [math]::Round(85 / 110 * 380) + 60
+        $tempBarSVG += "  <line x1='$line70' y1='$($yOff)' x2='$line70' y2='$($yOff + 26)' stroke='#f59e0b' stroke-width='1.5' stroke-dasharray='3,2'/>`n"
+        $tempBarSVG += "  <line x1='$line85' y1='$($yOff)' x2='$line85' y2='$($yOff + 26)' stroke='#dc2626' stroke-width='1.5' stroke-dasharray='3,2'/>`n"
+        $tempBarSVG += "  <text x='$($barW + 65)' y='$($yOff + 17)' font-size='11' font-weight='700' fill='$tColor' font-family='Segoe UI,sans-serif'>$($tb.Temp)&#176;C</text>`n"
+        $yOff += 45
+    }
+    $tempBarSVG += "</svg>"
 
-    <!-- Overall Score + Component Donuts -->
-    <div class="section">
-        <div style="text-align:center;margin-bottom:8px;">
-            <div style="font-size:48pt;font-weight:900;color:$tierColor;">$gamingScore<span style="font-size:16pt;color:#64748b;">/100</span></div>
-            <div style="font-size:9pt;color:#94a3b8;">Overall Gaming Readiness Score</div>
-        </div>
-        <div class="divider"></div>
-        <div class="section-title">Component Health</div>
-        <div class="donut-row">$donutsHTML</div>
-    </div>
+    # ── 3. Storage Read/Write Speed Bar Chart ───────────────────────────────
+    $seqRead  = if ($diskStress -and $diskStress.SeqReadMBps)  { [double]$diskStress.SeqReadMBps }  else { 0 }
+    $seqWrite = if ($diskStress -and $diskStress.SeqWriteMBps) { [double]$diskStress.SeqWriteMBps } else { 0 }
+    $maxSpeed = [math]::Max([math]::Max($seqRead, $seqWrite), 600)
+    $speedScale = 420 / $maxSpeed
+    $readBarW  = [math]::Round($seqRead * $speedScale)
+    $writeBarW = [math]::Round($seqWrite * $speedScale)
+    $hddLine   = [math]::Round(100 * $speedScale) + 60
+    $ssdLine   = [math]::Min([math]::Round(500 * $speedScale) + 60, 475)
 
-    <!-- Temperature Bars -->
-    <div class="section">
-        <div class="section-title">Thermal Performance</div>
-        <div style="font-size:8pt;color:#64748b;margin-bottom:8px;">Green &lt;60C | Yellow 60-75C | Orange 75-90C | Red &gt;90C</div>
-        $tempBars
-    </div>
+    $storageSVG = @"
+<svg viewBox='0 0 500 160' width='100%' height='160px' xmlns='http://www.w3.org/2000/svg'>
+  <rect x='300' y='5' width='12' height='12' rx='2' fill='#2596be'/><text x='316' y='15' font-size='10' fill='#64748b' font-family='Segoe UI,sans-serif'>Sequential Read</text>
+  <rect x='410' y='5' width='12' height='12' rx='2' fill='#3bbde0'/><text x='426' y='15' font-size='10' fill='#64748b' font-family='Segoe UI,sans-serif'>Sequential Write</text>
+  <text x='0' y='50' font-size='12' font-weight='600' fill='#334155' font-family='Segoe UI,sans-serif'>Read</text>
+  <rect x='60' y='36' width='420' height='22' rx='4' fill='#e5e7eb'/>
+  <rect x='60' y='36' width='$readBarW' height='22' rx='4' fill='#2596be'/>
+  <text x='$($readBarW + 65)' y='52' font-size='11' font-weight='700' fill='#2596be' font-family='Segoe UI,sans-serif'>$seqRead MB/s</text>
+  <text x='0' y='95' font-size='12' font-weight='600' fill='#334155' font-family='Segoe UI,sans-serif'>Write</text>
+  <rect x='60' y='81' width='420' height='22' rx='4' fill='#e5e7eb'/>
+  <rect x='60' y='81' width='$writeBarW' height='22' rx='4' fill='#3bbde0'/>
+  <text x='$($writeBarW + 65)' y='97' font-size='11' font-weight='700' fill='#3bbde0' font-family='Segoe UI,sans-serif'>$seqWrite MB/s</text>
+  <line x1='$hddLine' y1='30' x2='$hddLine' y2='108' stroke='#94a3b8' stroke-width='1' stroke-dasharray='4,3'/>
+  <text x='$($hddLine + 2)' y='120' font-size='8' fill='#94a3b8' font-family='Segoe UI,sans-serif'>Good HDD</text>
+  <text x='$($hddLine + 2)' y='130' font-size='8' fill='#94a3b8' font-family='Segoe UI,sans-serif'>100 MB/s</text>
+  <line x1='$ssdLine' y1='30' x2='$ssdLine' y2='108' stroke='#2596be' stroke-width='1' stroke-dasharray='4,3'/>
+  <text x='$([math]::Min($ssdLine + 2, 455))' y='120' font-size='8' fill='#2596be' font-family='Segoe UI,sans-serif'>Good SSD</text>
+  <text x='$([math]::Min($ssdLine + 2, 455))' y='130' font-size='8' fill='#2596be' font-family='Segoe UI,sans-serif'>500 MB/s</text>
+  <text x='60' y='150' font-size='8' fill='#94a3b8' font-family='Segoe UI,sans-serif'>0</text>
+  <text x='$([math]::Round($maxSpeed/2 * $speedScale) + 55)' y='150' font-size='8' fill='#94a3b8' font-family='Segoe UI,sans-serif' text-anchor='middle'>$([math]::Round($maxSpeed/2)) MB/s</text>
+  <text x='475' y='150' font-size='8' fill='#94a3b8' font-family='Segoe UI,sans-serif' text-anchor='end'>$([math]::Round($maxSpeed)) MB/s</text>
+</svg>
+"@
 
-    <!-- Storage Speed Bars -->
-    <div class="section">
-        <div class="section-title">Storage Speed</div>
-        $storageBars
-    </div>
+    # ── 4. Network Speed Gauge (semi-circle) ────────────────────────────────
+    $maxDl = [math]::Max($dlMbps, 100)
+    if ($dlMbps -gt 100) { $maxDl = [math]::Ceiling($dlMbps / 50) * 50 }
+    $gaugeR = 70
+    $gaugeCirc = [math]::Round([math]::PI * $gaugeR, 1)
+    $dlDash = [math]::Round($gaugeCirc * [math]::Min($dlMbps / $maxDl, 1), 1)
+    $ulDash = [math]::Round($gaugeCirc * [math]::Min($ulMbps / $maxDl, 1), 1)
+    $dlColor = if ($dlMbps -ge 100) { "#22c55e" } elseif ($dlMbps -ge 25) { "#2596be" } elseif ($dlMbps -gt 0) { "#f59e0b" } else { "#94a3b8" }
+    $ulColor = if ($ulMbps -ge 50) { "#22c55e" } elseif ($ulMbps -ge 10) { "#3bbde0" } elseif ($ulMbps -gt 0) { "#f59e0b" } else { "#94a3b8" }
 
-    <!-- Network Speed Gauges -->
-    <div class="section">
-        <div class="section-title">Network Speed</div>
-        <div class="gauge-row">$netGauges</div>
-    </div>
+    $networkGaugeSVG = @"
+<svg viewBox='0 0 440 180' width='100%' height='180px' xmlns='http://www.w3.org/2000/svg'>
+  <text x='110' y='16' text-anchor='middle' font-size='11' font-weight='600' fill='#334155' font-family='Segoe UI,sans-serif'>Download</text>
+  <path d='M 30,150 A $gaugeR,$gaugeR 0 0 1 190,150' fill='none' stroke='#e5e7eb' stroke-width='14' stroke-linecap='round'/>
+  <path d='M 30,150 A $gaugeR,$gaugeR 0 0 1 190,150' fill='none' stroke='$dlColor' stroke-width='14' stroke-linecap='round'
+    stroke-dasharray='$dlDash $gaugeCirc'/>
+  <text x='110' y='130' text-anchor='middle' font-size='28' font-weight='bold' fill='$dlColor' font-family='Segoe UI,sans-serif'>$([math]::Round($dlMbps,1))</text>
+  <text x='110' y='148' text-anchor='middle' font-size='11' fill='#64748b' font-family='Segoe UI,sans-serif'>Mbps</text>
+  <text x='25' y='168' font-size='8' fill='#94a3b8' font-family='Segoe UI,sans-serif'>0</text>
+  <text x='190' y='168' font-size='8' fill='#94a3b8' font-family='Segoe UI,sans-serif' text-anchor='end'>$maxDl</text>
+  <text x='330' y='16' text-anchor='middle' font-size='11' font-weight='600' fill='#334155' font-family='Segoe UI,sans-serif'>Upload</text>
+  <path d='M 250,150 A $gaugeR,$gaugeR 0 0 1 410,150' fill='none' stroke='#e5e7eb' stroke-width='14' stroke-linecap='round'/>
+  <path d='M 250,150 A $gaugeR,$gaugeR 0 0 1 410,150' fill='none' stroke='$ulColor' stroke-width='14' stroke-linecap='round'
+    stroke-dasharray='$ulDash $gaugeCirc'/>
+  <text x='330' y='130' text-anchor='middle' font-size='28' font-weight='bold' fill='$ulColor' font-family='Segoe UI,sans-serif'>$([math]::Round($ulMbps,1))</text>
+  <text x='330' y='148' text-anchor='middle' font-size='11' fill='#64748b' font-family='Segoe UI,sans-serif'>Mbps</text>
+  <text x='245' y='168' font-size='8' fill='#94a3b8' font-family='Segoe UI,sans-serif'>0</text>
+  <text x='410' y='168' font-size='8' fill='#94a3b8' font-family='Segoe UI,sans-serif' text-anchor='end'>$maxDl</text>
+</svg>
+"@
 
-    <!-- RAM Usage -->
-    <div class="section">
-        <div class="section-title">Memory Usage</div>
-        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-            <span style="font-size:9pt;color:#94a3b8;">$memUsed GB used of $memTotal GB ($memPct%)</span>
-            <span style="font-size:9pt;color:$memColor;font-weight:600;">$([math]::Round($memTotal - $memUsed, 1)) GB free</span>
-        </div>
-        <div class="mem-bar-outer">
-            <div class="mem-bar-inner" style="width:$memPct%;background:$memColor;">$memPct%</div>
-        </div>
-    </div>
+    # ── 5. Component Health Grid (3x2 mini donuts) ──────────────────────────
+    function Build-GamingMiniDonut($score, $label, $cx, $cy) {
+        $r = 30; $c = [math]::Round(2 * [math]::PI * $r, 1)
+        $off = [math]::Round($c - ($c * $score / 100), 1)
+        $col = if ($score -ge 80) { "#22c55e" } elseif ($score -ge 60) { "#f59e0b" } else { "#dc2626" }
+        $grade = if ($score -ge 90){"A"} elseif($score -ge 80){"B"} elseif($score -ge 70){"C"} elseif($score -ge 60){"D"} else{"F"}
+        $bd = Get-GamingBadge $score
+        return @"
+  <circle cx='$cx' cy='$cy' r='$r' fill='none' stroke='#e5e7eb' stroke-width='6'/>
+  <circle cx='$cx' cy='$cy' r='$r' fill='none' stroke='$col' stroke-width='6'
+    stroke-dasharray='$c' stroke-dashoffset='$off'
+    transform='rotate(-90 $cx $cy)' stroke-linecap='round'/>
+  <text x='$cx' y='$($cy - 2)' text-anchor='middle' font-size='16' font-weight='bold' fill='$col' font-family='Segoe UI,sans-serif'>$grade</text>
+  <text x='$cx' y='$($cy + 12)' text-anchor='middle' font-size='8' fill='#64748b' font-family='Segoe UI,sans-serif'>$score%</text>
+  <text x='$cx' y='$($cy + 48)' text-anchor='middle' font-size='10' font-weight='600' fill='#334155' font-family='Segoe UI,sans-serif'>$label</text>
+  <rect x='$($cx - 24)' y='$($cy + 53)' width='48' height='16' rx='8' fill='$($bd.Bg)'/>
+  <text x='$cx' y='$($cy + 64)' text-anchor='middle' font-size='7' font-weight='700' fill='$($bd.Color)' font-family='Segoe UI,sans-serif'>$($bd.Text)</text>
+"@
+    }
 
-    <!-- Fan Speeds -->
-    <div class="section">
-        <div class="section-title">Fan Speeds</div>
-        $fanHTML
-    </div>
+    $healthGridSVG = "<svg viewBox='0 0 500 260' width='100%' height='260px' xmlns='http://www.w3.org/2000/svg'>`n"
+    $healthGridSVG += Build-GamingMiniDonut $cpuHealth "CPU Health" 85 55
+    $healthGridSVG += Build-GamingMiniDonut $ramHealth "RAM Health" 250 55
+    $healthGridSVG += Build-GamingMiniDonut $gpuHealth "GPU Health" 415 55
+    $healthGridSVG += Build-GamingMiniDonut $storageHealth "Storage" 85 185
+    $healthGridSVG += Build-GamingMiniDonut $networkHealth "Network" 250 185
+    $battLabel = if ($battPresent) { "Battery" } else { "Battery (N/A)" }
+    $healthGridSVG += Build-GamingMiniDonut $batteryHealth $battLabel 415 185
+    $healthGridSVG += "</svg>"
 
-    <!-- Footer -->
-    <div class="footer">
-        <div style="font-weight:700;color:#2596be;">PC Plus Computing</div>
-        <div>604-760-1662 | 236-500-2700 | pcpluscomputing.com</div>
-        <div style="color:#3bbde0;">Your Security, Our Priority</div>
-        <div style="margin-top:4px;">Scan: $ScanMode | Tech: $($Params.TechName) | $(Get-Date -Format 'yyyy-MM-dd HH:mm')</div>
-    </div>
+    # ── 6. RAM Usage Stacked Bar ────────────────────────────────────────────
+    $ramUsedPct = if ($memTotalGB -gt 0) { [math]::Round($memUsedGB / $memTotalGB * 100) } else { 0 }
+    $ramFreeGB  = [math]::Round($memTotalGB - $memUsedGB, 1)
+    $ramBarClr  = if ($ramUsedPct -gt 90) { "#dc2626" } elseif ($ramUsedPct -gt 70) { "#f59e0b" } else { "#2596be" }
+    $ramUsedW   = [math]::Round($ramUsedPct / 100 * 400)
+
+    $ramBarSVG = @"
+<svg viewBox='0 0 500 70' width='100%' height='70px' xmlns='http://www.w3.org/2000/svg'>
+  <rect x='50' y='12' width='400' height='28' rx='6' fill='#e5e7eb'/>
+  <rect x='50' y='12' width='$ramUsedW' height='28' rx='6' fill='$ramBarClr'/>
+  <text x='$([math]::Round($ramUsedW / 2) + 50)' y='31' text-anchor='middle' font-size='11' font-weight='bold' fill='#fff' font-family='Segoe UI,sans-serif'>Used: $memUsedGB GB ($ramUsedPct%)</text>
+  $(if ((100 - $ramUsedPct) -gt 15) { "<text x='$([math]::Round($ramUsedW + (400 - $ramUsedW) / 2) + 50)' y='31' text-anchor='middle' font-size='10' fill='#64748b' font-family='Segoe UI,sans-serif'>Free: $ramFreeGB GB</text>" })
+  <text x='50' y='58' font-size='9' fill='#64748b' font-family='Segoe UI,sans-serif'>0 GB</text>
+  <text x='450' y='58' font-size='9' fill='#64748b' font-family='Segoe UI,sans-serif' text-anchor='end'>$memTotalGB GB</text>
+  <text x='0' y='31' font-size='11' font-weight='600' fill='#334155' font-family='Segoe UI,sans-serif'>RAM</text>
+  <rect x='300' y='50' width='10' height='10' rx='2' fill='$ramBarClr'/><text x='314' y='59' font-size='8' fill='#64748b' font-family='Segoe UI,sans-serif'>Used</text>
+  <rect x='350' y='50' width='10' height='10' rx='2' fill='#e5e7eb'/><text x='364' y='59' font-size='8' fill='#64748b' font-family='Segoe UI,sans-serif'>Free</text>
+</svg>
+"@
+
+    # ── 7. Fan Speed Indicators ─────────────────────────────────────────────
+    $fanSVG = ""
+    if ($fans.Count -gt 0) {
+        $fanW = [math]::Min(160, [math]::Floor(480 / [math]::Max($fans.Count, 1)))
+        $totalW = $fanW * $fans.Count
+        $fanSVG = "<svg viewBox='0 0 $totalW 110' width='100%' height='110px' xmlns='http://www.w3.org/2000/svg'>`n"
+        $fx = 0
+        foreach ($fan in $fans) {
+            $fRPM    = if ($fan.RPM)    { [int]$fan.RPM }    else { 0 }
+            $fMaxRPM = if ($fan.MaxRPM) { [int]$fan.MaxRPM } else { [math]::Max($fRPM, 3000) }
+            $fName   = if ($fan.Name)   { $fan.Name }        else { "Fan" }
+            $fPct    = if ($fMaxRPM -gt 0) { [math]::Round($fRPM / $fMaxRPM * 100) } else { 0 }
+            $fColor  = if ($fPct -gt 90) { "#dc2626" } elseif ($fPct -gt 60) { "#f59e0b" } else { "#22c55e" }
+            $fR = 32; $fCirc = [math]::Round(2 * [math]::PI * $fR, 1)
+            $fOff = [math]::Round($fCirc - ($fCirc * $fPct / 100), 1)
+            $cx = $fx + [math]::Round($fanW / 2)
+            $fanSVG += "  <circle cx='$cx' cy='42' r='$fR' fill='none' stroke='#e5e7eb' stroke-width='6'/>`n"
+            $fanSVG += "  <circle cx='$cx' cy='42' r='$fR' fill='none' stroke='$fColor' stroke-width='6' stroke-dasharray='$fCirc' stroke-dashoffset='$fOff' transform='rotate(-90 $cx 42)' stroke-linecap='round'/>`n"
+            $fanSVG += "  <text x='$cx' y='40' text-anchor='middle' font-size='11' font-weight='bold' fill='$fColor' font-family='Segoe UI,sans-serif'>$fRPM</text>`n"
+            $fanSVG += "  <text x='$cx' y='52' text-anchor='middle' font-size='8' fill='#64748b' font-family='Segoe UI,sans-serif'>RPM</text>`n"
+            $fanSVG += "  <text x='$cx' y='95' text-anchor='middle' font-size='9' font-weight='600' fill='#334155' font-family='Segoe UI,sans-serif'>$fName</text>`n"
+            $fanSVG += "  <text x='$cx' y='107' text-anchor='middle' font-size='7' fill='#94a3b8' font-family='Segoe UI,sans-serif'>max $fMaxRPM</text>`n"
+            $fx += $fanW
+        }
+        $fanSVG += "</svg>"
+    }
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # BUILD DETAIL SECTIONS
+    # ══════════════════════════════════════════════════════════════════════════
+
+    # Stress test summary rows
+    $stressRows = ""
+    if ($cpuStress) {
+        $badge = if ($cpuStress.Passed) { "<span style='display:inline-block;padding:2px 10px;border-radius:10px;font-size:8pt;font-weight:700;background:#dcfce7;color:#166534;'>$iconPass PASS</span>" } else { "<span style='display:inline-block;padding:2px 10px;border-radius:10px;font-size:8pt;font-weight:700;background:#fee2e2;color:#991b1b;'>$iconFail FAIL</span>" }
+        $throttle = if ($cpuStress.ThrottleDetected) { "<br/><span class='fail'>$iconWarn THROTTLING</span>" } else { "" }
+        $stressRows += "<tr><td>CPU Stress</td><td>$badge$throttle</td><td>Peak: $($cpuStress.MaxTemp)C | $($cpuStress.Iterations) iterations | $($cpuStress.Duration)s</td></tr>`n"
+    }
+    if ($ramStress) {
+        $badge = if ($ramStress.Passed) { "<span style='display:inline-block;padding:2px 10px;border-radius:10px;font-size:8pt;font-weight:700;background:#dcfce7;color:#166534;'>$iconPass PASS</span>" } else { "<span style='display:inline-block;padding:2px 10px;border-radius:10px;font-size:8pt;font-weight:700;background:#fee2e2;color:#991b1b;'>$iconFail FAIL</span>" }
+        $stressRows += "<tr><td>RAM Stress</td><td>$badge</td><td>$($ramStress.TotalMBTested) MB tested | $($ramStress.Errors) errors</td></tr>`n"
+    }
+    if ($gpuStress) {
+        $badge = if ($gpuStress.Passed) { "<span style='display:inline-block;padding:2px 10px;border-radius:10px;font-size:8pt;font-weight:700;background:#dcfce7;color:#166534;'>$iconPass PASS</span>" } else { "<span style='display:inline-block;padding:2px 10px;border-radius:10px;font-size:8pt;font-weight:700;background:#fee2e2;color:#991b1b;'>$iconFail FAIL</span>" }
+        $stressRows += "<tr><td>GPU Stress</td><td>$badge</td><td>$($gpuStress.GPUName) | Peak: $($gpuStress.MaxTemp)C | $($gpuStress.Iterations) cycles</td></tr>`n"
+    }
+    if ($diskStress) {
+        $badge = if ($diskStress.Passed) { "<span style='display:inline-block;padding:2px 10px;border-radius:10px;font-size:8pt;font-weight:700;background:#dcfce7;color:#166534;'>$iconPass PASS</span>" } else { "<span style='display:inline-block;padding:2px 10px;border-radius:10px;font-size:8pt;font-weight:700;background:#fee2e2;color:#991b1b;'>$iconFail FAIL</span>" }
+        $stressRows += "<tr><td>Disk Benchmark</td><td>$badge</td><td>Read: $seqRead MB/s | Write: $seqWrite MB/s</td></tr>`n"
+    }
+
+    # SSD life table rows
+    $ssdRows = ""
+    foreach ($drv in $ssdDrives) {
+        $dModel = if ($drv.Model) { $drv.Model } else { "Unknown" }
+        $dLife  = if ($drv.LifeRemainingPct -ne $null) { [int]$drv.LifeRemainingPct } else { 100 }
+        $dHours = if ($drv.PowerOnHours) { $drv.PowerOnHours } else { "N/A" }
+        $dGrade = if ($drv.Grade) { $drv.Grade } else { if ($dLife -ge 80){"Good"} elseif($dLife -ge 50){"Fair"} else{"Poor"} }
+        $dColor = if ($dLife -ge 80) { "#22c55e" } elseif ($dLife -ge 50) { "#f59e0b" } else { "#dc2626" }
+        $dBadge = if ($dLife -ge 80) { "<span style='display:inline-block;padding:2px 10px;border-radius:10px;font-size:8pt;font-weight:700;background:#dcfce7;color:#166534;'>$dGrade</span>" } elseif ($dLife -ge 50) { "<span style='display:inline-block;padding:2px 10px;border-radius:10px;font-size:8pt;font-weight:700;background:#fef3c7;color:#92400e;'>$dGrade</span>" } else { "<span style='display:inline-block;padding:2px 10px;border-radius:10px;font-size:8pt;font-weight:700;background:#fee2e2;color:#991b1b;'>$dGrade</span>" }
+        $ssdRows += "<tr><td>$dModel</td><td style='width:180px;'><div style='display:flex;align-items:center;gap:6px;'><div style='flex:1;background:#e5e7eb;border-radius:4px;height:10px;overflow:hidden;'><div style='width:${dLife}%;height:100%;background:$dColor;border-radius:4px;'></div></div><span style='font-weight:700;color:$dColor;font-size:9pt;min-width:32px;'>$dLife%</span></div></td><td>$dHours hrs</td><td>$dBadge</td></tr>`n"
+    }
+
+    # Gaming readiness section
+    $gamingHTML = ""
+    if ($gamingScore -gt 0) {
+        $gmColor = if ($gamingScore -ge 80){"#22c55e"} elseif ($gamingScore -ge 60){"#2596be"} elseif ($gamingScore -ge 40){"#f59e0b"} else {"#dc2626"}
+        $gmR = 40; $gmCirc = [math]::Round(2 * [math]::PI * $gmR, 1)
+        $gmOff = [math]::Round($gmCirc - ($gmCirc * $gamingScore / 100), 1)
+        $gamingHTML = @"
+<div class='section-header'><span class='section-icon'>&#127918;</span> Gaming Readiness</div>
+<div style='display:flex;align-items:center;gap:24px;margin-bottom:14px;'>
+<div style='text-align:center;'>
+<svg viewBox='0 0 100 100' width='110' height='110' xmlns='http://www.w3.org/2000/svg'>
+<circle cx='50' cy='50' r='$gmR' fill='none' stroke='#e5e7eb' stroke-width='7'/>
+<circle cx='50' cy='50' r='$gmR' fill='none' stroke='$gmColor' stroke-width='7'
+  stroke-dasharray='$gmCirc' stroke-dashoffset='$gmOff'
+  transform='rotate(-90 50 50)' stroke-linecap='round'/>
+<text x='50' y='46' text-anchor='middle' font-size='18' font-weight='bold' fill='$gmColor' font-family='Segoe UI,sans-serif'>$gamingScore</text>
+<text x='50' y='60' text-anchor='middle' font-size='9' fill='#64748b' font-family='Segoe UI,sans-serif'>/ 100</text>
+</svg>
+<div style='font-size:12pt;font-weight:700;color:$gmColor;margin-top:4px;'>$gamingTier</div>
 </div>
-</body></html>
+<div style='flex:1;'>
+<table><tr><th>Component</th><th>Tier</th></tr>
+<tr><td>GPU Gaming Tier</td><td style='font-weight:700;color:$gmColor;'>$gpuTier</td></tr>
+<tr><td>CPU Gaming Tier</td><td style='font-weight:700;color:$gmColor;'>$cpuTier</td></tr>
+$(if($Gaming.GPUName){"<tr><td>GPU</td><td>$($Gaming.GPUName)</td></tr>"})
+$(if($Gaming.VRAM_MB){"<tr><td>VRAM</td><td>$($Gaming.VRAM_MB) MB</td></tr>"})
+$(if($Gaming.TotalRAM){"<tr><td>System RAM</td><td>$($Gaming.TotalRAM) GB</td></tr>"})
+$(if($Gaming.DirectXVersion){"<tr><td>DirectX</td><td>$($Gaming.DirectXVersion)</td></tr>"})
+$(if($Gaming.RefreshRate){"<tr><td>Refresh Rate</td><td>$($Gaming.RefreshRate)</td></tr>"})
+</table>
+</div>
+</div>
+"@
+    }
+
+    # Battery section
+    $batteryHTML = ""
+    if ($battPresent) {
+        $btColor = if ($battHealth -ge 80) { "#22c55e" } elseif ($battHealth -ge 50) { "#f59e0b" } else { "#dc2626" }
+        $btR = 35; $btCirc = [math]::Round(2 * [math]::PI * $btR, 1)
+        $btOff = [math]::Round($btCirc - ($btCirc * $battHealth / 100), 1)
+        $btBdg = Get-GamingBadge $battHealth
+        $batteryHTML = @"
+<div class='sub-header'>Battery Health</div>
+<div style='display:flex;align-items:center;gap:20px;margin-bottom:14px;'>
+<div style='text-align:center;'>
+<svg viewBox='0 0 100 100' width='90' height='90' xmlns='http://www.w3.org/2000/svg'>
+<circle cx='50' cy='50' r='$btR' fill='none' stroke='#e5e7eb' stroke-width='7'/>
+<circle cx='50' cy='50' r='$btR' fill='none' stroke='$btColor' stroke-width='7'
+  stroke-dasharray='$btCirc' stroke-dashoffset='$btOff'
+  transform='rotate(-90 50 50)' stroke-linecap='round'/>
+<text x='50' y='48' text-anchor='middle' font-size='16' font-weight='bold' fill='$btColor' font-family='Segoe UI,sans-serif'>$battHealth%</text>
+<text x='50' y='62' text-anchor='middle' font-size='8' fill='#64748b' font-family='Segoe UI,sans-serif'>Health</text>
+</svg>
+</div>
+<div style='flex:1;'>
+<table><tr><th style='width:40%;'>Property</th><th>Value</th></tr>
+<tr><td>Battery Health</td><td style='color:$btColor;font-weight:700;'>$battHealth%
+  <span style='display:inline-block;padding:2px 8px;border-radius:10px;font-size:7.5pt;font-weight:700;background:$($btBdg.Bg);color:$($btBdg.Color);margin-left:6px;'>$($btBdg.Text)</span></td></tr>
+<tr><td>Cycle Count</td><td>$battCycles</td></tr>
+$(if($BatteryDetail.Charge){"<tr><td>Current Charge</td><td>$($BatteryDetail.Charge)%</td></tr>"})
+$(if($BatteryDetail.DesignCapacity){"<tr><td>Design Capacity</td><td>$($BatteryDetail.DesignCapacity) mWh</td></tr>"})
+$(if($BatteryDetail.FullChargeCapacity){"<tr><td>Full Charge Capacity</td><td>$($BatteryDetail.FullChargeCapacity) mWh</td></tr>"})
+$(if($BatteryDetail.Runtime){"<tr><td>Estimated Runtime</td><td>$($BatteryDetail.Runtime)</td></tr>"})
+</table>
+</div>
+</div>
+$(if($battHealth -lt 50){"<div style='padding:10px;background:#fef2f2;border-left:4px solid #dc2626;border-radius:4px;margin-bottom:12px;'><span class='fail'>$iconFail</span> <strong>Battery replacement recommended.</strong> Capacity is below 50% of original design.</div>"})
+"@
+    }
+
+    # Technician notes
+    $techNotesHTML = if ($Params.TechNotes) { "<div class='section-header'><span class='section-icon'>&#128221;</span> Technician Notes</div><div style='padding:14px 18px;background:#f8fafc;border:1px solid #d1d5db;border-radius:8px;min-height:50px;white-space:pre-wrap;font-size:9.5pt;line-height:1.7;margin-bottom:16px;'>$([System.Web.HttpUtility]::HtmlEncode($Params.TechNotes))</div>" } else { "" }
+
+    # Key findings
+    $keyFindings = @()
+    if ($cpuStress -and $cpuStress.Passed) { $keyFindings += @{T="CPU passed stress testing.";S="pass"} }
+    elseif ($cpuStress) { $keyFindings += @{T="CPU FAILED stress testing - possible instability.";S="fail"} }
+    if ($ramStress -and $ramStress.Passed) { $keyFindings += @{T="RAM passed stress testing with no errors.";S="pass"} }
+    elseif ($ramStress) { $keyFindings += @{T="RAM FAILED stress testing - memory errors detected.";S="fail"} }
+    if ($gpuStress -and $gpuStress.Passed) { $keyFindings += @{T="GPU passed stress testing.";S="pass"} }
+    elseif ($gpuStress) { $keyFindings += @{T="GPU FAILED stress testing - possible hardware issue.";S="fail"} }
+    if ($overheat) { $keyFindings += @{T="OVERHEATING DETECTED - thermal management needs attention.";S="fail"} }
+    elseif ($cpuTemp -gt 0 -or $gpuTemp -gt 0) {
+        $maxT = [math]::Max($cpuTemp, $gpuTemp)
+        if ($maxT -gt 85) { $keyFindings += @{T="Peak temperature ${maxT}C is in the critical range.";S="fail"} }
+        elseif ($maxT -gt 70) { $keyFindings += @{T="Temperatures slightly elevated (peak ${maxT}C). Check airflow.";S="warn"} }
+        else { $keyFindings += @{T="All temperatures within safe operating ranges.";S="pass"} }
+    }
+    if ($diskStress -and $diskStress.Passed) { $keyFindings += @{T="Disk benchmark passed: Read $seqRead MB/s, Write $seqWrite MB/s.";S="pass"} }
+    elseif ($diskStress) { $keyFindings += @{T="Disk benchmark FAILED - storage may be degraded.";S="fail"} }
+    if ($gamingScore -ge 80) { $keyFindings += @{T="Gaming readiness: $gamingTier ($gamingScore/100) - excellent for gaming.";S="pass"} }
+    elseif ($gamingScore -ge 60) { $keyFindings += @{T="Gaming readiness: $gamingTier ($gamingScore/100) - decent for gaming.";S="warn"} }
+    elseif ($gamingScore -gt 0) { $keyFindings += @{T="Gaming readiness: $gamingTier ($gamingScore/100) - upgrades recommended.";S="fail"} }
+    if ($dlMbps -ge 100) { $keyFindings += @{T="Network speed: ${dlMbps} Mbps download - great for online gaming.";S="pass"} }
+    elseif ($dlMbps -ge 25) { $keyFindings += @{T="Network speed: ${dlMbps} Mbps download - adequate for gaming.";S="pass"} }
+    elseif ($dlMbps -gt 0) { $keyFindings += @{T="Network speed: ${dlMbps} Mbps download - may experience lag in online games.";S="warn"} }
+    if ($battPresent -and $battHealth -lt 50) { $keyFindings += @{T="Battery at $battHealth% health - replacement recommended.";S="fail"} }
+    elseif ($battPresent -and $battHealth -lt 80) { $keyFindings += @{T="Battery at $battHealth% health - still serviceable but degrading.";S="warn"} }
+    $keyFindings = @($keyFindings | Select-Object -First 8)
+
+    $findingsHTML = ""
+    foreach ($f in $keyFindings) {
+        $fIcon = switch ($f.S) { "pass" { "&#10004;" } "warn" { "&#9888;" } "fail" { "&#10008;" } }
+        $fIconColor = switch ($f.S) { "pass" { "#22c55e" } "warn" { "#f59e0b" } "fail" { "#dc2626" } }
+        $fBg = switch ($f.S) { "pass" { "#f0fdf4" } "warn" { "#fffbeb" } "fail" { "#fef2f2" } }
+        $findingsHTML += "<div style='display:flex;align-items:flex-start;gap:10px;padding:7px 12px;margin:3px 0;border-radius:6px;background:$fBg;'><span style='font-size:13pt;color:$fIconColor;flex-shrink:0;'>$fIcon</span><span style='font-size:9.5pt;color:#1e293b;line-height:1.4;'>$($f.T)</span></div>`n"
+    }
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # ASSEMBLE THE FULL HTML
+    # ══════════════════════════════════════════════════════════════════════════
+
+$html = @"
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>Gaming PC Diagnostic Report - $customerName</title>
+<style>
+@page { size: A4; margin: 0.5in 0.6in 0.9in 0.6in; }
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: 'Segoe UI', -apple-system, Tahoma, sans-serif; font-size: 9.5pt; color: #1e293b; line-height: 1.6; background: #fff; }
+h1,h2,h3,h4 { margin:0; }
+@media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .page-break { page-break-before: always; }
+    .no-break { page-break-inside: avoid; }
+}
+.page-break { page-break-before: always; }
+.print-footer {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    padding: 6px 0; border-top: 1.5px solid #0d4b71;
+    text-align: center; font-size: 7.5pt; color: #94a3b8; background: #fff;
+}
+.print-footer strong { color: #0d4b71; font-size: 7.5pt; }
+.print-footer .report-name { color: #475569; }
+.no-break { page-break-inside: avoid; }
+.section-header {
+    background: linear-gradient(135deg, #1a1a2e 0%, #0d4b71 100%);
+    color: #fff; padding: 10px 20px; font-size: 12pt; font-weight: 600;
+    margin: 24px 0 14px 0; border-radius: 6px; letter-spacing: 0.5px;
+    display: flex; align-items: center; gap: 10px;
+}
+.section-header .section-icon { font-size: 14pt; opacity: 0.85; }
+.sub-header {
+    color: #0d4b71; font-size: 10.5pt; font-weight: 700; margin: 18px 0 8px 0;
+    padding-bottom: 5px; border-bottom: 2px solid #2596be; letter-spacing: 0.3px;
+}
+table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 9pt; }
+th {
+    background: #0d4b71; color: #fff; padding: 7px 10px; text-align: left;
+    font-weight: 600; font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.5px;
+}
+td { padding: 6px 10px; border-bottom: 1px solid #e2e8f0; vertical-align: middle; }
+tr:nth-child(even) td { background: #f8fafc; }
+tr:hover td { background: #eaf7fc; }
+.pass { color: #16a34a; font-weight: 600; }
+.fail { color: #dc2626; font-weight: 600; }
+.warn { color: #f59e0b; font-weight: 600; }
+.chart-box {
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+    padding: 16px; margin: 12px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+.chart-box .chart-title {
+    font-size: 10.5pt; font-weight: 700; color: #0d4b71; margin-bottom: 10px;
+    padding-bottom: 4px; border-bottom: 1px solid #e2e8f0;
+}
+.summary-strip { display: flex; gap: 10px; margin: 14px 0; }
+.summary-chip {
+    flex: 1; text-align: center; padding: 10px 8px; background: #f8fafc;
+    border: 1px solid #e2e8f0; border-radius: 8px;
+}
+.summary-chip .chip-val { font-size: 15pt; font-weight: 700; color: #0a1628; display: block; }
+.summary-chip .chip-lbl { font-size: 7.5pt; color: #64748b; text-transform: uppercase; font-weight: 600; letter-spacing: 0.3px; }
+.qr-row { display: flex; justify-content: center; gap: 60px; margin: 20px 0; }
+.qr-item { text-align: center; }
+.qr-item img { width: 140px; height: 140px; border-radius: 8px; }
+.qr-item .qr-fallback { width: 140px; height: 140px; border: 2px dashed #94a3b8; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 7.5pt; color: #94a3b8; }
+.qr-label { font-size: 9pt; font-weight: 600; color: #0d4b71; margin-top: 8px; }
+.qr-sublabel { font-size: 7.5pt; color: #64748b; margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<div class="print-footer">
+<span class="report-name">Gaming PC Diagnostic Report</span> &nbsp;|&nbsp; <strong>$COMPANY</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE
+</div>
+
+<!-- ══════════════════════════ COVER PAGE ══════════════════════════ -->
+<div style="page-break-after:always;">
+$(if($bannerGamingUri){"<div style='text-align:center;margin-bottom:12px;'><img src='$bannerGamingUri' alt='PC Plus Gaming Diagnostic' style='width:100%;border-radius:8px;'/></div>"})
+<div style="text-align:center;padding:20px 0 10px;">
+$logoHTML
+<div style="font-size:17pt;font-weight:700;color:#0d4b71;margin-top:12px;letter-spacing:0.5px;">Gaming PC Diagnostic Report</div>
+<div style="font-size:10pt;color:#3bbde0;margin-top:4px;">Complete Hardware &amp; Performance Analysis</div>
+</div>
+<div style="display:flex;gap:20px;align-items:center;margin:16px 0;">
+<div style="flex:1;">
+<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px;">
+<table style="width:100%;font-size:10pt;border:none;margin:0;">
+<tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;width:110px;">Customer:</td><td style="border:none;padding:4px 8px;color:#0a1628;font-weight:700;">$customerName</td></tr>
+$(if($contactName){"<tr><td style='border:none;padding:4px 8px;color:#64748b;font-weight:600;'>Contact:</td><td style='border:none;padding:4px 8px;color:#0a1628;'>$contactName</td></tr>"})
+<tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Device:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$compName</td></tr>
+<tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Date:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$date</td></tr>
+<tr><td style="border:none;padding:4px 8px;color:#64748b;font-weight:600;">Technician:</td><td style="border:none;padding:4px 8px;color:#0a1628;">$techName</td></tr>
+$(if($ScanMode){"<tr><td style='border:none;padding:4px 8px;color:#64748b;font-weight:600;'>Scan Mode:</td><td style='border:none;padding:4px 8px;color:#0a1628;'>$ScanMode</td></tr>"})
+</table>
+</div>
+</div>
+<div style="text-align:center;">
+$svgHealthDonut
+</div>
+</div>
+<div class="summary-strip">
+<div class="summary-chip"><span class="chip-val" style="font-size:11pt;">$cpuModel</span><span class="chip-lbl">Processor</span></div>
+</div>
+<div class="summary-strip">
+<div class="summary-chip"><span class="chip-val" style="font-size:11pt;">$gpuName</span><span class="chip-lbl">Graphics Card</span></div>
+<div class="summary-chip"><span class="chip-val">$ramTotalGB GB</span><span class="chip-lbl">RAM</span></div>
+$(if($gamingScore -gt 0){"<div class='summary-chip'><span class='chip-val' style='color:$(if($gamingScore -ge 80){""#22c55e""}elseif($gamingScore -ge 60){""#2596be""}else{""#f59e0b""})'>$gamingTier</span><span class='chip-lbl'>Gaming Tier</span></div>"})
+</div>
+</div>
+
+<!-- ══════════════════════════ EXECUTIVE SUMMARY ══════════════════════════ -->
+<div class="page-break"></div>
+<div class="section-header"><span class="section-icon">&#128202;</span> Executive Summary</div>
+<div style="display:flex;align-items:flex-start;gap:20px;margin:14px 0;">
+<div style="text-align:center;min-width:180px;">
+$svgHealthDonut
+</div>
+<div style="flex:1;">
+<div class="chart-box">
+<div class="chart-title">Component Health Overview</div>
+$healthGridSVG
+</div>
+</div>
+</div>
+<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 18px;margin:12px 0;" class="no-break">
+<div style="font-size:10.5pt;font-weight:700;color:#0d4b71;margin-bottom:8px;">&#128270; Key Findings</div>
+$findingsHTML
+</div>
+
+<!-- ══════════════════════════ THERMAL & STORAGE ══════════════════════════ -->
+<div class="page-break"></div>
+<div class="section-header"><span class="section-icon">&#127777;</span> Thermal Analysis</div>
+<div class="chart-box no-break">
+<div class="chart-title">Temperature Overview</div>
+$tempBarSVG
+$(if($overheat){"<div style='margin-top:10px;padding:8px 12px;background:#fef2f2;border-left:4px solid #dc2626;border-radius:4px;'><span class='fail'>$iconFail</span> <strong>Overheating detected!</strong> Clean dust filters, check thermal paste, and ensure proper ventilation.</div>"})
+</div>
+$(if($fans.Count -gt 0){@"
+<div class='chart-box no-break'>
+<div class='chart-title'>Fan Speed Monitoring</div>
+$fanSVG
+</div>
+"@})
+<div class="section-header"><span class="section-icon">&#128190;</span> Storage Performance</div>
+<div class="chart-box no-break">
+<div class="chart-title">Sequential Read / Write Speed</div>
+$storageSVG
+</div>
+$(if($ssdRows){@"
+<div class='sub-header'>Drive Health &amp; Lifespan</div>
+<table><tr><th>Drive Model</th><th>Life Remaining</th><th>Power-On Hours</th><th>Grade</th></tr>
+$ssdRows
+</table>
+"@})
+
+<!-- ══════════════════════════ PERFORMANCE & NETWORK ══════════════════════════ -->
+<div class="page-break"></div>
+<div class="section-header"><span class="section-icon">&#9889;</span> Performance Snapshot</div>
+<div class="chart-box no-break">
+<div class="chart-title">RAM Usage</div>
+$ramBarSVG
+</div>
+<div style="display:flex;gap:12px;margin:14px 0;" class="no-break">
+<div class="summary-chip" style="flex:1;"><span class="chip-val" style="color:$(if($cpuUsage -gt 90){"#dc2626"}elseif($cpuUsage -gt 70){"#f59e0b"}else{"#22c55e"})">$cpuUsage%</span><span class="chip-lbl">CPU Usage</span></div>
+<div class="summary-chip" style="flex:1;"><span class="chip-val" style="color:$(if($ramUsedPct -gt 90){"#dc2626"}elseif($ramUsedPct -gt 70){"#f59e0b"}else{"#2596be"})">$ramUsedPct%</span><span class="chip-lbl">RAM Usage</span></div>
+<div class="summary-chip" style="flex:1;"><span class="chip-val">$memUsedGB / $memTotalGB GB</span><span class="chip-lbl">Memory</span></div>
+</div>
+<div class="section-header"><span class="section-icon">&#127760;</span> Network Speed</div>
+<div class="chart-box no-break">
+<div class="chart-title">Download &amp; Upload Speed</div>
+$networkGaugeSVG
+<div style="text-align:center;margin-top:6px;">
+<span style="font-size:9pt;color:#64748b;">Ping: <strong>$pingMs</strong></span>
+$(if($SpeedTest -and $SpeedTest.PacketLoss){"&nbsp;&nbsp;|&nbsp;&nbsp;<span style='font-size:9pt;color:#64748b;'>Packet Loss: <strong>$($SpeedTest.PacketLoss)</strong></span>"})
+$(if($SpeedTest -and $SpeedTest.Jitter){"&nbsp;&nbsp;|&nbsp;&nbsp;<span style='font-size:9pt;color:#64748b;'>Jitter: <strong>$($SpeedTest.Jitter)</strong></span>"})
+</div>
+</div>
+$(if($SpeedTest -and $SpeedTest.WiFiSignal){@"
+<table><tr><th style='width:35%;'>Network Detail</th><th>Value</th></tr>
+$(if($SpeedTest.Gateway){"<tr><td>Gateway</td><td>$($SpeedTest.Gateway)</td></tr>"})
+$(if($SpeedTest.WiFiSignal){"<tr><td>WiFi Signal</td><td>$($SpeedTest.WiFiSignal)</td></tr>"})
+$(if($SpeedTest.WiFiChannel){"<tr><td>WiFi Channel</td><td>$($SpeedTest.WiFiChannel)</td></tr>"})
+$(if($SpeedTest.WiFiRadioType){"<tr><td>WiFi Radio</td><td>$($SpeedTest.WiFiRadioType)</td></tr>"})
+$(if($SpeedTest.DNSResponseMs){"<tr><td>DNS Response</td><td>$($SpeedTest.DNSResponseMs)</td></tr>"})
+</table>
+"@})
+
+<!-- ══════════════════════════ STRESS TESTS & GAMING ══════════════════════════ -->
+$(if($stressRows -or $gamingHTML){"<div class='page-break'></div>"})
+$(if($stressRows){@"
+<div class='section-header'><span class='section-icon'>&#128293;</span> Stress Test Results</div>
+<table><tr><th>Test</th><th>Result</th><th>Details</th></tr>
+$stressRows
+</table>
+"@})
+$gamingHTML
+$(if($batteryHTML){@"
+<div class='section-header'><span class='section-icon'>&#128267;</span> Battery &amp; Power</div>
+$batteryHTML
+"@})
+
+<!-- ══════════════════════════ SYSTEM INFO ══════════════════════════ -->
+<div class="page-break"></div>
+<div class="section-header"><span class="section-icon">&#128187;</span> System Information</div>
+<table><tr><th style="width:35%;">Property</th><th>Value</th></tr>
+<tr><td>Computer Name</td><td><strong>$compName</strong></td></tr>
+$(if($SystemInfo.Manufacturer){"<tr><td>Manufacturer / Model</td><td>$($SystemInfo.Manufacturer) $($SystemInfo.Model)</td></tr>"})
+$(if($SystemInfo.Serial){"<tr><td>Serial Number</td><td style='font-family:Consolas,monospace;letter-spacing:0.5px;'>$($SystemInfo.Serial)</td></tr>"})
+$(if($SystemInfo.OSVersion){"<tr><td>Operating System</td><td>$($SystemInfo.OSVersion)$(if($SystemInfo.OSBuild){" (Build $($SystemInfo.OSBuild))"})</td></tr>"})
+<tr><td>CPU</td><td>$cpuModel</td></tr>
+$(if($SystemInfo.CPUCores){"<tr><td>Cores / Threads</td><td>$($SystemInfo.CPUCores) / $($SystemInfo.CPUThreads)</td></tr>"})
+<tr><td>RAM</td><td>$ramTotalGB GB$(if($SystemInfo.RAMFree){" ($($SystemInfo.RAMFree) GB free)"})</td></tr>
+$(if($SystemInfo.GPUs){($SystemInfo.GPUs | ForEach-Object {"<tr><td>GPU</td><td>$($_.Name)$(if($_.VRAM_MB -gt 0){" ($($_.VRAM_MB) MB VRAM)"})</td></tr>"}) -join "`n"})
+$(if($SystemInfo.Uptime){"<tr><td>Uptime</td><td>$($SystemInfo.Uptime)</td></tr>"})
+</table>
+$techNotesHTML
+
+<!-- ══════════════════════════ BACK PAGE ══════════════════════════ -->
+<div class="page-break"></div>
+<div style="text-align:center;padding-top:60px;">
+$(if($logoDataUri){"<img src='$logoDataUri' alt='PC Plus Computing' style='width:250px;margin-bottom:30px;'/>"}else{"<div style='background:linear-gradient(135deg,#0a1628,#0d4b71);color:#fff;padding:16px 40px;font-size:18pt;font-weight:bold;letter-spacing:3px;border-radius:6px;margin-bottom:30px;display:inline-block;'>PC PLUS COMPUTING</div>"})
+<div style="font-size:12pt;color:#0d4b71;font-weight:600;margin-bottom:6px;">Thank you for choosing PC Plus Computing</div>
+<div style="font-size:10pt;color:#64748b;margin-bottom:30px;">Your Security, Our Priority &nbsp;|&nbsp; 30+ Years in Service &nbsp;|&nbsp; 4.9&#9733; Google Rating</div>
+<div class="qr-row">
+<div class="qr-item">
+$(if($qrAppUri){"<img src='$qrAppUri' alt='Book Appointment'/>"}else{"<div class='qr-fallback'>Book<br/>Appointment</div>"})
+<div class="qr-label">Book an Appointment</div>
+<div class="qr-sublabel">pcpluscomputing.com/appointments</div>
+</div>
+<div class="qr-item">
+$(if($qrSvcUri){"<img src='$qrSvcUri' alt='Send Info'/>"}else{"<div class='qr-fallback'>Send Us<br/>Info</div>"})
+<div class="qr-label">Send Us Your Info</div>
+<div class="qr-sublabel">Service Request Portal</div>
+</div>
+</div>
+<div style="margin-top:40px;padding:20px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;display:inline-block;">
+<div style="font-size:11pt;font-weight:700;color:#0a1628;margin-bottom:8px;">Get In Touch</div>
+<div style="font-size:10pt;color:#475569;">
+&#127760; $WEBSITE &nbsp;&nbsp;|&nbsp;&nbsp; &#128222; $PHONE
+</div>
+</div>
+<div style="margin-top:40px;font-size:8pt;color:#94a3b8;">
+Gaming PC Diagnostic Report generated $date<br/>
+Technician: $techName &nbsp;|&nbsp; Device: $compName
+</div>
+</div>
+
+</body>
+</html>
 "@
 
     return $html
