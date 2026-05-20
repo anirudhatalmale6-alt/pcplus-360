@@ -20,7 +20,7 @@ param(
     [string]$CompanyName  = "",
     [string]$TechName     = "PC Plus RMM",
     [switch]$SkipUpload,
-    [string]$OutputDir    = "$env:TEMP\PCPlus360"
+    [string]$OutputDir    = "C:\PCPlus360-Reports"
 )
 
 $ErrorActionPreference = "SilentlyContinue"

@@ -20,7 +20,7 @@ param(
     [string]$TechName     = "PC Plus RMM",
     [string]$ScanMode     = "RMM Silent Scan",
     [switch]$SkipUpload,
-    [string]$OutputDir    = "$env:TEMP\PCPlus360"
+    [string]$OutputDir    = "C:\PCPlus360-Reports"
 )
 
 $ErrorActionPreference = "SilentlyContinue"
