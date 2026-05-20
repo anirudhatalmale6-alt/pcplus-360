@@ -405,10 +405,10 @@ tr:hover td {{ background: #f8fafc; }}
 .status-online {{ color: #27ae60; }}
 .status-offline {{ color: #e74c3c; }}
 .status-overdue {{ color: #e67e22; }}
-.machine-table {{ display: none; padding: 0 8px; }}
-.machine-section.expanded .machine-table {{ display: block; margin-top: 8px; margin-bottom: 12px; }}
-.toggle-icon {{ transition: transform 0.2s; font-size: 10px; color: #94a3b8; }}
-.machine-section.expanded .toggle-icon {{ transform: rotate(90deg); }}
+.machine-table {{ display: block; margin-top: 8px; margin-bottom: 12px; padding: 0 8px; }}
+.machine-section.collapsed .machine-table {{ display: none; }}
+.toggle-icon {{ transition: transform 0.2s; font-size: 10px; color: #94a3b8; transform: rotate(90deg); }}
+.machine-section.collapsed .toggle-icon {{ transform: rotate(0deg); }}
 
 .common-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 6px; }}
 .common-item {{
@@ -555,7 +555,10 @@ tr:hover td {{ background: #f8fafc; }}
     # Per-machine sections
     html += f"""    <div class="section">
         <h2><span class="icon">&#128421;</span> Per-Machine Software Inventory</h2>
-        <p style="font-size:12px;color:#94a3b8;margin-bottom:16px">{machine_count} machines | Click to expand full software list | {unique_software} unique applications found only on one machine</p>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <p style="font-size:12px;color:#94a3b8">{machine_count} machines | Click headers to collapse/expand | {unique_software} unique applications found only on one machine</p>
+            <button onclick="document.querySelectorAll('.machine-section').forEach(e=>e.classList.toggle('collapsed'))" style="background:#0d4b71;color:white;border:none;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600">Toggle All</button>
+        </div>
 """
     for agent in agents_data:
         info = agent["info"]
@@ -575,7 +578,7 @@ tr:hover td {{ background: #f8fafc; }}
         flagged_on_machine = sum(1 for s in sw_list if flag_software(s["name"], s.get("version", ""))[0])
         flag_badge = f' <span class="flag-badge">{flagged_on_machine} flagged</span>' if flagged_on_machine else ""
 
-        html += f"""        <div class="machine-section" onclick="this.classList.toggle('expanded')">
+        html += f"""        <div class="machine-section" onclick="this.classList.toggle('collapsed')">
             <div class="machine-header">
                 <span class="toggle-icon">&#9654;</span>
                 <h3>{info["hostname"]}</h3>
