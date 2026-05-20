@@ -663,7 +663,8 @@ function Get-NetworkSpeedTest {
     if ($results.Gateway -ne "N/A") {
         $results.GatewayPing = Invoke-Safe {
             $p = Test-Connection -ComputerName $results.Gateway -Count 4 -ErrorAction Stop
-            "$([math]::Round(($p | Measure-Object -Property Latency -Average).Average, 0))ms"
+            $prop = if ($p[0].PSObject.Properties['Latency']) { 'Latency' } else { 'ResponseTime' }
+            "$([math]::Round(($p | Measure-Object -Property $prop -Average).Average, 0))ms"
         } "N/A"
     }
 
@@ -678,7 +679,10 @@ function Get-NetworkSpeedTest {
         $pings = @()
         foreach ($target in @("8.8.8.8","1.1.1.1","208.67.222.222")) {
             $p = Test-Connection -ComputerName $target -Count 3 -ErrorAction SilentlyContinue
-            if ($p) { $pings += ($p | Measure-Object -Property Latency -Average).Average }
+            if ($p) {
+                $prop = if ($p[0].PSObject.Properties['Latency']) { 'Latency' } else { 'ResponseTime' }
+                $pings += ($p | Measure-Object -Property $prop -Average).Average
+            }
         }
         if ($pings.Count -gt 0) { "$([math]::Round(($pings | Measure-Object -Average).Average, 0))ms" } else { "Failed" }
     } "N/A"
@@ -686,7 +690,8 @@ function Get-NetworkSpeedTest {
     # Jitter calculation
     $results.Jitter = Invoke-Safe {
         $p = Test-Connection -ComputerName "8.8.8.8" -Count 10 -ErrorAction Stop
-        $latencies = $p | ForEach-Object { $_.Latency }
+        $prop = if ($p[0].PSObject.Properties['Latency']) { 'Latency' } else { 'ResponseTime' }
+        $latencies = $p | ForEach-Object { $_.$prop }
         $diffs = @(); for ($i=1; $i -lt $latencies.Count; $i++) { $diffs += [math]::Abs($latencies[$i] - $latencies[$i-1]) }
         if ($diffs.Count -gt 0) { "$([math]::Round(($diffs | Measure-Object -Average).Average, 1))ms" } else { "N/A" }
     } "N/A"
