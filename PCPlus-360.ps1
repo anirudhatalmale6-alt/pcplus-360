@@ -7,7 +7,7 @@
     Runs from USB drive with no installation required.
 .NOTES
     Company:  PC Plus Computing
-    Version:  2.0.0
+    Version:  2.2.0
     Requires: PowerShell 5.1+, Windows 10/11, Administrator privileges
 #>
 
@@ -83,7 +83,7 @@ $Global:LogLines = [System.Collections.ArrayList]::new()
 $COMPANY      = "PC Plus Computing"
 $PHONE        = "604-760-1662 | 236-500-2700"
 $WEBSITE      = "pcpluscomputing.com"
-$VERSION      = "2.1.0"
+$VERSION      = "2.2.0"
 
 if (-not (Test-Path $Global:ReportsDir)) { New-Item -Path $Global:ReportsDir -ItemType Directory -Force | Out-Null }
 if (-not (Test-Path $Global:ToolsDir)) { New-Item -Path $Global:ToolsDir -ItemType Directory -Force | Out-Null }
@@ -2791,149 +2791,347 @@ function Convert-ToPDF {
 # WPF LAUNCHER
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 function Show-Launcher {
 
 $xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="PC Plus Computing 360 Diagnostic Suite" Height="720" Width="900"
-        WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
-        Background="#0a1628" FontFamily="Segoe UI">
+        Title="PC Plus 360 Hardware Diagnostic Suite" Height="720" Width="960"
+        WindowStartupLocation="CenterScreen" ResizeMode="CanMinimize"
+        Background="#eef4f8" FontFamily="Segoe UI">
+    <Window.Resources>
+        <Style x:Key="FlatBtn" TargetType="Button">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="bd" Property="Opacity" Value="0.7"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="SideNav" TargetType="Button">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="Transparent" CornerRadius="5" Padding="10,7" Margin="0,1">
+                            <ContentPresenter HorizontalAlignment="Left"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#0d4b71"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
     <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="80"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="40"/>
-        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="216"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
 
-        <!-- HEADER -->
-        <Border Grid.Row="0" Background="#0d1f3c" BorderBrush="#2596be" BorderThickness="0,0,0,2">
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                <TextBlock Text="PC PLUS COMPUTING" FontSize="24" FontWeight="Bold" Foreground="White" VerticalAlignment="Center" Margin="0,0,20,0"/>
-                <TextBlock Text="360 DIAGNOSTIC SUITE" FontSize="20" FontWeight="Light" Foreground="#2596be" VerticalAlignment="Center"/>
-            </StackPanel>
+        <!-- SIDEBAR -->
+        <Border Grid.Column="0" Background="#0a3a56">
+            <DockPanel LastChildFill="True">
+                <Border DockPanel.Dock="Top" Padding="14,16,14,12" BorderBrush="#0d4b71" BorderThickness="0,0,0,1">
+                    <StackPanel Orientation="Horizontal">
+                        <Border Width="38" Height="38" CornerRadius="9" Margin="0,0,10,0">
+                            <Border.Background>
+                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                    <GradientStop Color="#2596be" Offset="0"/>
+                                    <GradientStop Color="#3bbde0" Offset="1"/>
+                                </LinearGradientBrush>
+                            </Border.Background>
+                            <TextBlock Text="360" FontSize="13" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" FontFamily="Consolas"/>
+                        </Border>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="PC Plus Computing" FontSize="12.5" FontWeight="SemiBold" Foreground="White"/>
+                            <TextBlock Text="YOUR SECURITY, OUR PRIORITY" FontSize="7.5" Foreground="#3bbde0" FontWeight="SemiBold" Margin="0,1,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border DockPanel.Dock="Bottom" Padding="14,8" BorderBrush="#0d4b71" BorderThickness="0,1,0,0">
+                    <StackPanel>
+                        <TextBlock Text="v2.2.0" FontSize="10" Foreground="#2596be" FontFamily="Consolas"/>
+                        <TextBlock Text="604-760-1662 | 236-500-2700" FontSize="8.5" Foreground="#4a7a8a" Margin="0,2,0,0"/>
+                        <TextBlock Text="pcpluscomputing.com" FontSize="8.5" Foreground="#3a6a7a"/>
+                    </StackPanel>
+                </Border>
+
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="6,8,6,8">
+                        <TextBlock Text="  MAIN" FontSize="9" FontWeight="SemiBold" Foreground="#4a7a8a" Margin="0,6,0,4"/>
+                        <Border Background="#0d4b71" CornerRadius="5" Padding="10,7" Margin="0,1">
+                            <TextBlock Text="Dashboard" FontSize="12" Foreground="White" FontWeight="SemiBold"/>
+                        </Border>
+
+                        <TextBlock Text="  TOOLS" FontSize="9" FontWeight="SemiBold" Foreground="#4a7a8a" Margin="0,12,0,4"/>
+                        <Button x:Name="btnNavNirSoft" Style="{StaticResource SideNav}"><TextBlock Text="  NirSoft Suite" FontSize="11.5" Foreground="#8aabb8"/></Button>
+                        <Button x:Name="btnNavPassRecovery" Style="{StaticResource SideNav}"><TextBlock Text="  Password Recovery" FontSize="11.5" Foreground="#8aabb8"/></Button>
+                        <Button x:Name="btnNavWinDeep" Style="{StaticResource SideNav}"><TextBlock Text="  Windows Deep Test" FontSize="11.5" Foreground="#8aabb8"/></Button>
+                        <Button x:Name="btnNavDebloat" Style="{StaticResource SideNav}"><TextBlock Text="  Windows Debloat" FontSize="11.5" Foreground="#dd4444"/></Button>
+                        <Button x:Name="btnNavRAMIso" Style="{StaticResource SideNav}"><TextBlock Text="  RAM Isolation Test" FontSize="11.5" Foreground="#8aabb8"/></Button>
+
+                        <TextBlock Text="  PORTABLE" FontSize="9" FontWeight="SemiBold" Foreground="#4a7a8a" Margin="0,12,0,4"/>
+                        <Button x:Name="btnCDI" Style="{StaticResource SideNav}"><TextBlock Text="    CrystalDiskInfo" FontSize="10.5" Foreground="#6a8a98"/></Button>
+                        <Button x:Name="btnHWiNFO" Style="{StaticResource SideNav}"><TextBlock Text="    HWiNFO" FontSize="10.5" Foreground="#6a8a98"/></Button>
+                        <Button x:Name="btnCPUZ" Style="{StaticResource SideNav}"><TextBlock Text="    CPU-Z" FontSize="10.5" Foreground="#6a8a98"/></Button>
+                        <Button x:Name="btnGPUZ" Style="{StaticResource SideNav}"><TextBlock Text="    GPU-Z" FontSize="10.5" Foreground="#6a8a98"/></Button>
+                        <Button x:Name="btnHWMon" Style="{StaticResource SideNav}"><TextBlock Text="    HWMonitor" FontSize="10.5" Foreground="#6a8a98"/></Button>
+                        <Button x:Name="btnBattView" Style="{StaticResource SideNav}"><TextBlock Text="    BatteryInfoView" FontSize="10.5" Foreground="#6a8a98"/></Button>
+
+                        <TextBlock Text="  REPORTS" FontSize="9" FontWeight="SemiBold" Foreground="#4a7a8a" Margin="0,12,0,4"/>
+                        <Button x:Name="btnHWReport" Style="{StaticResource SideNav}"><TextBlock Text="  Hardware Report" FontSize="11.5" Foreground="#22c55e"/></Button>
+                        <Button x:Name="btnSecReport" Style="{StaticResource SideNav}"><TextBlock Text="  Security Report" FontSize="11.5" Foreground="#f59e0b"/></Button>
+                        <Button x:Name="btnBothReports" Style="{StaticResource SideNav}"><TextBlock Text="  Both Reports" FontSize="11.5" Foreground="#2596be"/></Button>
+                    </StackPanel>
+                </ScrollViewer>
+            </DockPanel>
         </Border>
 
-        <!-- MAIN CONTENT -->
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="20,10,20,10">
-            <StackPanel>
-                <!-- Customer Info -->
-                <Border Background="#121e33" CornerRadius="6" Padding="20" Margin="0,0,0,15">
-                    <Grid>
+        <!-- CONTENT -->
+        <Grid Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="20,16,20,10">
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Dashboard" FontSize="21" FontWeight="Bold" Foreground="#1a2b3c"/>
+                            <TextBlock Text="System overview and diagnostics" FontSize="11.5" Foreground="#5a7080"/>
+                        </StackPanel>
+                        <Button x:Name="btnQuickScan" Grid.Column="1" Style="{StaticResource FlatBtn}" Background="#2596be" Padding="16,8" VerticalAlignment="Center">
+                            <TextBlock Text="Quick Scan" FontSize="12" FontWeight="SemiBold" Foreground="White"/>
+                        </Button>
+                    </Grid>
+
+                    <!-- Customer Info -->
+                    <Border Background="White" CornerRadius="7" Padding="12" Margin="0,0,0,10" BorderBrush="#d8e8f0" BorderThickness="1">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                                <TextBlock Text="CUSTOMER NAME *" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa" Margin="0,0,0,2"/>
+                                <TextBox x:Name="txtCustomer" FontSize="12" Padding="6,4" Background="#f6f9fb" Foreground="#1a2b3c" BorderBrush="#d8e8f0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Margin="3,0,3,0">
+                                <TextBlock Text="CONTACT NAME" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa" Margin="0,0,0,2"/>
+                                <TextBox x:Name="txtContact" FontSize="12" Padding="6,4" Background="#f6f9fb" Foreground="#1a2b3c" BorderBrush="#d8e8f0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Margin="6,0,0,0">
+                                <TextBlock Text="TECHNICIAN" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa" Margin="0,0,0,2"/>
+                                <TextBox x:Name="txtTech" Text="Paul" FontSize="12" Padding="6,4" Background="#f6f9fb" Foreground="#1a2b3c" BorderBrush="#d8e8f0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Grid.ColumnSpan="3" Margin="0,6,0,0">
+                                <TextBlock Text="NOTES (optional - appears in report)" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa" Margin="0,0,0,2"/>
+                                <TextBox x:Name="txtNotes" FontSize="11" Padding="6,4" Height="32" Background="#f6f9fb" Foreground="#1a2b3c" BorderBrush="#d8e8f0" AcceptsReturn="True" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- System Info Cards -->
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Background="White" CornerRadius="7" Padding="10" Margin="0,0,4,0" BorderBrush="#d8e8f0" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="COMPUTER" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa"/>
+                                <TextBlock x:Name="lblComputer" Text="---" FontSize="12" FontWeight="SemiBold" Foreground="#1a2b3c" FontFamily="Consolas" Margin="0,2,0,0"/>
+                                <TextBlock x:Name="lblOS" Text="" FontSize="9.5" Foreground="#5a7080"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="1" Background="White" CornerRadius="7" Padding="10" Margin="2,0,2,0" BorderBrush="#d8e8f0" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="HARDWARE" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa"/>
+                                <TextBlock x:Name="lblCPU" Text="---" FontSize="12" FontWeight="SemiBold" Foreground="#1a2b3c" FontFamily="Consolas" Margin="0,2,0,0"/>
+                                <TextBlock x:Name="lblRAMInfo" Text="" FontSize="9.5" Foreground="#5a7080"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="2" Background="White" CornerRadius="7" Padding="10" Margin="2,0,2,0" BorderBrush="#d8e8f0" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="STORAGE" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa"/>
+                                <TextBlock x:Name="lblStorage" Text="---" FontSize="12" FontWeight="SemiBold" Foreground="#1a2b3c" FontFamily="Consolas" Margin="0,2,0,0"/>
+                                <TextBlock x:Name="lblStorageDetail" Text="" FontSize="9.5" Foreground="#5a7080"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="3" Background="White" CornerRadius="7" Padding="10" Margin="4,0,0,0" BorderBrush="#d8e8f0" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="NETWORK" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa"/>
+                                <TextBlock x:Name="lblNetwork" Text="---" FontSize="12" FontWeight="SemiBold" Foreground="#1a2b3c" FontFamily="Consolas" Margin="0,2,0,0"/>
+                                <TextBlock x:Name="lblNetDetail" Text="" FontSize="9.5" Foreground="#5a7080"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <!-- Health Score -->
+                    <Border Background="White" CornerRadius="7" Padding="14" Margin="0,0,0,12" BorderBrush="#d8e8f0" BorderThickness="1">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid Grid.Column="0" Width="62" Height="62" Margin="0,0,14,0">
+                                <Ellipse Stroke="#e0e8ec" StrokeThickness="5" Fill="Transparent"/>
+                                <Ellipse x:Name="healthRing" Stroke="#22c55e" StrokeThickness="5" Fill="White"/>
+                                <TextBlock x:Name="lblScore" Text="--" FontSize="18" FontWeight="Bold" Foreground="#16a34a" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Grid>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                <TextBlock Text="System Health Score" FontSize="15" FontWeight="SemiBold" Foreground="#1a2b3c"/>
+                                <Border x:Name="gradeBadge" Background="#dcfce7" CornerRadius="10" Padding="8,2" HorizontalAlignment="Left" Margin="0,3,0,0">
+                                    <TextBlock x:Name="lblGrade" Text="Run a diagnostic to see score" FontSize="10.5" FontWeight="SemiBold" Foreground="#16a34a"/>
+                                </Border>
+                                <TextBlock x:Name="lblLastScan" Text="" FontSize="9.5" Foreground="#8a9baa" Margin="0,3,0,0"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- Scan Modes -->
+                    <TextBlock Text="SCAN MODES" FontSize="12" FontWeight="Bold" Foreground="#1a2b3c" Margin="0,0,0,6"/>
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="btnQuick" Grid.Column="0" Style="{StaticResource FlatBtn}" Background="White" BorderBrush="#d8e8f0" BorderThickness="2" Padding="12" Margin="0,0,4,0" HorizontalContentAlignment="Left">
+                            <StackPanel>
+                                <TextBlock Text="Quick Test" FontSize="13.5" FontWeight="SemiBold" Foreground="#1a2b3c"/>
+                                <TextBlock Text="5 - 10 min" FontSize="10.5" Foreground="#2596be" FontFamily="Consolas" Margin="0,2,0,0"/>
+                                <TextBlock Text="System info, SMART, crash history. No stress tests." FontSize="10" Foreground="#5a7080" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="btnStandard" Grid.Column="1" Style="{StaticResource FlatBtn}" Background="White" BorderBrush="#2596be" BorderThickness="2" Padding="12" Margin="2,0,2,0" HorizontalContentAlignment="Left">
+                            <StackPanel>
+                                <TextBlock Text="Standard Test" FontSize="13.5" FontWeight="SemiBold" Foreground="#1a2b3c"/>
+                                <TextBlock Text="20 - 30 min" FontSize="10.5" Foreground="#2596be" FontFamily="Consolas" Margin="0,2,0,0"/>
+                                <TextBlock Text="Full diagnostic + stress tests, benchmarks, speed test." FontSize="10" Foreground="#5a7080" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="btnFull" Grid.Column="2" Style="{StaticResource FlatBtn}" Background="White" BorderBrush="#d8e8f0" BorderThickness="2" Padding="12" Margin="4,0,0,0" HorizontalContentAlignment="Left">
+                            <StackPanel>
+                                <TextBlock Text="Deep Test" FontSize="13.5" FontWeight="SemiBold" Foreground="#1a2b3c"/>
+                                <TextBlock Text="60 - 90 min" FontSize="10.5" Foreground="#2596be" FontFamily="Consolas" Margin="0,2,0,0"/>
+                                <TextBlock Text="Extended stress, thermal analysis, history comparison." FontSize="10" Foreground="#5a7080" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <!-- Individual Tests -->
+                    <TextBlock Text="INDIVIDUAL TESTS" FontSize="12" FontWeight="Bold" Foreground="#1a2b3c" Margin="0,0,0,6"/>
+                    <Grid Margin="0,0,0,10">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
-                            <RowDefinition/><RowDefinition/>
+                            <RowDefinition Height="30"/><RowDefinition Height="30"/><RowDefinition Height="30"/><RowDefinition Height="30"/><RowDefinition Height="30"/>
                         </Grid.RowDefinitions>
-                        <StackPanel Grid.Column="0" Margin="0,0,10,0">
-                            <TextBlock Text="Customer Name *" Foreground="#aaa" FontSize="11" Margin="0,0,0,4"/>
-                            <TextBox x:Name="txtCustomer" FontSize="13" Padding="6" Background="#1a2a44" Foreground="White" BorderBrush="#2596be"/>
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" Margin="5,0,5,0">
-                            <TextBlock Text="Contact Name" Foreground="#aaa" FontSize="11" Margin="0,0,0,4"/>
-                            <TextBox x:Name="txtContact" FontSize="13" Padding="6" Background="#1a2a44" Foreground="White" BorderBrush="#2596be"/>
-                        </StackPanel>
-                        <StackPanel Grid.Column="2" Margin="10,0,0,0">
-                            <TextBlock Text="Technician" Foreground="#aaa" FontSize="11" Margin="0,0,0,4"/>
-                            <TextBox x:Name="txtTech" Text="Paul" FontSize="13" Padding="6" Background="#1a2a44" Foreground="White" BorderBrush="#2596be"/>
-                        </StackPanel>
-                        <StackPanel Grid.Row="1" Grid.ColumnSpan="3" Margin="0,10,0,0">
-                            <TextBlock Text="Technician Notes (optional - appears in report)" Foreground="#aaa" FontSize="11" Margin="0,0,0,4"/>
-                            <TextBox x:Name="txtNotes" FontSize="12" Padding="6" Height="50" Background="#1a2a44" Foreground="White" BorderBrush="#2596be" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
-                        </StackPanel>
+                        <Border Grid.Row="0" Grid.Column="0" Background="White" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#d8e8f0" BorderThickness="1">
+                            <CheckBox x:Name="chkCPU" Content=" CPU Stress Test" FontSize="11" Foreground="#1a2b3c" VerticalContentAlignment="Center"/>
+                        </Border>
+                        <Border Grid.Row="0" Grid.Column="1" Background="White" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#d8e8f0" BorderThickness="1">
+                            <CheckBox x:Name="chkRAM" Content=" RAM Test" FontSize="11" Foreground="#1a2b3c" VerticalContentAlignment="Center"/>
+                        </Border>
+                        <Border Grid.Row="0" Grid.Column="2" Background="White" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#d8e8f0" BorderThickness="1">
+                            <CheckBox x:Name="chkDisk" Content=" Disk Benchmark" FontSize="11" Foreground="#1a2b3c" VerticalContentAlignment="Center"/>
+                        </Border>
+                        <Border Grid.Row="1" Grid.Column="0" Background="White" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#d8e8f0" BorderThickness="1">
+                            <CheckBox x:Name="chkSMART" Content=" SMART Check" FontSize="11" Foreground="#1a2b3c" VerticalContentAlignment="Center"/>
+                        </Border>
+                        <Border Grid.Row="1" Grid.Column="1" Background="White" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#d8e8f0" BorderThickness="1">
+                            <CheckBox x:Name="chkBattery" Content=" Battery Report" FontSize="11" Foreground="#1a2b3c" VerticalContentAlignment="Center"/>
+                        </Border>
+                        <Border Grid.Row="1" Grid.Column="2" Background="White" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#d8e8f0" BorderThickness="1">
+                            <CheckBox x:Name="chkNetwork" Content=" Network Test" FontSize="11" Foreground="#1a2b3c" VerticalContentAlignment="Center"/>
+                        </Border>
+                        <Border Grid.Row="2" Grid.Column="0" Background="White" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#d8e8f0" BorderThickness="1">
+                            <CheckBox x:Name="chkSecurity" Content=" Security Audit" FontSize="11" Foreground="#1a2b3c" VerticalContentAlignment="Center"/>
+                        </Border>
+                        <Border Grid.Row="2" Grid.Column="1" Background="White" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#d8e8f0" BorderThickness="1">
+                            <CheckBox x:Name="chkKeys" Content=" License Keys" FontSize="11" Foreground="#1a2b3c" VerticalContentAlignment="Center"/>
+                        </Border>
+                        <Border Grid.Row="2" Grid.Column="2" Background="White" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#d8e8f0" BorderThickness="1">
+                            <CheckBox x:Name="chkDebloat" Content=" Windows Debloat" FontSize="11" Foreground="#cc2222" VerticalContentAlignment="Center"/>
+                        </Border>
+                        <Border Grid.Row="3" Grid.Column="0" Background="White" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#d8e8f0" BorderThickness="1">
+                            <CheckBox x:Name="chkRAMIso" Content=" RAM Isolation" FontSize="11" Foreground="#1a2b3c" VerticalContentAlignment="Center"/>
+                        </Border>
+                        <Border Grid.Row="3" Grid.Column="1" Background="White" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#d8e8f0" BorderThickness="1">
+                            <CheckBox x:Name="chkPassRecovery" Content=" Password Recovery" FontSize="11" Foreground="#1a2b3c" VerticalContentAlignment="Center"/>
+                        </Border>
+                        <Border Grid.Row="3" Grid.Column="2" Background="White" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#d8e8f0" BorderThickness="1">
+                            <CheckBox x:Name="chkWinDeep" Content=" Windows Deep Test" FontSize="11" Foreground="#1a2b3c" VerticalContentAlignment="Center"/>
+                        </Border>
+                        <Border Grid.Row="4" Grid.Column="0" Background="White" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#d8e8f0" BorderThickness="1">
+                            <CheckBox x:Name="chkNirSoft" Content=" NirSoft Suite" FontSize="11" Foreground="#1a2b3c" VerticalContentAlignment="Center"/>
+                        </Border>
                     </Grid>
-                </Border>
 
-                <!-- DIAGNOSTIC MODES -->
-                <TextBlock Text="DIAGNOSTIC MODES" Foreground="#2596be" FontSize="14" FontWeight="Bold" Margin="0,0,0,10"/>
-                <Grid Margin="0,0,0,15">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <Button x:Name="btnQuick" Grid.Column="0" Margin="0,0,6,0" Height="80" Background="#1a5276" Foreground="White" BorderThickness="0" Cursor="Hand">
-                        <StackPanel><TextBlock Text="QUICK TEST" FontSize="15" FontWeight="Bold" HorizontalAlignment="Center"/>
-                        <TextBlock Text="5-10 min" FontSize="12" Foreground="#7cb3d4" HorizontalAlignment="Center"/>
-                        <TextBlock Text="Inventory + SMART + Basic" FontSize="9" Foreground="#aaa" HorizontalAlignment="Center"/></StackPanel>
-                    </Button>
-                    <Button x:Name="btnStandard" Grid.Column="1" Margin="3,0,3,0" Height="80" Background="#7d3c98" Foreground="White" BorderThickness="0" Cursor="Hand">
-                        <StackPanel><TextBlock Text="STANDARD TEST" FontSize="15" FontWeight="Bold" HorizontalAlignment="Center"/>
-                        <TextBlock Text="20-30 min" FontSize="12" Foreground="#c39bd3" HorizontalAlignment="Center"/>
-                        <TextBlock Text="Full + Stress Tests" FontSize="9" Foreground="#aaa" HorizontalAlignment="Center"/></StackPanel>
-                    </Button>
-                    <Button x:Name="btnFull" Grid.Column="2" Margin="6,0,0,0" Height="80" Background="#b7950b" Foreground="White" BorderThickness="0" Cursor="Hand">
-                        <StackPanel><TextBlock Text="DEEP TEST" FontSize="15" FontWeight="Bold" HorizontalAlignment="Center"/>
-                        <TextBlock Text="60-90 min" FontSize="12" Foreground="#f9e79f" HorizontalAlignment="Center"/>
-                        <TextBlock Text="Advanced Bench + History" FontSize="9" Foreground="#aaa" HorizontalAlignment="Center"/></StackPanel>
-                    </Button>
+                    <!-- Run Bar -->
+                    <Border Background="White" CornerRadius="7" Padding="12" Margin="0,0,0,8" BorderBrush="#d8e8f0" BorderThickness="1">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Button x:Name="btnRunSelected" Style="{StaticResource FlatBtn}" Background="#2596be" Padding="18,9">
+                                <TextBlock Text="RUN SELECTED TESTS" FontSize="12" FontWeight="Bold" Foreground="White"/>
+                            </Button>
+                            <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
+                                <TextBlock x:Name="lblSelectedCount" Text="0 tests selected" FontSize="11.5" FontWeight="SemiBold" Foreground="#1a2b3c"/>
+                                <TextBlock x:Name="lblEstTime" Text="Select tests to begin" FontSize="9.5" Foreground="#8a9baa"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Border Background="#dcfce7" CornerRadius="10" Padding="8,3" Margin="0,0,8,0">
+                                    <TextBlock x:Name="lblReadyStatus" Text="Ready" FontSize="10.5" FontWeight="SemiBold" Foreground="#22c55e"/>
+                                </Border>
+                                <CheckBox x:Name="chkBeep" Content=" Beep on done" FontSize="10" Foreground="#8a9baa" IsChecked="True" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Status Bar -->
+            <Border Grid.Row="1" Background="White" BorderBrush="#d8e8f0" BorderThickness="0,1,0,0" Padding="16,8">
+                <Grid>
+                    <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                    <TextBlock x:Name="txtStatus" Grid.Row="0" Text="Ready. Enter customer info and select a diagnostic mode." FontSize="10.5" Foreground="#5a7080" Margin="0,0,0,4"/>
+                    <ProgressBar x:Name="progressBar" Grid.Row="1" Height="5" Background="#e0e8ec" Foreground="#2596be" Value="0" BorderThickness="0"/>
                 </Grid>
-
-                <!-- INDIVIDUAL TESTS -->
-                <TextBlock Text="INDIVIDUAL TESTS" Foreground="#2596be" FontSize="14" FontWeight="Bold" Margin="0,0,0,10"/>
-                <Grid Margin="0,0,0,15">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="60"/><RowDefinition Height="60"/><RowDefinition Height="60"/><RowDefinition Height="60"/><RowDefinition Height="60"/>
-                    </Grid.RowDefinitions>
-                    <Button x:Name="btnCPU" Content="CPU Stress Test" Grid.Row="0" Grid.Column="0" Margin="2" Background="#1a3a52" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
-                    <Button x:Name="btnRAM" Content="RAM Test" Grid.Row="0" Grid.Column="1" Margin="2" Background="#1a3a52" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
-                    <Button x:Name="btnDisk" Content="Disk Benchmark" Grid.Row="0" Grid.Column="2" Margin="2" Background="#1a3a52" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
-                    <Button x:Name="btnSMART" Content="Storage SMART Check" Grid.Row="1" Grid.Column="0" Margin="2" Background="#1a3a52" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
-                    <Button x:Name="btnBattery" Content="Battery Report" Grid.Row="1" Grid.Column="1" Margin="2" Background="#1a3a52" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
-                    <Button x:Name="btnNetwork" Content="Network Test" Grid.Row="1" Grid.Column="2" Margin="2" Background="#1a3a52" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
-                    <Button x:Name="btnSecurity" Content="Security Audit" Grid.Row="2" Grid.Column="0" Margin="2" Background="#1a3a52" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
-                    <Button x:Name="btnKeys" Content="License Key Recovery" Grid.Row="2" Grid.Column="1" Margin="2" Background="#1a3a52" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
-                    <Button x:Name="btnDebloat" Content="Windows Debloat" Grid.Row="2" Grid.Column="2" Margin="2" Background="#8B0000" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
-                    <Button x:Name="btnRAMIso" Content="RAM Isolation Test" Grid.Row="3" Grid.Column="0" Margin="2" Background="#0b5394" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
-                    <Button x:Name="btnPassRecovery" Content="Password Recovery" Grid.Row="3" Grid.Column="1" Margin="2" Background="#0b5394" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
-                    <Button x:Name="btnWinDeep" Content="Windows Deep Test" Grid.Row="3" Grid.Column="2" Margin="2" Background="#0b5394" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
-                    <Button x:Name="btnNirSoft" Content="NirSoft Tools Suite" Grid.Row="4" Grid.Column="0" Margin="2" Background="#6a0dad" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
-                </Grid>
-
-                <!-- PORTABLE TOOLS -->
-                <TextBlock Text="PORTABLE TOOLS" Foreground="#2596be" FontSize="14" FontWeight="Bold" Margin="0,0,0,10"/>
-                <Grid Margin="0,0,0,15">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="50"/><RowDefinition Height="50"/>
-                    </Grid.RowDefinitions>
-                    <Button x:Name="btnCDI" Content="CrystalDiskInfo" Grid.Row="0" Grid.Column="0" Margin="2" Background="#2c3e50" Foreground="White" BorderThickness="0" FontSize="11" Cursor="Hand"/>
-                    <Button x:Name="btnHWiNFO" Content="HWiNFO" Grid.Row="0" Grid.Column="1" Margin="2" Background="#2c3e50" Foreground="White" BorderThickness="0" FontSize="11" Cursor="Hand"/>
-                    <Button x:Name="btnCPUZ" Content="CPU-Z" Grid.Row="0" Grid.Column="2" Margin="2" Background="#2c3e50" Foreground="White" BorderThickness="0" FontSize="11" Cursor="Hand"/>
-                    <Button x:Name="btnGPUZ" Content="GPU-Z" Grid.Row="1" Grid.Column="0" Margin="2" Background="#2c3e50" Foreground="White" BorderThickness="0" FontSize="11" Cursor="Hand"/>
-                    <Button x:Name="btnHWMon" Content="HWMonitor" Grid.Row="1" Grid.Column="1" Margin="2" Background="#2c3e50" Foreground="White" BorderThickness="0" FontSize="11" Cursor="Hand"/>
-                    <Button x:Name="btnBattView" Content="BatteryInfoView" Grid.Row="1" Grid.Column="2" Margin="2" Background="#2c3e50" Foreground="White" BorderThickness="0" FontSize="11" Cursor="Hand"/>
-                </Grid>
-
-                <!-- REPORTS -->
-                <TextBlock Text="GENERATE REPORTS" Foreground="#2596be" FontSize="14" FontWeight="Bold" Margin="0,0,0,10"/>
-                <Grid Margin="0,0,0,15">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <Button x:Name="btnHWReport" Content="Hardware Report (PDF)" Grid.Column="0" Margin="2" Height="50" Background="#27ae60" Foreground="White" BorderThickness="0" FontSize="13" FontWeight="Bold" Cursor="Hand"/>
-                    <Button x:Name="btnSecReport" Content="Security Report (PDF)" Grid.Column="1" Margin="2" Height="50" Background="#e67e22" Foreground="White" BorderThickness="0" FontSize="13" FontWeight="Bold" Cursor="Hand"/>
-                    <Button x:Name="btnBothReports" Content="Both Reports" Grid.Column="2" Margin="2" Height="50" Background="#2596be" Foreground="White" BorderThickness="0" FontSize="13" FontWeight="Bold" Cursor="Hand"/>
-                </Grid>
-
-                <!-- STATUS -->
-                <Border Background="#121e33" CornerRadius="6" Padding="12" Margin="0,0,0,10">
-                    <StackPanel>
-                        <TextBlock x:Name="txtStatus" Text="Ready. Enter customer info and select a diagnostic mode or individual test." Foreground="#aaa" FontSize="11" TextWrapping="Wrap"/>
-                        <ProgressBar x:Name="progressBar" Height="8" Margin="0,8,0,0" Background="#1a2a44" Foreground="#2596be" Value="0" BorderThickness="0"/>
-                    </StackPanel>
-                </Border>
-            </StackPanel>
-        </ScrollViewer>
-
-        <!-- FOOTER -->
-        <Border Grid.Row="2" Background="#0d1f3c">
-            <TextBlock Text="PC Plus Computing | pcpluscomputing.com | 604-760-1662 | 236-500-2700 | v2.0.0" Foreground="#666" FontSize="10" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-        </Border>
+            </Border>
+        </Grid>
     </Grid>
 </Window>
 "@
@@ -2950,16 +3148,42 @@ $xaml = @"
     $txtNotes = $window.FindName("txtNotes")
     $txtStatus = $window.FindName("txtStatus")
     $progressBar = $window.FindName("progressBar")
+    $lblComputer = $window.FindName("lblComputer")
+    $lblOS = $window.FindName("lblOS")
+    $lblCPU = $window.FindName("lblCPU")
+    $lblRAMInfo = $window.FindName("lblRAMInfo")
+    $lblStorage = $window.FindName("lblStorage")
+    $lblStorageDetail = $window.FindName("lblStorageDetail")
+    $lblNetwork = $window.FindName("lblNetwork")
+    $lblNetDetail = $window.FindName("lblNetDetail")
+    $lblScore = $window.FindName("lblScore")
+    $lblGrade = $window.FindName("lblGrade")
+    $lblLastScan = $window.FindName("lblLastScan")
+    $lblSelectedCount = $window.FindName("lblSelectedCount")
+    $lblEstTime = $window.FindName("lblEstTime")
+    $lblReadyStatus = $window.FindName("lblReadyStatus")
+    $chkBeep = $window.FindName("chkBeep")
+    $chkCPU = $window.FindName("chkCPU")
+    $chkRAM = $window.FindName("chkRAM")
+    $chkDisk = $window.FindName("chkDisk")
+    $chkSMART = $window.FindName("chkSMART")
+    $chkBattery = $window.FindName("chkBattery")
+    $chkNetwork = $window.FindName("chkNetwork")
+    $chkSecurity = $window.FindName("chkSecurity")
+    $chkKeys = $window.FindName("chkKeys")
+    $chkDebloat = $window.FindName("chkDebloat")
+    $chkRAMIso = $window.FindName("chkRAMIso")
+    $chkPassRecovery = $window.FindName("chkPassRecovery")
+    $chkWinDeep = $window.FindName("chkWinDeep")
+    $chkNirSoft = $window.FindName("chkNirSoft")
 
     $tools = Get-ToolStatus
 
-    # Helper to update UI - forces repaint
     function Set-Status { param([string]$Msg, [int]$Pct = -1)
         $txtStatus.Text = $Msg
         if ($Pct -ge 0) { $progressBar.Value = $Pct }
         $window.Title = "PC Plus 360 - $Msg"
         Write-DebugLog "STATUS: $Msg ($Pct%)"
-        # Force WPF to repaint
         $frame = New-Object System.Windows.Threading.DispatcherFrame
         [System.Windows.Threading.Dispatcher]::CurrentDispatcher.BeginInvoke(
             [System.Windows.Threading.DispatcherPriority]::Background,
@@ -2979,13 +3203,88 @@ $xaml = @"
         return @{ CustomerName = $txtCustomer.Text.Trim(); ContactName = $txtContact.Text.Trim(); TechName = $txtTech.Text.Trim(); TechNotes = $txtNotes.Text.Trim(); OutputFolder = $Global:ReportsDir }
     }
 
-    # Mark unavailable portable tools
-    foreach ($btn in @(@{N="btnCDI";T=$tools.CrystalDiskInfo},@{N="btnHWiNFO";T=$tools.HWiNFO},@{N="btnCPUZ";T=$tools.CPUZ},@{N="btnGPUZ";T=$tools.GPUZ},@{N="btnHWMon";T=$tools.HWMonitor},@{N="btnBattView";T=$tools.BatteryInfoView})) {
-        $b = $window.FindName($btn.N)
-        if (-not $btn.T) { $b.Content = $b.Content.ToString() + " (not found)"; $b.IsEnabled = $false; $b.Opacity = 0.5 }
+    function Update-SystemInfo {
+        if ($Global:DiagResults.SystemInfo) {
+            $si = $Global:DiagResults.SystemInfo
+            $lblComputer.Text = $si.ComputerName
+            $lblOS.Text = ($si.OSVersion -replace 'Microsoft ','')
+            $cpuName = ($si.CPUModel -replace '\(R\)','' -replace '\(TM\)','' -replace 'CPU ','').Trim()
+            if ($cpuName.Length -gt 20) { $cpuName = $cpuName.Substring(0,20) }
+            $lblCPU.Text = $cpuName
+            $lblRAMInfo.Text = "$($si.RAMTotal) GB RAM"
+            $d = $si.Disks | Select-Object -First 1
+            if ($d) { $lblStorage.Text = "$($d.Size) GB"; $lblStorageDetail.Text = "$($d.Free) GB free ($($d.UsedPct)%)" }
+            if ($Global:DiagResults.Network) {
+                $n = $Global:DiagResults.Network
+                $lblNetwork.Text = if ($n.InternetTest.Success) { "Online" } else { "Offline" }
+                $lblNetDetail.Text = if ($n.PublicIP) { $n.PublicIP } else { "" }
+            }
+        }
     }
 
-    # Portable tool buttons
+    function Update-HealthScore {
+        if ($Global:DiagResults.Scoring) {
+            $s = $Global:DiagResults.Scoring
+            $lblScore.Text = "$($s.Score)"
+            $gradeText = if ($s.Score -ge 80) { "Good" } elseif ($s.Score -ge 60) { "Fair" } else { "Needs Attention" }
+            $lblGrade.Text = "Grade $($s.Grade) - $gradeText"
+            $lblLastScan.Text = "Last scan: $(Get-Date -Format 'MMM dd, yyyy') - $($Global:DiagResults.ScanMode) Test"
+            $converter = New-Object System.Windows.Media.BrushConverter
+            if ($s.Score -ge 80) {
+                $window.FindName("healthRing").Stroke = $converter.ConvertFrom("#22c55e")
+                $lblScore.Foreground = $converter.ConvertFrom("#16a34a")
+                $window.FindName("gradeBadge").Background = $converter.ConvertFrom("#dcfce7")
+                $lblGrade.Foreground = $converter.ConvertFrom("#16a34a")
+            } elseif ($s.Score -ge 60) {
+                $window.FindName("healthRing").Stroke = $converter.ConvertFrom("#f59e0b")
+                $lblScore.Foreground = $converter.ConvertFrom("#d97706")
+                $window.FindName("gradeBadge").Background = $converter.ConvertFrom("#fef3c7")
+                $lblGrade.Foreground = $converter.ConvertFrom("#d97706")
+            } else {
+                $window.FindName("healthRing").Stroke = $converter.ConvertFrom("#dc2626")
+                $lblScore.Foreground = $converter.ConvertFrom("#dc2626")
+                $window.FindName("gradeBadge").Background = $converter.ConvertFrom("#fee2e2")
+                $lblGrade.Foreground = $converter.ConvertFrom("#dc2626")
+            }
+        }
+    }
+
+    function Play-CompletionBeep {
+        if ($chkBeep.IsChecked) {
+            try { [Console]::Beep(800, 200); Start-Sleep -Milliseconds 100; [Console]::Beep(1000, 200); Start-Sleep -Milliseconds 100; [Console]::Beep(1200, 300) } catch {}
+        }
+    }
+
+    function Complete-Scan {
+        Update-SystemInfo
+        Update-HealthScore
+        Play-CompletionBeep
+        $lblReadyStatus.Text = "Done"
+    }
+
+    # Checkbox count update
+    $updateCount = {
+        $allChecks = @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkDebloat,$chkRAMIso,$chkPassRecovery,$chkWinDeep,$chkNirSoft)
+        $count = ($allChecks | Where-Object { $_.IsChecked }).Count
+        $lblSelectedCount.Text = "$count tests selected"
+        if ($count -gt 0) {
+            $inlineCnt = @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys).Where({$_.IsChecked}).Count
+            $extCnt = @($chkDebloat,$chkRAMIso,$chkPassRecovery,$chkWinDeep,$chkNirSoft).Where({$_.IsChecked}).Count
+            $mins = ($inlineCnt * 2) + ($extCnt * 5)
+            if ($mins -lt 1) { $mins = 1 }
+            $lblEstTime.Text = "Estimated: ~$mins min"
+        } else { $lblEstTime.Text = "Select tests to begin" }
+    }
+    foreach ($chk in @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkDebloat,$chkRAMIso,$chkPassRecovery,$chkWinDeep,$chkNirSoft)) {
+        $chk.Add_Checked($updateCount)
+        $chk.Add_Unchecked($updateCount)
+    }
+
+    # Portable tool detection
+    foreach ($btn in @(@{N="btnCDI";T=$tools.CrystalDiskInfo},@{N="btnHWiNFO";T=$tools.HWiNFO},@{N="btnCPUZ";T=$tools.CPUZ},@{N="btnGPUZ";T=$tools.GPUZ},@{N="btnHWMon";T=$tools.HWMonitor},@{N="btnBattView";T=$tools.BatteryInfoView})) {
+        $b = $window.FindName($btn.N)
+        if (-not $btn.T) { $b.IsEnabled = $false; $b.Opacity = 0.4 }
+    }
     $toolPaths = @{
         btnCDI = $tools.CrystalDiskInfo; btnHWiNFO = $tools.HWiNFO
         btnCPUZ = $tools.CPUZ; btnGPUZ = $tools.GPUZ
@@ -2999,119 +3298,190 @@ $xaml = @"
         }
     }
 
-    # Individual test buttons
-    $window.FindName("btnCPU").Add_Click({
-        Set-Status "Running CPU stress test (60 seconds)..." 10
-        $Global:DiagResults.CPUStress = Start-CPUStressTest -DurationSeconds 60
-        $r = $Global:DiagResults.CPUStress
-        Set-Status "CPU Stress: $(if($r.Passed){'PASSED'}else{'FAILED'}) - $($r.Iterations) iterations, Start: $($r.StartTemp)C, End: $($r.EndTemp)C" 100
+    # Sidebar tool nav buttons
+    $window.FindName("btnNavNirSoft").Add_Click({
+        $s = Join-Path $Global:ScriptDir "PCPlus-NirSoftSuite.ps1"
+        if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
+        else { [System.Windows.MessageBox]::Show($window, "PCPlus-NirSoftSuite.ps1 not found in $Global:ScriptDir", "Not Found", "OK", "Warning") }
+    })
+    $window.FindName("btnNavPassRecovery").Add_Click({
+        $s = Join-Path $Global:ScriptDir "PCPlus-PasswordRecovery.ps1"
+        if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-STA -NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
+        else { [System.Windows.MessageBox]::Show($window, "PCPlus-PasswordRecovery.ps1 not found in $Global:ScriptDir", "Not Found", "OK", "Warning") }
+    })
+    $window.FindName("btnNavWinDeep").Add_Click({
+        $s = Join-Path $Global:ScriptDir "PCPlus-WindowsDeepTest.ps1"
+        if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
+        else { [System.Windows.MessageBox]::Show($window, "PCPlus-WindowsDeepTest.ps1 not found in $Global:ScriptDir", "Not Found", "OK", "Warning") }
+    })
+    $window.FindName("btnNavDebloat").Add_Click({
+        $s = Join-Path $Global:ScriptDir "PCPlus-Debloat.ps1"
+        if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
+        else { [System.Windows.MessageBox]::Show($window, "PCPlus-Debloat.ps1 not found in $Global:ScriptDir", "Not Found", "OK", "Warning") }
+    })
+    $window.FindName("btnNavRAMIso").Add_Click({
+        $s = Join-Path $Global:ScriptDir "PCPlus-RAMIsolation.ps1"
+        if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
+        else { [System.Windows.MessageBox]::Show($window, "PCPlus-RAMIsolation.ps1 not found in $Global:ScriptDir", "Not Found", "OK", "Warning") }
     })
 
-    $window.FindName("btnRAM").Add_Click({
-        Set-Status "Running RAM test (60 seconds, 64MB blocks)..." 10
-        $Global:DiagResults.RAMStress = Start-RAMStressTest -DurationSeconds 60
-        $r = $Global:DiagResults.RAMStress
-        Set-Status "RAM Test: $(if($r.Passed){'PASSED'}else{'FAILED'}) - $($r.TotalMBTested) MB tested, $($r.Errors) errors" 100
+    # Startup: populate system info cards immediately
+    $window.Add_Loaded({
+        try {
+            $cs = Get-CimInstance Win32_ComputerSystem
+            $os = Get-CimInstance Win32_OperatingSystem
+            $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+            $lblComputer.Text = $cs.Name
+            $lblOS.Text = ($os.Caption -replace 'Microsoft ','')
+            $cpuName = ($cpu.Name -replace '\(R\)','' -replace '\(TM\)','' -replace 'CPU ','').Trim()
+            if ($cpuName.Length -gt 20) { $cpuName = $cpuName.Substring(0,20) }
+            $lblCPU.Text = $cpuName
+            $lblRAMInfo.Text = "$([math]::Round($cs.TotalPhysicalMemory / 1GB)) GB RAM"
+            $disk = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | Select-Object -First 1
+            if ($disk) {
+                $lblStorage.Text = "$([math]::Round($disk.Size / 1GB)) GB"
+                $lblStorageDetail.Text = "$([math]::Round($disk.FreeSpace / 1GB)) GB free"
+            }
+            $adapter = Get-CimInstance Win32_NetworkAdapterConfiguration | Where-Object { $_.IPEnabled -and $_.DefaultIPGateway } | Select-Object -First 1
+            if ($adapter) { $lblNetwork.Text = "Connected"; $lblNetDetail.Text = $adapter.IPAddress[0] }
+        } catch { Write-DebugLog "Startup info error: $($_.Exception.Message)" }
     })
 
-    $window.FindName("btnDisk").Add_Click({
-        Set-Status "Running disk benchmark (256MB)..." 10
-        $Global:DiagResults.DiskBench = Start-DiskBenchmark -FileSizeMB 256
-        $r = $Global:DiagResults.DiskBench
-        Set-Status "Disk: Write $($r.SeqWriteMBps) MB/s, Read $($r.SeqReadMBps) MB/s - $(if($r.Passed){'PASSED'}else{'FAILED'})" 100
-    })
-
-    $window.FindName("btnSMART").Add_Click({
-        Set-Status "Reading SMART data..." 50
-        $smart = Invoke-Safe { Get-PhysicalDisk | ForEach-Object { $r=Get-StorageReliabilityCounter -PhysicalDisk $_ -ErrorAction SilentlyContinue; "$($_.FriendlyName): $($_.HealthStatus), PowerOn: $(if($r){$r.PowerOnHours}else{'N/A'})h, Temp: $(if($r -and $r.Temperature){"$($r.Temperature)C"}else{'N/A'})" } } "Error reading SMART"
-        Set-Status "SMART: $($smart -join ' | ')" 100
-    })
-
-    $window.FindName("btnBattery").Add_Click({
-        Set-Status "Checking battery..." 50
-        $bat = Invoke-Safe { $b=Get-CimInstance Win32_Battery; if($b){"Charge: $($b.EstimatedChargeRemaining)%, Status: $($b.Status)"}else{"No battery detected"} } "Error"
-        Set-Status "Battery: $bat" 100
-    })
-
-    $window.FindName("btnNetwork").Add_Click({
-        Set-Status "Testing network..." 30
-        $net = Get-NetworkDiagnostics
-        Set-Status "Network: DNS $(if($net.DNSTest.Success){"OK ($($net.DNSTest.ResponseMs)ms)"}else{"FAIL"}), Internet $(if($net.InternetTest.Success){"OK ($($net.InternetTest.ResponseMs)ms)"}else{"FAIL"}), Public IP: $($net.PublicIP)" 100
-    })
-
-    $window.FindName("btnSecurity").Add_Click({
-        Set-Status "Running security audit..." 30
-        $Global:DiagResults.Security = Get-FullSecurityInfo
-        $Global:DiagResults.Patches = Get-MissingPatchesList
-        $Global:DiagResults.Scoring = Calculate-Score $Global:DiagResults.Security $Global:DiagResults.Patches
-        $s = $Global:DiagResults.Scoring
-        Set-Status "Security Score: $($s.Score)/100 (Grade $($s.Grade)) - $(($s.Breakdown | Where-Object {$_.Passed}).Count)/$($s.Breakdown.Count) passed" 100
-    })
-
-    $window.FindName("btnKeys").Add_Click({
-        Set-Status "Recovering license keys and WiFi passwords..." 30
-        $Global:DiagResults.LicenseKeys = Get-LicenseKeys
-        $lk = $Global:DiagResults.LicenseKeys
-        $wk = if ($lk.WindowsKeys.Count -gt 0) { $lk.WindowsKeys[0].Key } else { "Not found" }
-        $wf = $lk.WiFiPasswords.Count
-        Set-Status "Windows Key: $wk | Office keys: $($lk.OfficeKeys.Count) | Adobe keys: $($lk.AdobeKeys.Count) | WiFi networks: $wf" 100
-    })
-
-    $window.FindName("btnDebloat").Add_Click({
-        $debloatScript = Join-Path $Global:ScriptDir "PCPlus-Debloat.ps1"
-        if (Test-Path $debloatScript) {
-            Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$debloatScript`"" -Verb RunAs
-        } else {
-            [System.Windows.MessageBox]::Show($window, "PCPlus-Debloat.ps1 not found in $Global:ScriptDir", "Not Found", "OK", "Warning")
-        }
-    })
-
-    $window.FindName("btnRAMIso").Add_Click({
-        $ramIsoScript = Join-Path $Global:ScriptDir "PCPlus-RAMIsolation.ps1"
-        if (Test-Path $ramIsoScript) {
-            Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$ramIsoScript`"" -Verb RunAs
-        } else {
-            [System.Windows.MessageBox]::Show($window, "PCPlus-RAMIsolation.ps1 not found in $Global:ScriptDir", "Not Found", "OK", "Warning")
-        }
-    })
-
-    $window.FindName("btnPassRecovery").Add_Click({
-        $passScript = Join-Path $Global:ScriptDir "PCPlus-PasswordRecovery.ps1"
-        if (Test-Path $passScript) {
-            Start-Process powershell.exe -ArgumentList "-STA -NoProfile -ExecutionPolicy Bypass -File `"$passScript`"" -Verb RunAs
-        } else {
-            [System.Windows.MessageBox]::Show($window, "PCPlus-PasswordRecovery.ps1 not found in $Global:ScriptDir", "Not Found", "OK", "Warning")
-        }
-    })
-
-    $window.FindName("btnWinDeep").Add_Click({
-        $winDeepScript = Join-Path $Global:ScriptDir "PCPlus-WindowsDeepTest.ps1"
-        if (Test-Path $winDeepScript) {
-            Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$winDeepScript`"" -Verb RunAs
-        } else {
-            [System.Windows.MessageBox]::Show($window, "PCPlus-WindowsDeepTest.ps1 not found in $Global:ScriptDir", "Not Found", "OK", "Warning")
-        }
-    })
-
-    $window.FindName("btnNirSoft").Add_Click({
-        $nirScript = Join-Path $Global:ScriptDir "PCPlus-NirSoftSuite.ps1"
-        if (Test-Path $nirScript) {
-            Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$nirScript`"" -Verb RunAs
-        } else {
-            [System.Windows.MessageBox]::Show($window, "PCPlus-NirSoftSuite.ps1 not found in $Global:ScriptDir", "Not Found", "OK", "Warning")
-        }
-    })
-
-    # Helper: disable/enable all scan buttons
     function Set-ScanButtons($enabled) {
-        foreach ($bn in @("btnQuick","btnStandard","btnFull")) { $window.FindName($bn).IsEnabled = $enabled }
+        foreach ($bn in @("btnQuick","btnStandard","btnFull","btnRunSelected","btnQuickScan")) {
+            $b = $window.FindName($bn)
+            if ($b) { $b.IsEnabled = $enabled }
+        }
     }
 
-    # ── QUICK TEST (5-10 min) ── Fast customer-facing scan, no stress tests
+    # Quick Scan header button triggers Quick Test
+    $window.FindName("btnQuickScan").Add_Click({
+        $window.FindName("btnQuick").RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
+    })
+
+    # ── RUN SELECTED TESTS ──
+    $window.FindName("btnRunSelected").Add_Click({
+        try {
+            $p = Get-Params; if (-not $p) { return }
+            $anyChecked = $false
+            foreach ($c in @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkDebloat,$chkRAMIso,$chkPassRecovery,$chkWinDeep,$chkNirSoft)) {
+                if ($c.IsChecked) { $anyChecked = $true; break }
+            }
+            if (-not $anyChecked) {
+                [System.Windows.MessageBox]::Show($window, "Please check at least one test to run.", "No Tests Selected", "OK", "Warning")
+                return
+            }
+            Set-ScanButtons $false
+            $lblReadyStatus.Text = "Running..."
+            $Global:DiagResults.ScanMode = "Custom"
+
+            Set-Status "Collecting system info..." 5
+            $Global:DiagResults.SystemInfo = Get-FullSystemInfo
+            Update-SystemInfo
+
+            $inlineTests = @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys)
+            $totalInline = ($inlineTests | Where-Object { $_.IsChecked }).Count
+            if ($totalInline -eq 0) { $totalInline = 1 }
+            $stepsDone = 0
+
+            if ($chkCPU.IsChecked) {
+                $stepsDone++
+                Set-Status "Running CPU stress test (60 sec)..." ([int](10 + ($stepsDone / $totalInline) * 80))
+                $Global:DiagResults.CPUStress = Start-CPUStressTest -DurationSeconds 60
+                $r = $Global:DiagResults.CPUStress
+                Set-Status "CPU: $(if($r.Passed){'PASS'}else{'FAIL'}) - $($r.Iterations) iterations" ([int](10 + ($stepsDone / $totalInline) * 80))
+            }
+            if ($chkRAM.IsChecked) {
+                $stepsDone++
+                Set-Status "Running RAM test (60 sec)..." ([int](10 + ($stepsDone / $totalInline) * 80))
+                $Global:DiagResults.RAMStress = Start-RAMStressTest -DurationSeconds 60
+                $r = $Global:DiagResults.RAMStress
+                Set-Status "RAM: $(if($r.Passed){'PASS'}else{'FAIL'}) - $($r.TotalMBTested) MB tested" ([int](10 + ($stepsDone / $totalInline) * 80))
+            }
+            if ($chkDisk.IsChecked) {
+                $stepsDone++
+                Set-Status "Running disk benchmark (256MB)..." ([int](10 + ($stepsDone / $totalInline) * 80))
+                $Global:DiagResults.DiskBench = Start-DiskBenchmark -FileSizeMB 256
+                $r = $Global:DiagResults.DiskBench
+                Set-Status "Disk: W=$($r.SeqWriteMBps) R=$($r.SeqReadMBps) MB/s" ([int](10 + ($stepsDone / $totalInline) * 80))
+            }
+            if ($chkSMART.IsChecked) {
+                $stepsDone++
+                Set-Status "Reading SMART data..." ([int](10 + ($stepsDone / $totalInline) * 80))
+                $smart = Invoke-Safe { Get-PhysicalDisk | ForEach-Object { $r=Get-StorageReliabilityCounter -PhysicalDisk $_ -ErrorAction SilentlyContinue; "$($_.FriendlyName): $($_.HealthStatus)" } } "Error"
+                Set-Status "SMART: $($smart -join ' | ')" ([int](10 + ($stepsDone / $totalInline) * 80))
+            }
+            if ($chkBattery.IsChecked) {
+                $stepsDone++
+                Set-Status "Checking battery..." ([int](10 + ($stepsDone / $totalInline) * 80))
+                $Global:DiagResults.BatteryDetail = Get-DetailedBatteryInfo
+            }
+            if ($chkNetwork.IsChecked) {
+                $stepsDone++
+                Set-Status "Testing network..." ([int](10 + ($stepsDone / $totalInline) * 80))
+                $Global:DiagResults.Network = Get-NetworkDiagnostics
+                $net = $Global:DiagResults.Network
+                Set-Status "Network: DNS $(if($net.DNSTest.Success){'OK'}else{'FAIL'}), Internet $(if($net.InternetTest.Success){'OK'}else{'FAIL'})" ([int](10 + ($stepsDone / $totalInline) * 80))
+            }
+            if ($chkSecurity.IsChecked) {
+                $stepsDone++
+                Set-Status "Running security audit..." ([int](10 + ($stepsDone / $totalInline) * 80))
+                $Global:DiagResults.Security = Get-FullSecurityInfo
+                $Global:DiagResults.Patches = Get-MissingPatchesList
+                $Global:DiagResults.Scoring = Calculate-Score $Global:DiagResults.Security $Global:DiagResults.Patches
+            }
+            if ($chkKeys.IsChecked) {
+                $stepsDone++
+                Set-Status "Recovering license keys..." ([int](10 + ($stepsDone / $totalInline) * 80))
+                $Global:DiagResults.LicenseKeys = Get-LicenseKeys
+                $lk = $Global:DiagResults.LicenseKeys
+                $wk = if ($lk.WindowsKeys.Count -gt 0) { $lk.WindowsKeys[0].Key } else { "Not found" }
+                Set-Status "Windows Key: $wk | WiFi: $($lk.WiFiPasswords.Count) networks" ([int](10 + ($stepsDone / $totalInline) * 80))
+            }
+
+            # External scripts launch in separate windows
+            if ($chkDebloat.IsChecked) {
+                $s = Join-Path $Global:ScriptDir "PCPlus-Debloat.ps1"
+                if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
+                else { Set-Status "PCPlus-Debloat.ps1 not found" 0 }
+            }
+            if ($chkRAMIso.IsChecked) {
+                $s = Join-Path $Global:ScriptDir "PCPlus-RAMIsolation.ps1"
+                if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
+                else { Set-Status "PCPlus-RAMIsolation.ps1 not found" 0 }
+            }
+            if ($chkPassRecovery.IsChecked) {
+                $s = Join-Path $Global:ScriptDir "PCPlus-PasswordRecovery.ps1"
+                if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-STA -NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
+                else { Set-Status "PCPlus-PasswordRecovery.ps1 not found" 0 }
+            }
+            if ($chkWinDeep.IsChecked) {
+                $s = Join-Path $Global:ScriptDir "PCPlus-WindowsDeepTest.ps1"
+                if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
+                else { Set-Status "PCPlus-WindowsDeepTest.ps1 not found" 0 }
+            }
+            if ($chkNirSoft.IsChecked) {
+                $s = Join-Path $Global:ScriptDir "PCPlus-NirSoftSuite.ps1"
+                if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
+                else { Set-Status "PCPlus-NirSoftSuite.ps1 not found" 0 }
+            }
+
+            Set-Status "All selected tests complete!" 100
+            Complete-Scan
+            [System.Windows.MessageBox]::Show($window, "All selected tests complete!", "Tests Complete", "OK", "Information")
+        } catch {
+            Write-DebugLog "Run Selected ERROR: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
+            Set-Status "ERROR: $($_.Exception.Message)" 0
+            [System.Windows.MessageBox]::Show($window, "Error: $($_.Exception.Message)", "Error", "OK", "Error")
+        } finally { Set-ScanButtons $true; $lblReadyStatus.Text = "Ready" }
+    })
+
+    # ── QUICK TEST (5-10 min) ──
     $window.FindName("btnQuick").Add_Click({
         try {
             $p = Get-Params; if (-not $p) { return }
             Set-ScanButtons $false
+            $lblReadyStatus.Text = "Running..."
             $Global:DiagResults.ScanMode = "Quick"
             Set-Status "Quick Test: Collecting system info..." 5
             $Global:DiagResults.SystemInfo = Get-FullSystemInfo
@@ -3139,20 +3509,22 @@ $xaml = @"
             $Global:DiagResults.Scoring = Calculate-Score $Global:DiagResults.Security $Global:DiagResults.Patches
             $Global:DiagResults.StressResults = @{}
             $Global:DiagResults.SpeedTest = $null; $Global:DiagResults.Gaming = $null; $Global:DiagResults.PowerInfo = $null
-            Set-Status "DONE! Quick Test complete. Click Generate Reports." 100
-            [System.Windows.MessageBox]::Show($window, "Quick Test complete!`nStability: $($Global:DiagResults.Stability.StabilityRating)`n`nClick Generate Reports to save PDFs.", "Quick Test Complete", "OK", "Information")
+            Set-Status "DONE! Quick Test complete. Generate reports from sidebar." 100
+            Complete-Scan
+            [System.Windows.MessageBox]::Show($window, "Quick Test complete!`nStability: $($Global:DiagResults.Stability.StabilityRating)`n`nClick a Report button in the sidebar to save PDFs.", "Quick Test Complete", "OK", "Information")
         } catch {
             Write-DebugLog "Quick Test ERROR: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
             Set-Status "ERROR: $($_.Exception.Message)" 0
             [System.Windows.MessageBox]::Show($window, "Error during Quick Test:`n`n$($_.Exception.Message)", "Error", "OK", "Error")
-        } finally { Set-ScanButtons $true }
+        } finally { Set-ScanButtons $true; $lblReadyStatus.Text = "Ready" }
     })
 
-    # ── STANDARD TEST (20-30 min) ── Full diagnostic with stress tests
+    # ── STANDARD TEST (20-30 min) ──
     $window.FindName("btnStandard").Add_Click({
         try {
             $p = Get-Params; if (-not $p) { return }
             Set-ScanButtons $false
+            $lblReadyStatus.Text = "Running..."
             $Global:DiagResults.ScanMode = "Standard"
             Set-Status "Standard Test: Collecting system info..." 2
             $Global:DiagResults.SystemInfo = Get-FullSystemInfo
@@ -3195,19 +3567,21 @@ $xaml = @"
             $Global:DiagResults.StressResults = @{ CPU = $Global:DiagResults.CPUStress; RAM = $Global:DiagResults.RAMStress; Disk = $Global:DiagResults.DiskBench; GPU = $Global:DiagResults.GPUStress }
             $cs = $Global:DiagResults.CPUStress; $rs = $Global:DiagResults.RAMStress; $ds = $Global:DiagResults.DiskBench; $gs = $Global:DiagResults.GPUStress
             Set-Status "DONE! CPU:$(if($cs.Passed){'PASS'}else{'FAIL'}) RAM:$(if($rs.Passed){'PASS'}else{'FAIL'}) GPU:$(if($gs.Passed){'PASS'}else{'FAIL'}) Disk:W=$($ds.SeqWriteMBps)/$($ds.SeqReadMBps)" 100
-            [System.Windows.MessageBox]::Show($window, "Standard Test complete!`nCPU: $(if($cs.Passed){'PASS'}else{'FAIL'})`nRAM: $(if($rs.Passed){'PASS'}else{'FAIL'})`nGPU: $(if($gs.Passed){'PASS'}else{'FAIL'})`nDisk: W=$($ds.SeqWriteMBps) / R=$($ds.SeqReadMBps) MB/s`nStability: $($Global:DiagResults.Stability.StabilityRating)`n`nClick Generate Reports.", "Standard Test Complete", "OK", "Information")
+            Complete-Scan
+            [System.Windows.MessageBox]::Show($window, "Standard Test complete!`nCPU: $(if($cs.Passed){'PASS'}else{'FAIL'})`nRAM: $(if($rs.Passed){'PASS'}else{'FAIL'})`nGPU: $(if($gs.Passed){'PASS'}else{'FAIL'})`nDisk: W=$($ds.SeqWriteMBps) / R=$($ds.SeqReadMBps) MB/s`nStability: $($Global:DiagResults.Stability.StabilityRating)`n`nClick a Report button in the sidebar.", "Standard Test Complete", "OK", "Information")
         } catch {
             Write-DebugLog "Standard Test ERROR: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
             Set-Status "ERROR: $($_.Exception.Message)" 0
             [System.Windows.MessageBox]::Show($window, "Error during Standard Test:`n`n$($_.Exception.Message)", "Error", "OK", "Error")
-        } finally { Set-ScanButtons $true }
+        } finally { Set-ScanButtons $true; $lblReadyStatus.Text = "Ready" }
     })
 
-    # ── DEEP TEST (60-90 min) ── Advanced bench testing with historical comparison
+    # ── DEEP TEST (60-90 min) ──
     $window.FindName("btnFull").Add_Click({
         try {
             $p = Get-Params; if (-not $p) { return }
             Set-ScanButtons $false
+            $lblReadyStatus.Text = "Running..."
             $Global:DiagResults.ScanMode = "Deep"
             Set-Status "Deep Test: Collecting system info..." 2
             $Global:DiagResults.SystemInfo = Get-FullSystemInfo
@@ -3248,7 +3622,6 @@ $xaml = @"
             Set-Status "Deep Test: Calculating scores..." 92
             $Global:DiagResults.Scoring = Calculate-Score $Global:DiagResults.Security $Global:DiagResults.Patches
             $Global:DiagResults.StressResults = @{ CPU = $Global:DiagResults.CPUStress; RAM = $Global:DiagResults.RAMStress; Disk = $Global:DiagResults.DiskBench; GPU = $Global:DiagResults.GPUStress }
-            # Historical comparison
             Set-Status "Deep Test: Loading scan history..." 95
             $history = Get-ScanHistory -ComputerName $Global:DiagResults.SystemInfo.ComputerName
             $Global:DiagResults.HistoryComparison = Compare-ScanHistory -Current @{
@@ -3261,16 +3634,17 @@ $xaml = @"
             } -Previous $history
             $cs = $Global:DiagResults.CPUStress; $rs = $Global:DiagResults.RAMStress; $ds = $Global:DiagResults.DiskBench; $gs = $Global:DiagResults.GPUStress
             Set-Status "DONE! Deep Test complete. CPU:$(if($cs.Passed){'PASS'}else{'FAIL'}) RAM:$(if($rs.Passed){'PASS'}else{'FAIL'}) GPU:$(if($gs.Passed){'PASS'}else{'FAIL'})" 100
-            $histMsg = if ($Global:DiagResults.HistoryComparison -and $Global:DiagResults.HistoryComparison.HasPrevious) { "`nPrevious scan found: $($Global:DiagResults.HistoryComparison.PreviousDate)" } else { "`nNo previous scan history found." }
-            [System.Windows.MessageBox]::Show($window, "Deep Test complete!`nCPU: $(if($cs.Passed){'PASS'}else{'FAIL'})`nRAM: $(if($rs.Passed){'PASS'}else{'FAIL'})`nGPU: $(if($gs.Passed){'PASS'}else{'FAIL'})`nDisk: W=$($ds.SeqWriteMBps) / R=$($ds.SeqReadMBps) MB/s`nStability: $($Global:DiagResults.Stability.StabilityRating)$histMsg`n`nClick Generate Reports.", "Deep Test Complete", "OK", "Information")
+            $histMsg = if ($Global:DiagResults.HistoryComparison -and $Global:DiagResults.HistoryComparison.HasPrevious) { "`nPrevious scan: $($Global:DiagResults.HistoryComparison.PreviousDate)" } else { "`nNo previous scan history." }
+            Complete-Scan
+            [System.Windows.MessageBox]::Show($window, "Deep Test complete!`nCPU: $(if($cs.Passed){'PASS'}else{'FAIL'})`nRAM: $(if($rs.Passed){'PASS'}else{'FAIL'})`nGPU: $(if($gs.Passed){'PASS'}else{'FAIL'})`nDisk: W=$($ds.SeqWriteMBps) / R=$($ds.SeqReadMBps) MB/s`nStability: $($Global:DiagResults.Stability.StabilityRating)$histMsg`n`nClick a Report button in the sidebar.", "Deep Test Complete", "OK", "Information")
         } catch {
             Write-DebugLog "Deep Test ERROR: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
             Set-Status "ERROR: $($_.Exception.Message)" 0
             [System.Windows.MessageBox]::Show($window, "Error during Deep Test:`n`n$($_.Exception.Message)", "Error", "OK", "Error")
-        } finally { Set-ScanButtons $true }
+        } finally { Set-ScanButtons $true; $lblReadyStatus.Text = "Ready" }
     })
 
-    # REPORT GENERATION
+    # ── REPORT GENERATION ──
     $generateReports = {
         param([bool]$DoHW, [bool]$DoSec)
         $p = Get-Params; if (-not $p) { return }
@@ -3296,7 +3670,6 @@ $xaml = @"
             $secPDF = Convert-ToPDF $secHTMLPath $secPDFPath
             Set-Status "Security Report: $(if($secPDF){"PDF saved"}else{"HTML saved"}) to reports folder" 90
         }
-        # Export JSON + CSV
         Set-Status "Exporting data files..." 92
         try {
             $exportData = @{
@@ -3312,38 +3685,28 @@ $xaml = @"
             }
             Export-ScanJSON -ScanData $exportData -OutputFolder $p.OutputFolder
             Export-ScanCSV -ScanData $exportData -OutputFolder $p.OutputFolder
-            # Save to history
             Save-ScanHistory -ScanData $exportData
         } catch { Write-DiagLog "Export error: $($_.Exception.Message)" "WARN" }
 
         Set-Status "All reports and data saved to: $($p.OutputFolder)" 100
         Start-Process explorer.exe -ArgumentList $p.OutputFolder
 
-        # Offer to email the report
-        $emailResult = [System.Windows.MessageBox]::Show($window, "Reports saved successfully!`n`nWould you like to open your email client to send the report to the customer?", "Email Report?", "YesNo", "Question")
+        $emailResult = [System.Windows.MessageBox]::Show($window, "Reports saved successfully!`n`nWould you like to open your email client to send the report?", "Email Report?", "YesNo", "Question")
         if ($emailResult -eq "Yes") {
-            # Determine which PDF to reference
             $pdfToEmail = ""
             if ($DoHW -and (Test-Path $hwPDFPath)) { $pdfToEmail = $hwPDFPath }
             elseif ($DoSec -and (Test-Path $secPDFPath)) { $pdfToEmail = $secPDFPath }
             elseif ($DoHW -and (Test-Path $hwHTMLPath)) { $pdfToEmail = $hwHTMLPath }
             elseif ($DoSec -and (Test-Path $secHTMLPath)) { $pdfToEmail = $secHTMLPath }
-
-            # Copy path to clipboard for easy attachment
-            if ($pdfToEmail) {
-                try { [System.Windows.Clipboard]::SetText($pdfToEmail) } catch {}
-            }
-
+            if ($pdfToEmail) { try { [System.Windows.Clipboard]::SetText($pdfToEmail) } catch {} }
             $subjectText = "PC Plus Computing - Diagnostic Report for $($p.CustomerName)"
             $bodyText = "Hello,`n`nPlease find attached the diagnostic report for $($p.CustomerName) - $($Global:DiagResults.SystemInfo.ComputerName).`n`nGenerated on $(Get-Date -Format 'MMMM dd, yyyy').`n`nBest regards,`n$($p.TechName)`nPC Plus Computing`n$WEBSITE | $PHONE"
             $encodedSubject = [Uri]::EscapeDataString($subjectText)
             $encodedBody = [Uri]::EscapeDataString($bodyText)
             try {
                 Start-Process "mailto:?subject=$encodedSubject&body=$encodedBody"
-                Set-Status "Email client opened. Report path copied to clipboard - paste when attaching file." 100
-            } catch {
-                Set-Status "Could not open email client. Report path copied to clipboard." 100
-            }
+                Set-Status "Email client opened. Report path copied to clipboard." 100
+            } catch { Set-Status "Could not open email client. Report path copied to clipboard." 100 }
         }
     }
 
@@ -3353,6 +3716,7 @@ $xaml = @"
 
     $window.ShowDialog() | Out-Null
 }
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ENTRY POINT
