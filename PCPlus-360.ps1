@@ -781,6 +781,13 @@ function Build-HardwareReport {
     if (Test-Path $qrAppPath) { try { $qrAppointmentUri = "data:image/png;base64,$((Get-Content $qrAppPath -Raw).Trim())" } catch {} }
     if (Test-Path $qrSvcPath) { try { $qrServiceUri = "data:image/png;base64,$((Get-Content $qrSvcPath -Raw).Trim())" } catch {} }
 
+    # Load cross-promotion banners
+    $bannerSecTopUri = ""; $bannerSecBottomUri = ""
+    $bstPath = Join-Path $Global:ScriptDir "banner-security-top.txt"
+    $bsbPath = Join-Path $Global:ScriptDir "banner-security-bottom.txt"
+    if (Test-Path $bstPath) { try { $bannerSecTopUri = "data:image/jpeg;base64,$((Get-Content $bstPath -Raw).Trim())" } catch {} }
+    if (Test-Path $bsbPath) { try { $bannerSecBottomUri = "data:image/jpeg;base64,$((Get-Content $bsbPath -Raw).Trim())" } catch {} }
+
     # Category sub-scores for executive summary
     # Storage Health
     $storageScore = 100
@@ -1109,6 +1116,8 @@ tr:hover td { background: #eaf7fc; }
 .qr-item .qr-fallback { width: 160px; height: 160px; border: 2px dashed #94a3b8; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 7.5pt; color: #94a3b8; line-height: 1.3; }
 .qr-label { font-size: 9pt; font-weight: 600; color: #0d4b71; margin-top: 8px; }
 .qr-sublabel { font-size: 7.5pt; color: #64748b; margin-top: 2px; }
+.promo-banner { text-align: center; margin: 20px 0; page-break-inside: avoid; }
+.promo-banner img { width: 100%; max-width: 100%; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
 
 /* ── Repeated page footer ── */
 .page-footer-bar {
@@ -1209,6 +1218,7 @@ $(if($stressHTML){"
 <table><tr><th>Test</th><th>Result</th><th>Details</th><th>Temps</th></tr>$stressHTML</table>
 "})
 
+$(if($bannerSecTopUri){"<div class='promo-banner'><img src='$bannerSecTopUri' alt='PC Plus Security Audit'/></div>"})
 
 <!-- ══════════════════════════ SYSTEM INFORMATION ══════════════════════════ -->
 <div class="page-break"></div>
@@ -1357,6 +1367,7 @@ $techNotes
 <div class="sub-header">Startup Programs ($($Software.StartupPrograms.Count))</div>
 <table><tr><th>Name</th><th>Location</th></tr>$(($Software.StartupPrograms | ForEach-Object {"<tr><td>$($_.Name)</td><td style='font-size:8pt;word-break:break-all;'>$($_.Location)</td></tr>"}) -join "`n")</table>
 
+$(if($bannerSecBottomUri){"<div class='page-break'></div><div class='promo-banner' style='padding-top:30px;'><img src='$bannerSecBottomUri' alt='175-Point Security Inspection'/></div>"})
 
 <!-- ══════════════════════════ BACK PAGE ══════════════════════════ -->
 <div class="page-break"></div>
@@ -1426,6 +1437,13 @@ function Build-SecurityReport {
     $qrSvcPath = Join-Path $Global:ScriptDir "qr-service-requests.txt"
     if (Test-Path $qrAppPath) { try { $qrAppointmentUri = "data:image/png;base64,$((Get-Content $qrAppPath -Raw).Trim())" } catch {} }
     if (Test-Path $qrSvcPath) { try { $qrServiceUri = "data:image/png;base64,$((Get-Content $qrSvcPath -Raw).Trim())" } catch {} }
+
+    # Load cross-promotion banners
+    $bannerHwTopUri = ""; $bannerHwBottomUri = ""
+    $bhtPath = Join-Path $Global:ScriptDir "banner-hardware-top.txt"
+    $bhbPath = Join-Path $Global:ScriptDir "banner-hardware-bottom.txt"
+    if (Test-Path $bhtPath) { try { $bannerHwTopUri = "data:image/jpeg;base64,$((Get-Content $bhtPath -Raw).Trim())" } catch {} }
+    if (Test-Path $bhbPath) { try { $bannerHwBottomUri = "data:image/jpeg;base64,$((Get-Content $bhbPath -Raw).Trim())" } catch {} }
 
     # Breakdown rows
     $breakdownRows = ($Scoring.Breakdown | ForEach-Object {
@@ -1633,6 +1651,8 @@ tr:hover td { background: #eaf7fc; }
 .qr-item .qr-fallback { width: 160px; height: 160px; border: 2px dashed #94a3b8; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 7.5pt; color: #94a3b8; line-height: 1.3; }
 .qr-label { font-size: 9pt; font-weight: 600; color: #0d4b71; margin-top: 8px; }
 .qr-sublabel { font-size: 7.5pt; color: #64748b; margin-top: 2px; }
+.promo-banner { text-align: center; margin: 20px 0; page-break-inside: avoid; }
+.promo-banner img { width: 100%; max-width: 100%; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
 
 /* Repeated page footer */
 .page-footer-bar {
@@ -1728,6 +1748,7 @@ $recsHTML
 </div>"
 })
 
+$(if($bannerHwTopUri){"<div class='promo-banner'><img src='$bannerHwTopUri' alt='PC Plus Hardware Test'/></div>"})
 
 <!-- SCORE BREAKDOWN -->
 <div class="page-break"></div>
@@ -1756,6 +1777,7 @@ $(if($criticalPatches -gt 0){"<div style='background:#fef5f5;border-left:4px sol
 
 <table><tr><th>KB Article</th><th>Update Title</th><th>Severity</th><th style="text-align:right;">Size</th></tr>$patchRows</table>
 
+$(if($bannerHwBottomUri){"<div class='page-break'></div><div class='promo-banner' style='padding-top:30px;'><img src='$bannerHwBottomUri' alt='PC Plus Hardware Test'/></div>"})
 
 <!-- BACK PAGE -->
 <div class="page-break"></div>
