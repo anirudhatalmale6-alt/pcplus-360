@@ -480,6 +480,145 @@ function Get-SecurityStatus {
         }
     } @{ Count = 0; Names = "Unable to determine" }
 
+    # ── Privacy & Data Protection ──
+    $results.Privacy = @{}
+    $results.Privacy.TelemetryMinimal = Invoke-SafeCheck {
+        $t1 = (Get-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" -Name "AllowTelemetry" -ErrorAction SilentlyContinue).AllowTelemetry
+        $t2 = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" -Name "AllowTelemetry" -ErrorAction SilentlyContinue).AllowTelemetry
+        ($null -ne $t1 -and $t1 -le 1) -or ($null -ne $t2 -and $t2 -le 1)
+    } $false
+    $results.Privacy.AdvertisingIdDisabled = Invoke-SafeCheck {
+        $v = (Get-ItemProperty "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\AdvertisingInfo" -Name "Enabled" -ErrorAction SilentlyContinue).Enabled
+        $null -eq $v -or $v -ne 1
+    } $true
+    $results.Privacy.LocationDisabled = Invoke-SafeCheck {
+        $cs = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\location" -Name "Value" -ErrorAction SilentlyContinue).Value
+        $svc = (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\lfsvc\Service\Configuration" -Name "Status" -ErrorAction SilentlyContinue).Status
+        ($cs -eq "Deny") -or ($null -ne $svc -and $svc -eq 0)
+    } $false
+    $results.Privacy.ActivityHistoryDisabled = Invoke-SafeCheck {
+        $k = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System"
+        $feed = (Get-ItemProperty $k -Name "EnableActivityFeed" -ErrorAction SilentlyContinue).EnableActivityFeed
+        $pub = (Get-ItemProperty $k -Name "PublishUserActivities" -ErrorAction SilentlyContinue).PublishUserActivities
+        ($null -ne $feed -and $feed -ne 1) -or ($null -ne $pub -and $pub -ne 1)
+    } $false
+    $results.Privacy.CortanaDisabled = Invoke-SafeCheck {
+        $v = (Get-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" -Name "AllowCortana" -ErrorAction SilentlyContinue).AllowCortana
+        ($null -ne $v -and $v -eq 0) -or (-not (Get-Process -Name "SearchUI","Cortana","Microsoft.Windows.Cortana" -ErrorAction SilentlyContinue))
+    } $false
+    $results.Privacy.FindMyDeviceEnabled = Invoke-SafeCheck {
+        $v = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Settings\FindMyDevice\UserConsent" -Name "Value" -ErrorAction SilentlyContinue).Value
+        $null -ne $v -and $v -eq 1
+    } $false
+
+    # ── Browser Security ──
+    $results.BrowserSecurity = @{}
+    $results.BrowserSecurity.ChromeNoSavedPasswords = Invoke-SafeCheck {
+        $f = "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Login Data"
+        -not (Test-Path $f) -or (Get-Item $f -ErrorAction SilentlyContinue).Length -le 40960
+    } $true
+    $results.BrowserSecurity.EdgeNoSavedPasswords = Invoke-SafeCheck {
+        $f = "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Login Data"
+        -not (Test-Path $f) -or (Get-Item $f -ErrorAction SilentlyContinue).Length -le 40960
+    } $true
+    $results.BrowserSecurity.SmartScreenEnabled = Invoke-SafeCheck {
+        $v = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer" -Name "SmartScreenEnabled" -ErrorAction SilentlyContinue).SmartScreenEnabled
+        $null -eq $v -or $v -ne "Off"
+    } $true
+    $results.BrowserSecurity.ExtensionCountOk = Invoke-SafeCheck {
+        $count = 0
+        $chromeExt = "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Extensions"
+        if (Test-Path $chromeExt) { $count += @(Get-ChildItem $chromeExt -Directory -ErrorAction SilentlyContinue).Count }
+        $edgeExt = "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Extensions"
+        if (Test-Path $edgeExt) { $count += @(Get-ChildItem $edgeExt -Directory -ErrorAction SilentlyContinue).Count }
+        $count -lt 15
+    } $true
+
+    # ── Network Hardening ──
+    $results.NetworkHardening = @{}
+    $results.NetworkHardening.NoOpenShares = Invoke-SafeCheck {
+        $custom = Get-SmbShare -ErrorAction Stop | Where-Object { $_.Name -notmatch '^\w\$|^ADMIN\$|^IPC\$|^print\$' }
+        ($custom | Measure-Object).Count -eq 0
+    } $null
+    $results.NetworkHardening.UPnPDisabled = Invoke-SafeCheck {
+        $svc = Get-Service "SSDPSRV" -ErrorAction Stop
+        $svc.Status -ne "Running"
+    } $null
+    $results.NetworkHardening.LLMNRDisabled = Invoke-SafeCheck {
+        $v = (Get-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient" -Name "EnableMulticast" -ErrorAction SilentlyContinue).EnableMulticast
+        $null -ne $v -and $v -eq 0
+    } $false
+    $results.NetworkHardening.DoHEnabled = Invoke-SafeCheck {
+        $v = (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters" -Name "EnableAutoDoh" -ErrorAction SilentlyContinue).EnableAutoDoh
+        $null -ne $v -and $v -ge 2
+    } $false
+    $results.NetworkHardening.RemoteAssistanceDisabled = Invoke-SafeCheck {
+        $v = (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Remote Assistance" -Name "fAllowToGetHelp" -ErrorAction SilentlyContinue).fAllowToGetHelp
+        $null -ne $v -and $v -eq 0
+    } $false
+
+    # ── System Integrity ──
+    $results.SystemIntegrity = @{}
+    $results.SystemIntegrity.DriverSigEnforced = Invoke-SafeCheck {
+        $bcd = bcdedit /enum "{current}" 2>&1 | Out-String
+        $bcd -notmatch "testsigning\s+Yes"
+    } $true
+    $results.SystemIntegrity.PSScriptLogging = Invoke-SafeCheck {
+        $v = (Get-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging" -Name "EnableScriptBlockLogging" -ErrorAction SilentlyContinue).EnableScriptBlockLogging
+        $null -ne $v -and $v -eq 1
+    } $false
+    $results.SystemIntegrity.LogonAuditEnabled = Invoke-SafeCheck {
+        $out = auditpol /get /subcategory:"Logon" 2>&1 | Out-String
+        $out -match "Success" -and $out -notmatch "No Auditing"
+    } $false
+    $results.SystemIntegrity.CredentialGuard = Invoke-SafeCheck {
+        $dg = Get-CimInstance -ClassName Win32_DeviceGuard -Namespace "root\Microsoft\Windows\DeviceGuard" -ErrorAction Stop
+        $dg.SecurityServicesRunning -contains 1
+    } $false
+    $results.SystemIntegrity.LSASSProtected = Invoke-SafeCheck {
+        $v = (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "RunAsPPL" -ErrorAction SilentlyContinue).RunAsPPL
+        $null -ne $v -and $v -eq 1
+    } $false
+
+    # ── Account Hygiene ──
+    $results.AccountHygiene = @{}
+    $results.AccountHygiene.NoStaleAccounts = Invoke-SafeCheck {
+        $cutoff = (Get-Date).AddDays(-90)
+        $stale = Get-LocalUser -ErrorAction Stop | Where-Object {
+            $_.Enabled -and -not $_.SID.Value.EndsWith("-500") -and -not $_.SID.Value.EndsWith("-501") -and
+            $null -ne $_.LastLogon -and $_.LastLogon -lt $cutoff
+        }
+        ($stale | Measure-Object).Count -eq 0
+    } $true
+    $results.AccountHygiene.NoEmptyPasswords = Invoke-SafeCheck {
+        $users = Get-LocalUser -ErrorAction Stop | Where-Object { $_.Enabled }
+        $bad = $users | Where-Object { $_.PasswordRequired -eq $false }
+        ($bad | Measure-Object).Count -eq 0
+    } $true
+    $results.AccountHygiene.PasswordAgePolicy = Invoke-SafeCheck {
+        $na = net accounts 2>&1 | Out-String
+        if ($na -match "Maximum password age \(days\):\s+Unlimited") { $false } else { $true }
+    } $false
+
+    # ── Ransomware Protection ──
+    $results.RansomwareProtection = @{}
+    $results.RansomwareProtection.ControlledFolderAccess = Invoke-SafeCheck {
+        $v = (Get-MpPreference -ErrorAction Stop).EnableControlledFolderAccess
+        $v -eq 1 -or $v -eq 2
+    } $false
+    $results.RansomwareProtection.RecentRestorePoint = Invoke-SafeCheck {
+        $cutoff = (Get-Date).AddDays(-30)
+        $rp = Get-ComputerRestorePoint -ErrorAction Stop
+        ($rp | Where-Object { [Management.ManagementDateTimeConverter]::ToDateTime($_.CreationTime) -gt $cutoff } | Measure-Object).Count -gt 0
+    } $false
+    $results.RansomwareProtection.NoSuspiciousScheduledTasks = Invoke-SafeCheck {
+        $suspicious = Get-ScheduledTask -ErrorAction Stop | Where-Object { $_.State -ne "Disabled" } | ForEach-Object {
+            $actions = $_.Actions | Where-Object { $_.Execute -match "\\Temp\\|\\AppData\\|encodedcommand|encodedCommand|-enc\s|-ec\s" }
+            if ($actions) { $_.TaskName }
+        }
+        ($suspicious | Measure-Object).Count -eq 0
+    } $true
+
     return $results
 }
 
@@ -1068,84 +1207,202 @@ function Calculate-SecurityScore {
     $score = 0
     $breakdown = @()
 
-    # Antivirus active (+15)
+    # ── Core Security (71 pts) ──
+
+    # Antivirus active (+10)
     $avActive = ($Security.Defender.RealTimeProtection -eq $true) -or ($Security.ThirdPartyAV.Count -gt 0)
-    if ($avActive) { $score += 15 }
-    $breakdown += @{ Check = "Antivirus Active"; Points = 15; Passed = $avActive }
+    if ($avActive) { $score += 10 }
+    $breakdown += @{ Check = "Antivirus Active"; Points = 10; Passed = $avActive }
 
-    # Firewall all profiles (+15)
+    # Firewall all profiles (+10)
     $fwAll = ($Security.Firewall.Domain -eq $true) -and ($Security.Firewall.Private -eq $true) -and ($Security.Firewall.Public -eq $true)
-    if ($fwAll) { $score += 15 }
-    $breakdown += @{ Check = "Firewall All Profiles"; Points = 15; Passed = $fwAll }
+    if ($fwAll) { $score += 10 }
+    $breakdown += @{ Check = "Firewall All Profiles"; Points = 10; Passed = $fwAll }
 
-    # BitLocker on C: (+10)
+    # BitLocker on C: (+7)
     $blC = $false
     if ($Security.BitLocker -and $Security.BitLocker["C:"]) {
         $blC = $Security.BitLocker["C:"].Status -eq "On"
     }
-    if ($blC) { $score += 10 }
-    $breakdown += @{ Check = "BitLocker on C:"; Points = 10; Passed = $blC }
+    if ($blC) { $score += 7 }
+    $breakdown += @{ Check = "BitLocker on C:"; Points = 7; Passed = $blC }
 
-    # Windows Update current (+10)
+    # No critical patches missing (+7)
     $criticalMissing = ($MissingPatches | Where-Object { $_.Severity -eq "Critical" }).Count
     $wuCurrent = $criticalMissing -eq 0
-    if ($wuCurrent) { $score += 10 }
-    $breakdown += @{ Check = "No Critical Patches Missing"; Points = 10; Passed = $wuCurrent }
+    if ($wuCurrent) { $score += 7 }
+    $breakdown += @{ Check = "No Critical Patches Missing"; Points = 7; Passed = $wuCurrent }
 
-    # UAC enabled (+5)
+    # UAC enabled (+4)
     $uacOk = $Security.UAC.Enabled -eq $true
-    if ($uacOk) { $score += 5 }
-    $breakdown += @{ Check = "UAC Enabled"; Points = 5; Passed = $uacOk }
+    if ($uacOk) { $score += 4 }
+    $breakdown += @{ Check = "UAC Enabled"; Points = 4; Passed = $uacOk }
 
-    # Secure Boot (+5)
+    # Secure Boot (+4)
     $sbOk = $Security.SecureBoot -eq $true
-    if ($sbOk) { $score += 5 }
-    $breakdown += @{ Check = "Secure Boot Enabled"; Points = 5; Passed = $sbOk }
+    if ($sbOk) { $score += 4 }
+    $breakdown += @{ Check = "Secure Boot"; Points = 4; Passed = $sbOk }
 
-    # TPM 2.0 (+5)
+    # TPM Present (+4)
     $tpmOk = $Security.TPM.Present -eq $true
-    if ($tpmOk) { $score += 5 }
-    $breakdown += @{ Check = "TPM Present"; Points = 5; Passed = $tpmOk }
+    if ($tpmOk) { $score += 4 }
+    $breakdown += @{ Check = "TPM Present"; Points = 4; Passed = $tpmOk }
 
-    # Password policy adequate (+5)
+    # Password policy (+3)
     $pwOk = $Security.PasswordPolicy.MinLength -ge 8 -or $Security.PasswordPolicy.Complexity -eq $true
-    if ($pwOk) { $score += 5 }
-    $breakdown += @{ Check = "Password Policy Adequate"; Points = 5; Passed = $pwOk }
+    if ($pwOk) { $score += 3 }
+    $breakdown += @{ Check = "Password Policy"; Points = 3; Passed = $pwOk }
 
-    # Guest disabled (+3)
+    # Guest disabled (+2)
     $guestOk = $Security.GuestDisabled -eq $true
-    if ($guestOk) { $score += 3 }
-    $breakdown += @{ Check = "Guest Account Disabled"; Points = 3; Passed = $guestOk }
+    if ($guestOk) { $score += 2 }
+    $breakdown += @{ Check = "Guest Disabled"; Points = 2; Passed = $guestOk }
 
-    # No auto-login (+3)
+    # No auto-login (+2)
     $noAutoLogin = $Security.AutoLoginDisabled -eq $true
-    if ($noAutoLogin) { $score += 3 }
-    $breakdown += @{ Check = "Auto-Login Disabled"; Points = 3; Passed = $noAutoLogin }
+    if ($noAutoLogin) { $score += 2 }
+    $breakdown += @{ Check = "No Auto-Login"; Points = 2; Passed = $noAutoLogin }
 
-    # RDP disabled or NLA (+5)
+    # RDP secure (+4)
     $rdpOk = ($Security.RDP.Enabled -eq $false) -or ($Security.RDP.NLA -eq $true)
-    if ($rdpOk) { $score += 5 }
-    $breakdown += @{ Check = "RDP Disabled or NLA Required"; Points = 5; Passed = $rdpOk }
+    if ($rdpOk) { $score += 4 }
+    $breakdown += @{ Check = "RDP Secure"; Points = 4; Passed = $rdpOk }
 
-    # SMBv1 disabled (+5)
+    # SMBv1 disabled (+4)
     $smbOk = $Security.SMBv1Disabled -eq $true
-    if ($smbOk) { $score += 5 }
-    $breakdown += @{ Check = "SMBv1 Disabled"; Points = 5; Passed = $smbOk }
+    if ($smbOk) { $score += 4 }
+    $breakdown += @{ Check = "SMBv1 Disabled"; Points = 4; Passed = $smbOk }
 
-    # Max 2 admin accounts (+4)
+    # Admin accounts <= 2 (+3)
     $adminOk = $Security.LocalAdmins.Count -le 2
-    if ($adminOk) { $score += 4 }
-    $breakdown += @{ Check = "No More Than 2 Admin Accounts"; Points = 4; Passed = $adminOk }
+    if ($adminOk) { $score += 3 }
+    $breakdown += @{ Check = "Admin Accounts <=2"; Points = 3; Passed = $adminOk }
 
-    # Real-time protection (+5)
+    # Real-time protection (+4)
     $rtpOk = $Security.Defender.RealTimeProtection -eq $true
-    if ($rtpOk) { $score += 5 }
-    $breakdown += @{ Check = "Real-Time Protection On"; Points = 5; Passed = $rtpOk }
+    if ($rtpOk) { $score += 4 }
+    $breakdown += @{ Check = "Real-Time Protection"; Points = 4; Passed = $rtpOk }
 
-    # Definitions < 7 days (+5)
+    # AV definitions current (+3)
     $defOk = $Security.Defender.DefinitionsUpToDate -eq $true
-    if ($defOk) { $score += 5 }
-    $breakdown += @{ Check = "AV Definitions Current"; Points = 5; Passed = $defOk }
+    if ($defOk) { $score += 3 }
+    $breakdown += @{ Check = "AV Definitions Current"; Points = 3; Passed = $defOk }
+
+    # ── Privacy & Data Protection (6 pts) ──
+
+    $telOk = $Security.Privacy.TelemetryMinimal -eq $true
+    if ($telOk) { $score += 1 }
+    $breakdown += @{ Check = "Telemetry Minimal"; Points = 1; Passed = $telOk }
+
+    $adIdOk = $Security.Privacy.AdvertisingIdDisabled -eq $true
+    if ($adIdOk) { $score += 1 }
+    $breakdown += @{ Check = "Advertising ID Disabled"; Points = 1; Passed = $adIdOk }
+
+    $locOk = $Security.Privacy.LocationDisabled -eq $true
+    if ($locOk) { $score += 1 }
+    $breakdown += @{ Check = "Location Tracking Off"; Points = 1; Passed = $locOk }
+
+    $actOk = $Security.Privacy.ActivityHistoryDisabled -eq $true
+    if ($actOk) { $score += 1 }
+    $breakdown += @{ Check = "Activity History Off"; Points = 1; Passed = $actOk }
+
+    $cortOk = $Security.Privacy.CortanaDisabled -eq $true
+    if ($cortOk) { $score += 1 }
+    $breakdown += @{ Check = "Cortana/Copilot Disabled"; Points = 1; Passed = $cortOk }
+
+    $fmdOk = $Security.Privacy.FindMyDeviceEnabled -eq $true
+    if ($fmdOk) { $score += 1 }
+    $breakdown += @{ Check = "Find My Device On"; Points = 1; Passed = $fmdOk }
+
+    # ── Browser Security (4 pts) ──
+
+    $chrPwOk = $Security.BrowserSecurity.ChromeNoSavedPasswords -eq $true
+    if ($chrPwOk) { $score += 1 }
+    $breakdown += @{ Check = "Chrome No Saved Passwords"; Points = 1; Passed = $chrPwOk }
+
+    $edgPwOk = $Security.BrowserSecurity.EdgeNoSavedPasswords -eq $true
+    if ($edgPwOk) { $score += 1 }
+    $breakdown += @{ Check = "Edge No Saved Passwords"; Points = 1; Passed = $edgPwOk }
+
+    $ssOk = $Security.BrowserSecurity.SmartScreenEnabled -eq $true
+    if ($ssOk) { $score += 1 }
+    $breakdown += @{ Check = "SmartScreen Enabled"; Points = 1; Passed = $ssOk }
+
+    $extOk = $Security.BrowserSecurity.ExtensionCountOk -eq $true
+    if ($extOk) { $score += 1 }
+    $breakdown += @{ Check = "Browser Extensions <15"; Points = 1; Passed = $extOk }
+
+    # ── Network Hardening (5 pts) ──
+
+    $sharesOk = $Security.NetworkHardening.NoOpenShares -eq $true
+    if ($sharesOk) { $score += 1 }
+    $breakdown += @{ Check = "No Open Shares"; Points = 1; Passed = $sharesOk }
+
+    $upnpOk = $Security.NetworkHardening.UPnPDisabled -eq $true
+    if ($upnpOk) { $score += 1 }
+    $breakdown += @{ Check = "UPnP Disabled"; Points = 1; Passed = $upnpOk }
+
+    $llmnrOk = $Security.NetworkHardening.LLMNRDisabled -eq $true
+    if ($llmnrOk) { $score += 1 }
+    $breakdown += @{ Check = "LLMNR Disabled"; Points = 1; Passed = $llmnrOk }
+
+    $dohOk = $Security.NetworkHardening.DoHEnabled -eq $true
+    if ($dohOk) { $score += 1 }
+    $breakdown += @{ Check = "DNS-over-HTTPS"; Points = 1; Passed = $dohOk }
+
+    $raOk = $Security.NetworkHardening.RemoteAssistanceDisabled -eq $true
+    if ($raOk) { $score += 1 }
+    $breakdown += @{ Check = "Remote Assistance Off"; Points = 1; Passed = $raOk }
+
+    # ── System Integrity (5 pts) ──
+
+    $drvOk = $Security.SystemIntegrity.DriverSigEnforced -eq $true
+    if ($drvOk) { $score += 1 }
+    $breakdown += @{ Check = "Driver Sig Enforced"; Points = 1; Passed = $drvOk }
+
+    $psLogOk = $Security.SystemIntegrity.PSScriptLogging -eq $true
+    if ($psLogOk) { $score += 1 }
+    $breakdown += @{ Check = "PS Script Logging"; Points = 1; Passed = $psLogOk }
+
+    $logonOk = $Security.SystemIntegrity.LogonAuditEnabled -eq $true
+    if ($logonOk) { $score += 1 }
+    $breakdown += @{ Check = "Logon Audit Enabled"; Points = 1; Passed = $logonOk }
+
+    $cgOk = $Security.SystemIntegrity.CredentialGuard -eq $true
+    if ($cgOk) { $score += 1 }
+    $breakdown += @{ Check = "Credential Guard"; Points = 1; Passed = $cgOk }
+
+    $lsaOk = $Security.SystemIntegrity.LSASSProtected -eq $true
+    if ($lsaOk) { $score += 1 }
+    $breakdown += @{ Check = "LSASS Protected"; Points = 1; Passed = $lsaOk }
+
+    # ── Account Hygiene (3 pts) ──
+
+    $staleOk = $Security.AccountHygiene.NoStaleAccounts -eq $true
+    if ($staleOk) { $score += 1 }
+    $breakdown += @{ Check = "No Stale Accounts"; Points = 1; Passed = $staleOk }
+
+    $emptyPwOk = $Security.AccountHygiene.NoEmptyPasswords -eq $true
+    if ($emptyPwOk) { $score += 1 }
+    $breakdown += @{ Check = "No Empty Passwords"; Points = 1; Passed = $emptyPwOk }
+
+    $pwAgeOk = $Security.AccountHygiene.PasswordAgePolicy -eq $true
+    if ($pwAgeOk) { $score += 1 }
+    $breakdown += @{ Check = "Password Age Policy"; Points = 1; Passed = $pwAgeOk }
+
+    # ── Ransomware Protection (6 pts) ──
+
+    $cfaOk = $Security.RansomwareProtection.ControlledFolderAccess -eq $true
+    if ($cfaOk) { $score += 2 }
+    $breakdown += @{ Check = "Controlled Folder Access"; Points = 2; Passed = $cfaOk }
+
+    $rpOk = $Security.RansomwareProtection.RecentRestorePoint -eq $true
+    if ($rpOk) { $score += 2 }
+    $breakdown += @{ Check = "Recent Restore Point"; Points = 2; Passed = $rpOk }
+
+    $taskOk = $Security.RansomwareProtection.NoSuspiciousScheduledTasks -eq $true
+    if ($taskOk) { $score += 2 }
+    $breakdown += @{ Check = "No Suspicious Tasks"; Points = 2; Passed = $taskOk }
 
     # Grade
     $grade = switch ($true) {
@@ -1182,24 +1439,57 @@ function Get-Recommendations {
     foreach ($item in $Scoring.Breakdown) {
         if (-not $item.Passed) {
             $rec = switch ($item.Check) {
-                "Antivirus Active"             { "Install and activate a reputable antivirus solution immediately. This is critical for malware protection." }
-                "Firewall All Profiles"        { "Enable Windows Firewall on all network profiles (Domain, Private, Public) to block unauthorized connections." }
-                "BitLocker on C:"              { "Enable BitLocker drive encryption on the system drive to protect data if the device is lost or stolen." }
-                "No Critical Patches Missing"  { "Install all pending critical Windows updates. There are $($MissingPatches.Count) updates waiting." }
-                "UAC Enabled"                  { "Re-enable User Account Control (UAC) to prevent unauthorized system changes." }
-                "Secure Boot Enabled"          { "Enable Secure Boot in BIOS/UEFI to prevent rootkit and bootkit attacks." }
-                "TPM Present"                  { "This system lacks a TPM chip. Consider upgrading hardware to support TPM 2.0 for enhanced security." }
-                "Password Policy Adequate"     { "Strengthen password policy: require at least 8 characters with complexity rules." }
-                "Guest Account Disabled"       { "Disable the Guest account to prevent unauthorized access." }
-                "Auto-Login Disabled"          { "Disable automatic login to require authentication at every startup." }
-                "RDP Disabled or NLA Required"  { "Disable Remote Desktop if not needed, or enable Network Level Authentication (NLA)." }
-                "SMBv1 Disabled"               { "Disable SMBv1 protocol to prevent exploitation by ransomware (e.g., WannaCry, EternalBlue)." }
-                "No More Than 2 Admin Accounts" { "Reduce the number of administrator accounts. Use standard accounts for daily use." }
-                "Real-Time Protection On"      { "Enable Windows Defender real-time protection for continuous malware scanning." }
-                "AV Definitions Current"       { "Update antivirus definitions. Current definitions are outdated." }
-                default                        { "Review and remediate this security configuration." }
+                # Core Security
+                "Antivirus Active"             { "Install and activate antivirus immediately." }
+                "Firewall All Profiles"        { "Enable Windows Firewall on all profiles." }
+                "BitLocker on C:"              { "Enable BitLocker drive encryption." }
+                "No Critical Patches Missing"  { "Install all pending critical updates." }
+                "UAC Enabled"                  { "Re-enable User Account Control." }
+                "Secure Boot"                  { "Enable Secure Boot in BIOS/UEFI." }
+                "TPM Present"                  { "Hardware upgrade needed for TPM 2.0." }
+                "Password Policy"              { "Set minimum 8 character password with complexity." }
+                "Guest Disabled"               { "Disable the Guest account." }
+                "No Auto-Login"                { "Disable automatic login." }
+                "RDP Secure"                   { "Disable RDP or enable NLA." }
+                "SMBv1 Disabled"               { "Disable SMBv1 (ransomware vulnerability)." }
+                "Admin Accounts <=2"           { "Reduce admin accounts, use standard for daily use." }
+                "Real-Time Protection"         { "Enable Windows Defender real-time protection." }
+                "AV Definitions Current"       { "Update antivirus definitions." }
+                # Privacy & Data Protection
+                "Telemetry Minimal"            { "Set Windows telemetry to Security/Basic level in Settings > Privacy." }
+                "Advertising ID Disabled"      { "Disable advertising ID in Settings > Privacy > General." }
+                "Location Tracking Off"        { "Disable location tracking in Settings > Privacy > Location." }
+                "Activity History Off"         { "Disable activity history in Settings > Privacy > Activity History." }
+                "Cortana/Copilot Disabled"     { "Disable Cortana/Copilot data collection via Group Policy or Settings." }
+                "Find My Device On"            { "Enable Find My Device in Settings > Update & Security > Find My Device." }
+                # Browser Security
+                "Chrome No Saved Passwords"    { "Remove saved passwords from Chrome, use a dedicated password manager." }
+                "Edge No Saved Passwords"      { "Remove saved passwords from Edge, use a dedicated password manager." }
+                "SmartScreen Enabled"          { "Enable SmartScreen in Windows Security > App & Browser Control." }
+                "Browser Extensions <15"       { "Remove unnecessary browser extensions to reduce attack surface." }
+                # Network Hardening
+                "No Open Shares"               { "Remove unnecessary network shares or restrict permissions." }
+                "UPnP Disabled"                { "Disable UPnP (SSDP Discovery service) to prevent port-mapping exploits." }
+                "LLMNR Disabled"               { "Disable LLMNR via Group Policy to prevent name resolution poisoning." }
+                "DNS-over-HTTPS"               { "Enable DNS-over-HTTPS in Settings > Network > DNS for encrypted lookups." }
+                "Remote Assistance Off"        { "Disable Remote Assistance in System Properties > Remote." }
+                # System Integrity
+                "Driver Sig Enforced"          { "Disable test signing mode: bcdedit /set testsigning off" }
+                "PS Script Logging"            { "Enable PowerShell script block logging via Group Policy." }
+                "Logon Audit Enabled"          { "Enable logon auditing: auditpol /set /subcategory:Logon /success:enable" }
+                "Credential Guard"             { "Enable Credential Guard via Group Policy (requires UEFI + Secure Boot)." }
+                "LSASS Protected"              { "Enable LSASS protection: set RunAsPPL=1 in registry." }
+                # Account Hygiene
+                "No Stale Accounts"            { "Remove or disable local accounts not used in 90+ days." }
+                "No Empty Passwords"           { "Set passwords on all local accounts or disable them." }
+                "Password Age Policy"          { "Set a maximum password age policy (e.g. 90 days)." }
+                # Ransomware Protection
+                "Controlled Folder Access"     { "Enable Controlled Folder Access in Windows Security > Ransomware Protection." }
+                "Recent Restore Point"         { "Create a System Restore point and enable automatic restore points." }
+                "No Suspicious Tasks"          { "Review scheduled tasks running from temp/AppData directories." }
+                default                        { "Review and fix this configuration." }
             }
-            $severity = if ($item.Points -ge 10) { "Critical" } elseif ($item.Points -ge 5) { "Warning" } else { "Advisory" }
+            $severity = if ($item.Points -ge 7) { "Critical" } elseif ($item.Points -ge 3) { "Warning" } else { "Advisory" }
             $recs += @{ Check = $item.Check; Recommendation = $rec; Severity = $severity; Points = $item.Points }
         }
     }
@@ -1369,6 +1659,88 @@ function Build-HTMLReport {
     # Local Admins
     $adminCountClass = if ($Security.LocalAdmins.Count -le 2) { "pass" } else { "warn" }
     $securityDetailRows += "<tr><td>Local Admin Accounts</td><td><span class='$adminCountClass'>$($Security.LocalAdmins.Count) account(s): $($Security.LocalAdmins.Names)</span></td></tr>`n"
+
+    # ── Privacy & Data Protection detail rows ──
+    $privacyDetailRows = ""
+    if ($Security.Privacy) {
+        $pTel = if ($Security.Privacy.TelemetryMinimal) { "<span class='pass'>$iconPass Minimal</span>" } else { "<span class='fail'>$iconFail Not Restricted</span>" }
+        $privacyDetailRows += "<tr><td>Telemetry Level</td><td>$pTel</td></tr>`n"
+        $pAd = if ($Security.Privacy.AdvertisingIdDisabled) { "<span class='pass'>$iconPass Disabled</span>" } else { "<span class='fail'>$iconFail Active</span>" }
+        $privacyDetailRows += "<tr><td>Advertising ID</td><td>$pAd</td></tr>`n"
+        $pLoc = if ($Security.Privacy.LocationDisabled) { "<span class='pass'>$iconPass Off</span>" } else { "<span class='fail'>$iconFail Active</span>" }
+        $privacyDetailRows += "<tr><td>Location Tracking</td><td>$pLoc</td></tr>`n"
+        $pAct = if ($Security.Privacy.ActivityHistoryDisabled) { "<span class='pass'>$iconPass Disabled</span>" } else { "<span class='fail'>$iconFail Active</span>" }
+        $privacyDetailRows += "<tr><td>Activity History</td><td>$pAct</td></tr>`n"
+        $pCort = if ($Security.Privacy.CortanaDisabled) { "<span class='pass'>$iconPass Disabled</span>" } else { "<span class='warn'>$iconWarn Active</span>" }
+        $privacyDetailRows += "<tr><td>Cortana/Copilot</td><td>$pCort</td></tr>`n"
+        $pFmd = if ($Security.Privacy.FindMyDeviceEnabled) { "<span class='pass'>$iconPass Enabled</span>" } else { "<span class='fail'>$iconFail Off</span>" }
+        $privacyDetailRows += "<tr><td>Find My Device</td><td>$pFmd</td></tr>`n"
+    }
+
+    # ── Browser Security detail rows ──
+    $browserDetailRows = ""
+    if ($Security.BrowserSecurity) {
+        $bChr = if ($Security.BrowserSecurity.ChromeNoSavedPasswords) { "<span class='pass'>$iconPass None Saved</span>" } else { "<span class='warn'>$iconWarn Passwords Stored</span>" }
+        $browserDetailRows += "<tr><td>Chrome Passwords</td><td>$bChr</td></tr>`n"
+        $bEdg = if ($Security.BrowserSecurity.EdgeNoSavedPasswords) { "<span class='pass'>$iconPass None Saved</span>" } else { "<span class='warn'>$iconWarn Passwords Stored</span>" }
+        $browserDetailRows += "<tr><td>Edge Passwords</td><td>$bEdg</td></tr>`n"
+        $bSS = if ($Security.BrowserSecurity.SmartScreenEnabled) { "<span class='pass'>$iconPass Enabled</span>" } else { "<span class='fail'>$iconFail Disabled</span>" }
+        $browserDetailRows += "<tr><td>SmartScreen</td><td>$bSS</td></tr>`n"
+        $bExt = if ($Security.BrowserSecurity.ExtensionCountOk) { "<span class='pass'>$iconPass Reasonable</span>" } else { "<span class='warn'>$iconWarn 15+ Installed</span>" }
+        $browserDetailRows += "<tr><td>Browser Extensions</td><td>$bExt</td></tr>`n"
+    }
+
+    # ── Network Hardening detail rows ──
+    $netHardenRows = ""
+    if ($Security.NetworkHardening) {
+        $nShares = if ($Security.NetworkHardening.NoOpenShares) { "<span class='pass'>$iconPass None</span>" } else { "<span class='warn'>$iconWarn Shares Found</span>" }
+        $netHardenRows += "<tr><td>Open Shares</td><td>$nShares</td></tr>`n"
+        $nUpnp = if ($Security.NetworkHardening.UPnPDisabled) { "<span class='pass'>$iconPass Disabled</span>" } else { "<span class='fail'>$iconFail Running</span>" }
+        $netHardenRows += "<tr><td>UPnP (SSDP)</td><td>$nUpnp</td></tr>`n"
+        $nLlmnr = if ($Security.NetworkHardening.LLMNRDisabled) { "<span class='pass'>$iconPass Disabled</span>" } else { "<span class='warn'>$iconWarn Active</span>" }
+        $netHardenRows += "<tr><td>LLMNR</td><td>$nLlmnr</td></tr>`n"
+        $nDoh = if ($Security.NetworkHardening.DoHEnabled) { "<span class='pass'>$iconPass Enabled</span>" } else { "<span class='warn'>$iconWarn Off</span>" }
+        $netHardenRows += "<tr><td>DNS-over-HTTPS</td><td>$nDoh</td></tr>`n"
+        $nRa = if ($Security.NetworkHardening.RemoteAssistanceDisabled) { "<span class='pass'>$iconPass Disabled</span>" } else { "<span class='warn'>$iconWarn Enabled</span>" }
+        $netHardenRows += "<tr><td>Remote Assistance</td><td>$nRa</td></tr>`n"
+    }
+
+    # ── System Integrity detail rows ──
+    $integrityDetailRows = ""
+    if ($Security.SystemIntegrity) {
+        $iDrv = if ($Security.SystemIntegrity.DriverSigEnforced) { "<span class='pass'>$iconPass Enforced</span>" } else { "<span class='fail'>$iconFail Test Mode</span>" }
+        $integrityDetailRows += "<tr><td>Driver Signing</td><td>$iDrv</td></tr>`n"
+        $iPs = if ($Security.SystemIntegrity.PSScriptLogging) { "<span class='pass'>$iconPass On</span>" } else { "<span class='warn'>$iconWarn Off</span>" }
+        $integrityDetailRows += "<tr><td>PS Script Logging</td><td>$iPs</td></tr>`n"
+        $iLog = if ($Security.SystemIntegrity.LogonAuditEnabled) { "<span class='pass'>$iconPass Enabled</span>" } else { "<span class='warn'>$iconWarn Off</span>" }
+        $integrityDetailRows += "<tr><td>Logon Auditing</td><td>$iLog</td></tr>`n"
+        $iCg = if ($Security.SystemIntegrity.CredentialGuard) { "<span class='pass'>$iconPass Running</span>" } else { "<span class='warn'>$iconWarn Off</span>" }
+        $integrityDetailRows += "<tr><td>Credential Guard</td><td>$iCg</td></tr>`n"
+        $iLsa = if ($Security.SystemIntegrity.LSASSProtected) { "<span class='pass'>$iconPass PPL</span>" } else { "<span class='warn'>$iconWarn Unprotected</span>" }
+        $integrityDetailRows += "<tr><td>LSASS Protection</td><td>$iLsa</td></tr>`n"
+    }
+
+    # ── Account Hygiene detail rows ──
+    $accountDetailRows = ""
+    if ($Security.AccountHygiene) {
+        $aStale = if ($Security.AccountHygiene.NoStaleAccounts) { "<span class='pass'>$iconPass None</span>" } else { "<span class='warn'>$iconWarn Found</span>" }
+        $accountDetailRows += "<tr><td>Stale Accounts</td><td>$aStale</td></tr>`n"
+        $aEmpty = if ($Security.AccountHygiene.NoEmptyPasswords) { "<span class='pass'>$iconPass None</span>" } else { "<span class='fail'>$iconFail Found</span>" }
+        $accountDetailRows += "<tr><td>Empty Passwords</td><td>$aEmpty</td></tr>`n"
+        $aAge = if ($Security.AccountHygiene.PasswordAgePolicy) { "<span class='pass'>$iconPass Set</span>" } else { "<span class='warn'>$iconWarn Unlimited</span>" }
+        $accountDetailRows += "<tr><td>Password Expiry</td><td>$aAge</td></tr>`n"
+    }
+
+    # ── Ransomware Protection detail rows ──
+    $ransomDetailRows = ""
+    if ($Security.RansomwareProtection) {
+        $rCfa = if ($Security.RansomwareProtection.ControlledFolderAccess) { "<span class='pass'>$iconPass On</span>" } else { "<span class='fail'>$iconFail Off</span>" }
+        $ransomDetailRows += "<tr><td>Controlled Folders</td><td>$rCfa</td></tr>`n"
+        $rRp = if ($Security.RansomwareProtection.RecentRestorePoint) { "<span class='pass'>$iconPass Recent</span>" } else { "<span class='fail'>$iconFail None Recent</span>" }
+        $ransomDetailRows += "<tr><td>Restore Points</td><td>$rRp</td></tr>`n"
+        $rTask = if ($Security.RansomwareProtection.NoSuspiciousScheduledTasks) { "<span class='pass'>$iconPass Clean</span>" } else { "<span class='fail'>$iconFail Found</span>" }
+        $ransomDetailRows += "<tr><td>Suspicious Tasks</td><td>$rTask</td></tr>`n"
+    }
 
     # ── Network detail rows ──
     $networkRows = ""
@@ -1687,6 +2059,66 @@ $top3HTML
     <tr><th style="width:40%;">Check</th><th>Status / Details</th></tr>
     $securityDetailRows
 </table>
+
+$(if ($privacyDetailRows) {
+@"
+<div class="sub-header">Privacy &amp; Data Protection</div>
+<table>
+    <tr><th style="width:40%;">Check</th><th>Status / Details</th></tr>
+    $privacyDetailRows
+</table>
+"@
+})
+
+$(if ($browserDetailRows) {
+@"
+<div class="sub-header">Browser Security</div>
+<table>
+    <tr><th style="width:40%;">Check</th><th>Status / Details</th></tr>
+    $browserDetailRows
+</table>
+"@
+})
+
+$(if ($netHardenRows) {
+@"
+<div class="sub-header">Network Hardening</div>
+<table>
+    <tr><th style="width:40%;">Check</th><th>Status / Details</th></tr>
+    $netHardenRows
+</table>
+"@
+})
+
+$(if ($integrityDetailRows) {
+@"
+<div class="sub-header">System Integrity</div>
+<table>
+    <tr><th style="width:40%;">Check</th><th>Status / Details</th></tr>
+    $integrityDetailRows
+</table>
+"@
+})
+
+$(if ($accountDetailRows) {
+@"
+<div class="sub-header">Account Hygiene</div>
+<table>
+    <tr><th style="width:40%;">Check</th><th>Status / Details</th></tr>
+    $accountDetailRows
+</table>
+"@
+})
+
+$(if ($ransomDetailRows) {
+@"
+<div class="sub-header">Ransomware Protection</div>
+<table>
+    <tr><th style="width:40%;">Check</th><th>Status / Details</th></tr>
+    $ransomDetailRows
+</table>
+"@
+})
 
 $(if ($Recommendations.Count -gt 0) {
 @"

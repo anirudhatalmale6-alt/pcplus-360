@@ -1131,9 +1131,35 @@ function Build-SecurityReport {
                 "Admin Accounts <=2" { "Reduce admin accounts, use standard for daily use." }
                 "Real-Time Protection" { "Enable Windows Defender real-time protection." }
                 "AV Definitions Current" { "Update antivirus definitions." }
+                "Telemetry Minimal" { "Set Windows telemetry to Security/Basic level in Settings > Privacy." }
+                "Advertising ID Disabled" { "Disable advertising ID in Settings > Privacy > General." }
+                "Location Tracking Off" { "Disable location tracking in Settings > Privacy > Location." }
+                "Activity History Off" { "Disable activity history in Settings > Privacy > Activity History." }
+                "Cortana/Copilot Disabled" { "Disable Cortana/Copilot data collection via Group Policy or Settings." }
+                "Find My Device On" { "Enable Find My Device in Settings > Update & Security > Find My Device." }
+                "Chrome No Saved Passwords" { "Remove saved passwords from Chrome, use a dedicated password manager." }
+                "Edge No Saved Passwords" { "Remove saved passwords from Edge, use a dedicated password manager." }
+                "SmartScreen Enabled" { "Enable SmartScreen in Windows Security > App & Browser Control." }
+                "Browser Extensions <15" { "Remove unnecessary browser extensions to reduce attack surface." }
+                "No Open Shares" { "Remove unnecessary network shares or restrict permissions." }
+                "UPnP Disabled" { "Disable UPnP (SSDP Discovery service) to prevent port-mapping exploits." }
+                "LLMNR Disabled" { "Disable LLMNR via Group Policy to prevent name resolution poisoning." }
+                "DNS-over-HTTPS" { "Enable DNS-over-HTTPS in Settings > Network > DNS for encrypted lookups." }
+                "Remote Assistance Off" { "Disable Remote Assistance in System Properties > Remote." }
+                "Driver Sig Enforced" { "Disable test signing mode: bcdedit /set testsigning off" }
+                "PS Script Logging" { "Enable PowerShell script block logging via Group Policy." }
+                "Logon Audit Enabled" { "Enable logon auditing: auditpol /set /subcategory:Logon /success:enable" }
+                "Credential Guard" { "Enable Credential Guard via Group Policy (requires UEFI + Secure Boot)." }
+                "LSASS Protected" { "Enable LSASS protection: set RunAsPPL=1 in registry." }
+                "No Stale Accounts" { "Remove or disable local accounts not used in 90+ days." }
+                "No Empty Passwords" { "Set passwords on all local accounts or disable them." }
+                "Password Age Policy" { "Set a maximum password age policy (e.g. 90 days)." }
+                "Controlled Folder Access" { "Enable Controlled Folder Access in Windows Security > Ransomware Protection." }
+                "Recent Restore Point" { "Create a System Restore point and enable automatic restore points." }
+                "No Suspicious Tasks" { "Review scheduled tasks running from temp/AppData directories." }
                 default { "Review and fix this configuration." }
             }
-            $sev = if($item.Points -ge 10){"Critical"}elseif($item.Points -ge 5){"Warning"}else{"Advisory"}
+            $sev = if($item.Points -ge 7){"Critical"}elseif($item.Points -ge 3){"Warning"}else{"Advisory"}
             $recs += @{ Check = $item.Check; Rec = $rec; Severity = $sev }
         }
     }
@@ -1169,10 +1195,71 @@ function Build-SecurityReport {
     $secDetails += @{ Name="SMBv1"; Status=$smbSt }
     $secDetails += @{ Name="Local Admins"; Status="$($Security.LocalAdmins.Count): $($Security.LocalAdmins.Names)" }
 
-    # Build security detail cards
-    $secDetailCards = ($secDetails | ForEach-Object {
-        "<div class='sec-detail-row'><div class='sec-detail-label'>$($_.Name)</div><div class='sec-detail-value'>$($_.Status)</div></div>"
-    }) -join "`n"
+    # Privacy & Data Protection
+    $privacyDetails = @()
+    if ($Security.Privacy) {
+        $privacyDetails += @{ Name="Telemetry Level"; Status=if($Security.Privacy.TelemetryMinimal){"<span class='status-badge status-pass'>$iconPass Minimal</span>"}else{"<span class='status-badge status-fail'>$iconFail Not Restricted</span>"} }
+        $privacyDetails += @{ Name="Advertising ID"; Status=if($Security.Privacy.AdvertisingIdDisabled){"<span class='status-badge status-pass'>$iconPass Disabled</span>"}else{"<span class='status-badge status-fail'>$iconFail Active</span>"} }
+        $privacyDetails += @{ Name="Location Tracking"; Status=if($Security.Privacy.LocationDisabled){"<span class='status-badge status-pass'>$iconPass Off</span>"}else{"<span class='status-badge status-fail'>$iconFail Active</span>"} }
+        $privacyDetails += @{ Name="Activity History"; Status=if($Security.Privacy.ActivityHistoryDisabled){"<span class='status-badge status-pass'>$iconPass Disabled</span>"}else{"<span class='status-badge status-fail'>$iconFail Active</span>"} }
+        $privacyDetails += @{ Name="Cortana/Copilot"; Status=if($Security.Privacy.CortanaDisabled){"<span class='status-badge status-pass'>$iconPass Disabled</span>"}else{"<span class='status-badge status-warn'>$iconWarn Active</span>"} }
+        $privacyDetails += @{ Name="Find My Device"; Status=if($Security.Privacy.FindMyDeviceEnabled){"<span class='status-badge status-pass'>$iconPass Enabled</span>"}else{"<span class='status-badge status-fail'>$iconFail Off</span>"} }
+    }
+
+    # Browser Security
+    $browserDetails = @()
+    if ($Security.BrowserSecurity) {
+        $browserDetails += @{ Name="Chrome Passwords"; Status=if($Security.BrowserSecurity.ChromeNoSavedPasswords){"<span class='status-badge status-pass'>$iconPass None Saved</span>"}else{"<span class='status-badge status-warn'>$iconWarn Passwords Stored</span>"} }
+        $browserDetails += @{ Name="Edge Passwords"; Status=if($Security.BrowserSecurity.EdgeNoSavedPasswords){"<span class='status-badge status-pass'>$iconPass None Saved</span>"}else{"<span class='status-badge status-warn'>$iconWarn Passwords Stored</span>"} }
+        $browserDetails += @{ Name="SmartScreen"; Status=if($Security.BrowserSecurity.SmartScreenEnabled){"<span class='status-badge status-pass'>$iconPass Enabled</span>"}else{"<span class='status-badge status-fail'>$iconFail Disabled</span>"} }
+        $browserDetails += @{ Name="Extensions"; Status=if($Security.BrowserSecurity.ExtensionCountOk){"<span class='status-badge status-pass'>$iconPass Reasonable</span>"}else{"<span class='status-badge status-warn'>$iconWarn 15+ Installed</span>"} }
+    }
+
+    # Network Hardening
+    $networkDetails = @()
+    if ($Security.NetworkHardening) {
+        $networkDetails += @{ Name="Open Shares"; Status=if($Security.NetworkHardening.NoOpenShares){"<span class='status-badge status-pass'>$iconPass None</span>"}else{"<span class='status-badge status-warn'>$iconWarn Shares Found</span>"} }
+        $networkDetails += @{ Name="UPnP (SSDP)"; Status=if($Security.NetworkHardening.UPnPDisabled){"<span class='status-badge status-pass'>$iconPass Disabled</span>"}else{"<span class='status-badge status-fail'>$iconFail Running</span>"} }
+        $networkDetails += @{ Name="LLMNR"; Status=if($Security.NetworkHardening.LLMNRDisabled){"<span class='status-badge status-pass'>$iconPass Disabled</span>"}else{"<span class='status-badge status-warn'>$iconWarn Active</span>"} }
+        $networkDetails += @{ Name="DNS-over-HTTPS"; Status=if($Security.NetworkHardening.DoHEnabled){"<span class='status-badge status-pass'>$iconPass Enabled</span>"}else{"<span class='status-badge status-warn'>$iconWarn Off</span>"} }
+        $networkDetails += @{ Name="Remote Assistance"; Status=if($Security.NetworkHardening.RemoteAssistanceDisabled){"<span class='status-badge status-pass'>$iconPass Disabled</span>"}else{"<span class='status-badge status-warn'>$iconWarn Enabled</span>"} }
+    }
+
+    # System Integrity
+    $integrityDetails = @()
+    if ($Security.SystemIntegrity) {
+        $integrityDetails += @{ Name="Driver Signing"; Status=if($Security.SystemIntegrity.DriverSigEnforced){"<span class='status-badge status-pass'>$iconPass Enforced</span>"}else{"<span class='status-badge status-fail'>$iconFail Test Mode</span>"} }
+        $integrityDetails += @{ Name="PS Script Logging"; Status=if($Security.SystemIntegrity.PSScriptLogging){"<span class='status-badge status-pass'>$iconPass On</span>"}else{"<span class='status-badge status-warn'>$iconWarn Off</span>"} }
+        $integrityDetails += @{ Name="Logon Auditing"; Status=if($Security.SystemIntegrity.LogonAuditEnabled){"<span class='status-badge status-pass'>$iconPass Enabled</span>"}else{"<span class='status-badge status-warn'>$iconWarn Off</span>"} }
+        $integrityDetails += @{ Name="Credential Guard"; Status=if($Security.SystemIntegrity.CredentialGuard){"<span class='status-badge status-pass'>$iconPass Running</span>"}else{"<span class='status-badge status-warn'>$iconWarn Off</span>"} }
+        $integrityDetails += @{ Name="LSASS Protection"; Status=if($Security.SystemIntegrity.LSASSProtected){"<span class='status-badge status-pass'>$iconPass PPL</span>"}else{"<span class='status-badge status-warn'>$iconWarn Unprotected</span>"} }
+    }
+
+    # Account Hygiene
+    $accountDetails = @()
+    if ($Security.AccountHygiene) {
+        $accountDetails += @{ Name="Stale Accounts"; Status=if($Security.AccountHygiene.NoStaleAccounts){"<span class='status-badge status-pass'>$iconPass None</span>"}else{"<span class='status-badge status-warn'>$iconWarn Found</span>"} }
+        $accountDetails += @{ Name="Empty Passwords"; Status=if($Security.AccountHygiene.NoEmptyPasswords){"<span class='status-badge status-pass'>$iconPass None</span>"}else{"<span class='status-badge status-fail'>$iconFail Found</span>"} }
+        $accountDetails += @{ Name="Password Expiry"; Status=if($Security.AccountHygiene.PasswordAgePolicy){"<span class='status-badge status-pass'>$iconPass Set</span>"}else{"<span class='status-badge status-warn'>$iconWarn Unlimited</span>"} }
+    }
+
+    # Ransomware Protection
+    $ransomDetails = @()
+    if ($Security.RansomwareProtection) {
+        $ransomDetails += @{ Name="Controlled Folders"; Status=if($Security.RansomwareProtection.ControlledFolderAccess){"<span class='status-badge status-pass'>$iconPass On</span>"}else{"<span class='status-badge status-fail'>$iconFail Off</span>"} }
+        $ransomDetails += @{ Name="Restore Points"; Status=if($Security.RansomwareProtection.RecentRestorePoint){"<span class='status-badge status-pass'>$iconPass Recent</span>"}else{"<span class='status-badge status-fail'>$iconFail None Recent</span>"} }
+        $ransomDetails += @{ Name="Suspicious Tasks"; Status=if($Security.RansomwareProtection.NoSuspiciousScheduledTasks){"<span class='status-badge status-pass'>$iconPass Clean</span>"}else{"<span class='status-badge status-fail'>$iconFail Found</span>"} }
+    }
+
+    # Build all detail sections
+    $buildDetailCards = { param($items) ($items | ForEach-Object { "<div class='sec-detail-row'><div class='sec-detail-label'>$($_.Name)</div><div class='sec-detail-value'>$($_.Status)</div></div>" }) -join "`n" }
+    $secDetailCards = & $buildDetailCards $secDetails
+    $privacyDetailCards = if($privacyDetails.Count -gt 0){ & $buildDetailCards $privacyDetails } else { "" }
+    $browserDetailCards = if($browserDetails.Count -gt 0){ & $buildDetailCards $browserDetails } else { "" }
+    $networkDetailCards = if($networkDetails.Count -gt 0){ & $buildDetailCards $networkDetails } else { "" }
+    $integrityDetailCards = if($integrityDetails.Count -gt 0){ & $buildDetailCards $integrityDetails } else { "" }
+    $accountDetailCards = if($accountDetails.Count -gt 0){ & $buildDetailCards $accountDetails } else { "" }
+    $ransomDetailCards = if($ransomDetails.Count -gt 0){ & $buildDetailCards $ransomDetails } else { "" }
 
     # Patch rows
     $patchRows = if($MissingPatches.Count -gt 0){
@@ -1399,11 +1486,24 @@ $recsHTML
 <!-- DETAILED SECURITY STATUS -->
 <div class="page-break"></div>
 
-<div class="section-header"><span class="section-icon">&#128274;</span> Detailed Security Status</div>
-
+<div class="section-header"><span class="section-icon">&#128274;</span> Core Security Status</div>
 <div class="sec-detail-panel">
 $secDetailCards
 </div>
+
+$(if($privacyDetailCards){"<div class='section-header' style='margin-top:16px;'><span class='section-icon'>&#128065;</span> Privacy &amp; Data Protection</div><div class='sec-detail-panel'>$privacyDetailCards</div>"})
+
+$(if($browserDetailCards){"<div class='section-header' style='margin-top:16px;'><span class='section-icon'>&#127760;</span> Browser Security</div><div class='sec-detail-panel'>$browserDetailCards</div>"})
+
+<div class="page-break"></div>
+
+$(if($networkDetailCards){"<div class='section-header'><span class='section-icon'>&#128225;</span> Network Hardening</div><div class='sec-detail-panel'>$networkDetailCards</div>"})
+
+$(if($integrityDetailCards){"<div class='section-header' style='margin-top:16px;'><span class='section-icon'>&#128737;</span> System Integrity</div><div class='sec-detail-panel'>$integrityDetailCards</div>"})
+
+$(if($accountDetailCards){"<div class='section-header' style='margin-top:16px;'><span class='section-icon'>&#128100;</span> Account Hygiene</div><div class='sec-detail-panel'>$accountDetailCards</div>"})
+
+$(if($ransomDetailCards){"<div class='section-header' style='margin-top:16px;'><span class='section-icon'>&#128721;</span> Ransomware Protection</div><div class='sec-detail-panel'>$ransomDetailCards</div>"})
 
 
 <!-- MISSING PATCHES -->
