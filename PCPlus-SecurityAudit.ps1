@@ -9,7 +9,7 @@
     Company:  PC Plus Computing
     Website:  pcpluscomputing.com
     Phone:    604-760-1662
-    Version:  2.0.0
+    Version:  2.6.0
     Requires: PowerShell 5.1+, Windows 10/11, Administrator privileges
 #>
 
