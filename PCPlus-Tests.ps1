@@ -3011,3 +3011,1116 @@ function Invoke-WearAndTearReport {
         Recommendations    = @($recommendations)
     }
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GAMING PC DIAGNOSTIC TOOLKIT
+# Time-sampled stress, DiskSpd, PresentMon, deep network, power, orchestrator
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Start-TimeSampledStressTest {
+    param(
+        [int]$DurationSeconds = 120,
+        [int]$SampleIntervalSec = 5
+    )
+
+    Write-DiagLog "Starting time-sampled CPU+GPU stress test (${DurationSeconds}s, sampling every ${SampleIntervalSec}s)..."
+
+    $results = @{
+        DurationSec        = $DurationSeconds
+        SampleCount        = 0
+        Samples            = @()
+        PeakCPUTemp        = $null
+        PeakGPUTemp        = $null
+        AvgCPUTemp         = $null
+        AvgGPUTemp         = $null
+        MaxCPUClock        = $null
+        MinCPUClock        = $null
+        ThrottleDetected   = $false
+        ThrottleEvents     = @()
+        CPUStressPassed    = $true
+        GPUStressPassed    = $true
+        CoolingRecoveryTimeSec = $null
+    }
+
+    # ── Helper: read current CPU temperature ──
+    function _SampleCPUTemp {
+        Invoke-Safe {
+            $t = Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction Stop | Select-Object -First 1
+            [math]::Round(($t.CurrentTemperature / 10) - 273.15, 1)
+        } $null
+    }
+
+    # ── Helper: read GPU temperature (try WMI thermalzone fallback) ──
+    function _SampleGPUTemp {
+        # Try dedicated GPU thermal zone (second zone if present)
+        Invoke-Safe {
+            $zones = @(Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction Stop)
+            if ($zones.Count -ge 2) {
+                [math]::Round(($zones[1].CurrentTemperature / 10) - 273.15, 1)
+            } else { $null }
+        } $null
+    }
+
+    # ── Helper: read fan RPM ──
+    function _SampleFanRPM {
+        Invoke-Safe {
+            $fan = Get-CimInstance Win32_Fan -ErrorAction Stop | Select-Object -First 1
+            if ($fan -and $fan.DesiredSpeed) { [int]$fan.DesiredSpeed } else { $null }
+        } $null
+    }
+
+    # ── Start CPU stress background jobs (all-cores prime sieve) ──
+    $threadCount = [Environment]::ProcessorCount
+    $endTime = (Get-Date).AddSeconds($DurationSeconds)
+    $cpuJobs = @()
+    for ($i = 0; $i -lt $threadCount; $i++) {
+        $cpuJobs += Start-Job -ScriptBlock {
+            param($end)
+            $errors = 0; $iterations = 0
+            while ((Get-Date) -lt $end) {
+                $n = 100000; $primes = @($true) * ($n + 1)
+                for ($p = 2; $p * $p -le $n; $p++) {
+                    if ($primes[$p]) { for ($m = $p * $p; $m -le $n; $m += $p) { $primes[$m] = $false } }
+                }
+                $count = ($primes | Where-Object { $_ }) | Measure-Object | Select-Object -ExpandProperty Count
+                $count -= 2
+                if ($count -ne 9592) { $errors++ }
+                $iterations++
+            }
+            return @{ Iterations = $iterations; Errors = $errors }
+        } -ArgumentList $endTime
+    }
+
+    # ── Start GPU stress background job (GDI+ rendering loop) ──
+    $gpuJob = Start-Job -ScriptBlock {
+        param($end)
+        $errors = 0; $iterations = 0
+        try {
+            Add-Type -AssemblyName System.Drawing
+            while ((Get-Date) -lt $end) {
+                $bmp = New-Object System.Drawing.Bitmap(2048, 2048)
+                $g = [System.Drawing.Graphics]::FromImage($bmp)
+                $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+                for ($j = 0; $j -lt 50; $j++) {
+                    $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb((Get-Random -Max 256),(Get-Random -Max 256),(Get-Random -Max 256)))
+                    $g.FillEllipse($brush, (Get-Random -Max 1800), (Get-Random -Max 1800), (Get-Random -Min 50 -Max 500), (Get-Random -Min 50 -Max 500))
+                    $pen = New-Object System.Drawing.Pen($brush.Color, (Get-Random -Min 1 -Max 10))
+                    $g.DrawLine($pen, (Get-Random -Max 2048), (Get-Random -Max 2048), (Get-Random -Max 2048), (Get-Random -Max 2048))
+                    $brush.Dispose(); $pen.Dispose()
+                }
+                $matrix = New-Object System.Drawing.Drawing2D.Matrix
+                $matrix.Rotate((Get-Random -Max 360))
+                $matrix.Scale(1.5, 1.5)
+                $g.Transform = $matrix
+                $g.DrawImage($bmp, 0, 0)
+                $matrix.Dispose()
+                $g.Dispose(); $bmp.Dispose()
+                $iterations++
+            }
+        } catch { $errors++ }
+        return @{ Iterations = $iterations; Errors = $errors }
+    } -ArgumentList $endTime
+
+    # ── Sampling loop during stress ──
+    $samples = [System.Collections.ArrayList]::new()
+    $startTime = Get-Date
+
+    while ((Get-Date) -lt $endTime) {
+        Start-Sleep -Seconds $SampleIntervalSec
+        $elapsed = [math]::Round(((Get-Date) - $startTime).TotalSeconds)
+
+        $cpuTemp = _SampleCPUTemp
+        $gpuTemp = _SampleGPUTemp
+        $fanRPM  = _SampleFanRPM
+
+        $cpuUsage = Invoke-Safe {
+            [math]::Round((Get-Counter '\Processor(_Total)\% Processor Time' -ErrorAction Stop).CounterSamples[0].CookedValue, 1)
+        } $null
+
+        $cpuClock = Invoke-Safe {
+            (Get-CimInstance Win32_Processor -ErrorAction Stop | Select-Object -First 1).CurrentClockSpeed
+        } $null
+
+        $ramUsage = Invoke-Safe {
+            $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+            [math]::Round((($os.TotalVisibleMemorySize - $os.FreePhysicalMemory) / $os.TotalVisibleMemorySize) * 100, 1)
+        } $null
+
+        $null = $samples.Add(@{
+            TimeSec      = $elapsed
+            CPUTempC     = $cpuTemp
+            CPUUsagePct  = $cpuUsage
+            CPUClockMHz  = $cpuClock
+            GPUTempC     = $gpuTemp
+            RAMUsagePct  = $ramUsage
+            FanRPM       = $fanRPM
+        })
+
+        Write-DiagLog "  StressSample: ${elapsed}s CPU=${cpuTemp}C/${cpuUsage}% Clock=${cpuClock}MHz GPU=${gpuTemp}C RAM=${ramUsage}% Fan=${fanRPM}"
+    }
+
+    # ── Stop stress jobs and collect results ──
+    $cpuJobs + @($gpuJob) | Wait-Job -Timeout 30 | Out-Null
+
+    $totalCPUIterations = 0; $totalCPUErrors = 0
+    foreach ($j in $cpuJobs) {
+        $r = Receive-Job $j -ErrorAction SilentlyContinue
+        if ($r) { $totalCPUIterations += $r.Iterations; $totalCPUErrors += $r.Errors }
+        Remove-Job $j -Force -ErrorAction SilentlyContinue
+    }
+    $results.CPUStressPassed = ($totalCPUErrors -eq 0)
+
+    $gpuResult = Receive-Job $gpuJob -ErrorAction SilentlyContinue
+    Remove-Job $gpuJob -Force -ErrorAction SilentlyContinue
+    if ($gpuResult -and $gpuResult.Errors -gt 0) { $results.GPUStressPassed = $false }
+
+    # ── Post-stress cooling recovery sampling (30 seconds) ──
+    Write-DiagLog "Stress jobs stopped. Sampling cooling recovery for 30 seconds..."
+    $recoveryStart = Get-Date
+    $peakTempAtEnd = if ($samples.Count -gt 0) {
+        $lastSample = $samples[$samples.Count - 1]
+        if ($lastSample.CPUTempC) { $lastSample.CPUTempC } else { 0 }
+    } else { 0 }
+    $recoveryTarget = $peakTempAtEnd - 10
+    $recoveryAchieved = $false
+    $recoveryTimeSec = $null
+
+    for ($ri = 0; $ri -lt 6; $ri++) {
+        Start-Sleep -Seconds 5
+        $elapsed = [math]::Round(((Get-Date) - $startTime).TotalSeconds)
+        $cpuTemp = _SampleCPUTemp
+        $gpuTemp = _SampleGPUTemp
+        $fanRPM  = _SampleFanRPM
+        $cpuClock = Invoke-Safe { (Get-CimInstance Win32_Processor -ErrorAction Stop | Select-Object -First 1).CurrentClockSpeed } $null
+        $ramUsage = Invoke-Safe {
+            $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+            [math]::Round((($os.TotalVisibleMemorySize - $os.FreePhysicalMemory) / $os.TotalVisibleMemorySize) * 100, 1)
+        } $null
+        $cpuUsage = Invoke-Safe {
+            [math]::Round((Get-Counter '\Processor(_Total)\% Processor Time' -ErrorAction Stop).CounterSamples[0].CookedValue, 1)
+        } $null
+
+        $null = $samples.Add(@{
+            TimeSec      = $elapsed
+            CPUTempC     = $cpuTemp
+            CPUUsagePct  = $cpuUsage
+            CPUClockMHz  = $cpuClock
+            GPUTempC     = $gpuTemp
+            RAMUsagePct  = $ramUsage
+            FanRPM       = $fanRPM
+        })
+
+        if (-not $recoveryAchieved -and $cpuTemp -and $cpuTemp -le $recoveryTarget) {
+            $recoveryTimeSec = [math]::Round(((Get-Date) - $recoveryStart).TotalSeconds)
+            $recoveryAchieved = $true
+        }
+
+        Write-DiagLog "  RecoverySample: ${elapsed}s CPU=${cpuTemp}C"
+    }
+
+    if (-not $recoveryAchieved) {
+        $recoveryTimeSec = [math]::Round(((Get-Date) - $recoveryStart).TotalSeconds)
+    }
+
+    # ── Calculate statistics ──
+    $results.Samples = @($samples)
+    $results.SampleCount = $samples.Count
+    $results.CoolingRecoveryTimeSec = $recoveryTimeSec
+
+    $cpuTemps = @($samples | Where-Object { $null -ne $_.CPUTempC } | ForEach-Object { $_.CPUTempC })
+    $gpuTemps = @($samples | Where-Object { $null -ne $_.GPUTempC } | ForEach-Object { $_.GPUTempC })
+    $cpuClocks = @($samples | Where-Object { $null -ne $_.CPUClockMHz } | ForEach-Object { $_.CPUClockMHz })
+
+    if ($cpuTemps.Count -gt 0) {
+        $results.PeakCPUTemp = ($cpuTemps | Measure-Object -Maximum).Maximum
+        $results.AvgCPUTemp  = [math]::Round(($cpuTemps | Measure-Object -Average).Average, 1)
+    }
+    if ($gpuTemps.Count -gt 0) {
+        $results.PeakGPUTemp = ($gpuTemps | Measure-Object -Maximum).Maximum
+        $results.AvgGPUTemp  = [math]::Round(($gpuTemps | Measure-Object -Average).Average, 1)
+    }
+    if ($cpuClocks.Count -gt 0) {
+        $results.MaxCPUClock = ($cpuClocks | Measure-Object -Maximum).Maximum
+        $results.MinCPUClock = ($cpuClocks | Measure-Object -Minimum).Minimum
+
+        # Throttle detection: clock drop > 10% from max observed
+        if ($results.MaxCPUClock -gt 0) {
+            $throttleThreshold = $results.MaxCPUClock * 0.90
+            $throttleEvents = @()
+            foreach ($s in $samples) {
+                if ($null -ne $s.CPUClockMHz -and $s.CPUClockMHz -lt $throttleThreshold) {
+                    $dropPct = [math]::Round((($results.MaxCPUClock - $s.CPUClockMHz) / $results.MaxCPUClock) * 100, 1)
+                    $throttleEvents += @{ TimeSec = $s.TimeSec; ClockDropPct = $dropPct; ClockMHz = $s.CPUClockMHz }
+                }
+            }
+            if ($throttleEvents.Count -gt 0) {
+                $results.ThrottleDetected = $true
+                $results.ThrottleEvents = $throttleEvents
+            }
+        }
+    }
+
+    Write-DiagLog "TimeSampledStress complete: Samples=$($results.SampleCount), PeakCPU=$($results.PeakCPUTemp)C, PeakGPU=$($results.PeakGPUTemp)C, Throttle=$($results.ThrottleDetected), Recovery=$($results.CoolingRecoveryTimeSec)s"
+    return $results
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DISKSPD BENCHMARK (with built-in fallback)
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Invoke-DiskSpdBenchmark {
+    param(
+        [string]$TargetDrive = "C:",
+        [int]$FileSizeMB = 256,
+        [int]$DurationSec = 30
+    )
+
+    Write-DiagLog "Starting DiskSpd benchmark on $TargetDrive (${FileSizeMB}MB, ${DurationSec}s)..."
+
+    $results = @{
+        ToolUsed           = "Built-in"
+        SeqReadMBps        = 0
+        SeqWriteMBps       = 0
+        Random4KReadIOPS   = 0
+        Random4KWriteIOPS  = 0
+        AvgLatencyMs       = 0
+        MaxLatencyMs       = 0
+        DrivePath          = $TargetDrive
+        FileSizeMB         = $FileSizeMB
+        ThrottleDetected   = $false
+    }
+
+    $testFile = Join-Path $TargetDrive "diskspd_test.dat"
+
+    # Try to find diskspd.exe
+    $diskspd = Find-Tool "DiskSpd" @("diskspd.exe")
+    if (-not $diskspd) {
+        $diskspd = Get-ChildItem $Global:ToolsDir -Recurse -Filter "diskspd.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($diskspd) { $diskspd = $diskspd.FullName }
+    }
+
+    if ($diskspd) {
+        Write-DiagLog "DiskSpd found: $diskspd"
+        $results.ToolUsed = "DiskSpd"
+
+        # ── Helper: run diskspd and capture output ──
+        function _RunDiskSpd {
+            param([string]$Arguments)
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName = $diskspd
+            $psi.Arguments = $Arguments
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow = $true
+            $proc = New-Object System.Diagnostics.Process
+            $proc.StartInfo = $psi
+            $null = $proc.Start()
+            $stdout = $proc.StandardOutput.ReadToEnd()
+            $proc.WaitForExit()
+            return $stdout
+        }
+
+        # ── Helper: parse diskspd text output ──
+        function _ParseDiskSpdOutput {
+            param([string]$Output)
+            $parsed = @{ ReadMBps = 0; WriteMBps = 0; ReadIOPS = 0; WriteIOPS = 0; AvgLatMs = 0; MaxLatMs = 0 }
+            $lines = $Output -split "`n"
+            $inRead = $false; $inWrite = $false; $inLatency = $false
+
+            foreach ($line in $lines) {
+                if ($line -match "Read IO") { $inRead = $true; $inWrite = $false }
+                if ($line -match "Write IO") { $inRead = $false; $inWrite = $true }
+
+                # Total throughput line: "total:  ... MiB/s"  or bytes/sec
+                if ($line -match "total:\s+\d+\s*\|\s+[\d.]+\s*\|\s+([\d.]+)\s*\|\s+([\d.]+)") {
+                    if ($inRead) {
+                        $results.Random4KReadIOPS = [math]::Round([double]$Matches[2], 0)
+                    }
+                    if ($inWrite) {
+                        $results.Random4KWriteIOPS = [math]::Round([double]$Matches[2], 0)
+                    }
+                }
+
+                # MiB/s pattern
+                if ($line -match "([\d.]+)\s+MiB/s") {
+                    $mbps = [double]$Matches[1]
+                    if ($inRead -and $parsed.ReadMBps -eq 0) { $parsed.ReadMBps = [math]::Round($mbps, 1) }
+                    if ($inWrite -and $parsed.WriteMBps -eq 0) { $parsed.WriteMBps = [math]::Round($mbps, 1) }
+                }
+
+                # I/O per s
+                if ($line -match "([\d.]+)\s+I/O per s") {
+                    $iops = [double]$Matches[1]
+                    if ($inRead -and $parsed.ReadIOPS -eq 0) { $parsed.ReadIOPS = [math]::Round($iops, 0) }
+                    if ($inWrite -and $parsed.WriteIOPS -eq 0) { $parsed.WriteIOPS = [math]::Round($iops, 0) }
+                }
+
+                # Average latency
+                if ($line -match "avg\.\s*:\s*([\d.]+)") {
+                    $lat = [double]$Matches[1]
+                    if ($parsed.AvgLatMs -eq 0) { $parsed.AvgLatMs = [math]::Round($lat, 3) }
+                }
+
+                # Max latency (look in %-ile section or max line)
+                if ($line -match "max\.\s*:\s*([\d.]+)") {
+                    $lat = [double]$Matches[1]
+                    if ($lat -gt $parsed.MaxLatMs) { $parsed.MaxLatMs = [math]::Round($lat, 3) }
+                }
+            }
+            return $parsed
+        }
+
+        try {
+            # ── Mixed random 4K test (30% write) ──
+            Write-DiagLog "DiskSpd: Running random 4K mixed test..."
+            $randomArgs = "-b4K -t4 -o32 -r -w30 -d$DurationSec -Sh -D -L `"$testFile`" -c${FileSizeMB}M"
+            $randomOutput = _RunDiskSpd $randomArgs
+            $randomParsed = _ParseDiskSpdOutput $randomOutput
+
+            $results.Random4KReadIOPS  = if ($randomParsed.ReadIOPS -gt 0) { $randomParsed.ReadIOPS } else { $results.Random4KReadIOPS }
+            $results.Random4KWriteIOPS = if ($randomParsed.WriteIOPS -gt 0) { $randomParsed.WriteIOPS } else { $results.Random4KWriteIOPS }
+            $results.AvgLatencyMs      = $randomParsed.AvgLatMs
+            $results.MaxLatencyMs      = $randomParsed.MaxLatMs
+
+            # ── Sequential read test (1M block, single thread) ──
+            Write-DiagLog "DiskSpd: Running sequential read test..."
+            $seqReadArgs = "-b1M -t1 -o8 -w0 -d10 -Sh `"$testFile`""
+            $seqReadOutput = _RunDiskSpd $seqReadArgs
+            $seqReadParsed = _ParseDiskSpdOutput $seqReadOutput
+            $results.SeqReadMBps = $seqReadParsed.ReadMBps
+
+            # ── Sequential write test (1M block, single thread) ──
+            Write-DiagLog "DiskSpd: Running sequential write test..."
+            $seqWriteArgs = "-b1M -t1 -o8 -w100 -d10 -Sh `"$testFile`""
+            $seqWriteOutput = _RunDiskSpd $seqWriteArgs
+            $seqWriteParsed = _ParseDiskSpdOutput $seqWriteOutput
+            $results.SeqWriteMBps = $seqWriteParsed.WriteMBps
+
+            Write-DiagLog "DiskSpd results: SeqR=$($results.SeqReadMBps) MB/s, SeqW=$($results.SeqWriteMBps) MB/s, 4KR=$($results.Random4KReadIOPS) IOPS, 4KW=$($results.Random4KWriteIOPS) IOPS, AvgLat=$($results.AvgLatencyMs)ms"
+        } catch {
+            Write-DiagLog "DiskSpd error: $($_.Exception.Message) - falling back to built-in" "WARN"
+            $results.ToolUsed = "Built-in (DiskSpd failed)"
+        }
+    }
+
+    # ── Fallback to built-in Start-DiskBenchmark if DiskSpd not available or failed ──
+    if ($results.ToolUsed -ne "DiskSpd") {
+        Write-DiagLog "Using built-in disk benchmark as fallback..."
+        $driveLetter = $TargetDrive -replace "[:\\]", ""
+        $builtIn = Start-DiskBenchmark -DriveLetter $driveLetter -FileSizeMB $FileSizeMB
+        $results.SeqReadMBps  = $builtIn.SeqReadMBps
+        $results.SeqWriteMBps = $builtIn.SeqWriteMBps
+        $results.ToolUsed     = "Built-in"
+    }
+
+    # Cleanup test file
+    if (Test-Path $testFile) {
+        Remove-Item $testFile -Force -ErrorAction SilentlyContinue
+        Write-DiagLog "DiskSpd test file cleaned up."
+    }
+
+    # Check for throttling: if sequential read drops well below expected for NVMe
+    if ($results.SeqReadMBps -gt 0 -and $results.SeqWriteMBps -gt 0) {
+        $ratio = $results.SeqWriteMBps / [math]::Max(1, $results.SeqReadMBps)
+        if ($ratio -lt 0.2) {
+            $results.ThrottleDetected = $true
+            Write-DiagLog "DiskSpd: Write throttling suspected (write/read ratio=$([math]::Round($ratio,2)))" "WARN"
+        }
+    }
+
+    return $results
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PRESENTMON FRAME TIME CAPTURE
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Invoke-PresentMonCapture {
+    param(
+        [int]$DurationSeconds = 60,
+        [string]$ProcessName = ""
+    )
+
+    Write-DiagLog "Starting PresentMon capture (${DurationSeconds}s, process='$ProcessName')..."
+
+    $results = @{
+        Available            = $false
+        AvgFPS               = $null
+        OnePercentLowFPS     = $null
+        PointOnePercentLowFPS = $null
+        AvgFrameTimeMs       = $null
+        P99FrameTimeMs       = $null
+        CapturedProcess      = $null
+        DurationSec          = $DurationSeconds
+        TotalFrames          = 0
+    }
+
+    # Locate PresentMon
+    $presentMon = Find-Tool "PresentMon" @("PresentMon.exe", "PresentMon-2.3.0-x64.exe", "PresentMon64.exe")
+    if (-not $presentMon) {
+        $presentMon = Get-ChildItem $Global:ToolsDir -Recurse -Filter "PresentMon*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($presentMon) { $presentMon = $presentMon.FullName }
+    }
+
+    if (-not $presentMon) {
+        Write-DiagLog "PresentMon not found in tools directory. Frame time capture not available."
+        $results.Message = "PresentMon not found. Place PresentMon.exe in the Tools folder to enable frame time analysis."
+        return $results
+    }
+
+    Write-DiagLog "PresentMon found: $presentMon"
+    $results.Available = $true
+    $tempCsv = Join-Path $env:TEMP "pcplus_presentmon_$(Get-Random).csv"
+
+    try {
+        # Build arguments
+        $pmArgs = "--output_file `"$tempCsv`" --terminate_after_ticks $DurationSeconds --no_top"
+        if ($ProcessName) {
+            $pmArgs += " --process_name `"$ProcessName`""
+        }
+
+        # Launch PresentMon
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $presentMon
+        $psi.Arguments = $pmArgs
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $proc = New-Object System.Diagnostics.Process
+        $proc.StartInfo = $psi
+        $null = $proc.Start()
+
+        # Wait for it to finish (with timeout)
+        $maxWaitMs = ($DurationSeconds + 30) * 1000
+        if (-not $proc.WaitForExit($maxWaitMs)) {
+            try { $proc.Kill() } catch {}
+            Write-DiagLog "PresentMon timed out after $($DurationSeconds + 30)s" "WARN"
+        }
+
+        # Parse CSV output
+        if (Test-Path $tempCsv) {
+            $csv = Import-Csv $tempCsv -ErrorAction Stop
+
+            # PresentMon CSV columns vary by version; find the frame time column
+            $frameTimeCol = $null
+            $processCol   = $null
+            $sampleCols   = $csv[0].PSObject.Properties.Name
+            foreach ($col in $sampleCols) {
+                if ($col -match "MsBetweenPresents|msBetweenPresents|FrameTime|ms_between_presents") { $frameTimeCol = $col }
+                if ($col -match "Application|ProcessName|process_name") { $processCol = $col }
+            }
+
+            if ($frameTimeCol -and $csv.Count -gt 0) {
+                $frameTimes = @($csv | ForEach-Object { [double]$_.$frameTimeCol } | Where-Object { $_ -gt 0 -and $_ -lt 1000 })
+                $results.TotalFrames = $frameTimes.Count
+
+                if ($frameTimes.Count -gt 0) {
+                    # Average frame time and FPS
+                    $avgFT = ($frameTimes | Measure-Object -Average).Average
+                    $results.AvgFrameTimeMs = [math]::Round($avgFT, 2)
+                    $results.AvgFPS = [math]::Round(1000.0 / $avgFT, 1)
+
+                    # Sort for percentile calculations
+                    $sorted = $frameTimes | Sort-Object
+
+                    # 99th percentile frame time
+                    $p99Index = [math]::Floor($sorted.Count * 0.99)
+                    $results.P99FrameTimeMs = [math]::Round($sorted[$p99Index], 2)
+
+                    # 1% low FPS = average of bottom 1% frame times inverted
+                    $onePercentCount = [math]::Max(1, [math]::Floor($sorted.Count * 0.01))
+                    $worst1Pct = $sorted[($sorted.Count - $onePercentCount)..($sorted.Count - 1)]
+                    $avg1PctFT = ($worst1Pct | Measure-Object -Average).Average
+                    $results.OnePercentLowFPS = [math]::Round(1000.0 / $avg1PctFT, 1)
+
+                    # 0.1% low FPS
+                    $pointOneCount = [math]::Max(1, [math]::Floor($sorted.Count * 0.001))
+                    $worst01Pct = $sorted[($sorted.Count - $pointOneCount)..($sorted.Count - 1)]
+                    $avg01PctFT = ($worst01Pct | Measure-Object -Average).Average
+                    $results.PointOnePercentLowFPS = [math]::Round(1000.0 / $avg01PctFT, 1)
+
+                    # Captured process name
+                    if ($processCol) {
+                        $results.CapturedProcess = ($csv | Select-Object -First 1).$processCol
+                    } elseif ($ProcessName) {
+                        $results.CapturedProcess = $ProcessName
+                    }
+                }
+
+                Write-DiagLog "PresentMon: AvgFPS=$($results.AvgFPS), 1%Low=$($results.OnePercentLowFPS), 0.1%Low=$($results.PointOnePercentLowFPS), P99FT=$($results.P99FrameTimeMs)ms, Frames=$($results.TotalFrames)"
+            } else {
+                Write-DiagLog "PresentMon CSV parsed but no frame time column found." "WARN"
+                $results.Message = "CSV captured but frame time column not recognized."
+            }
+        } else {
+            Write-DiagLog "PresentMon did not produce output CSV." "WARN"
+            $results.Message = "PresentMon ran but produced no output. Ensure a GPU-rendered application is running."
+        }
+    } catch {
+        Write-DiagLog "PresentMon error: $($_.Exception.Message)" "WARN"
+        $results.Message = "PresentMon error: $($_.Exception.Message)"
+    } finally {
+        if (Test-Path $tempCsv) { Remove-Item $tempCsv -Force -ErrorAction SilentlyContinue }
+    }
+
+    return $results
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DEEP NETWORK TEST (beyond Get-NetworkDiagnostics)
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Get-NetworkDeepTest {
+    Write-DiagLog "Running deep network diagnostic test..."
+
+    $results = @{
+        PingTest     = @{ AvgMs = $null; MinMs = $null; MaxMs = $null; JitterMs = $null; PacketLossPct = $null; PacketsSent = 20 }
+        DNSResponse  = @()
+        WiFi         = @{ SignalPercent = $null; SSID = $null; Channel = $null; RadioType = $null; Band = $null; RxRate = $null; TxRate = $null }
+        Adapters     = @()
+        Speedtest    = @{ Available = $false; DownloadMbps = $null; UploadMbps = $null; PingMs = $null }
+        Score        = 0
+        Rating       = "Unknown"
+    }
+
+    # ── 1. Ping test to 8.8.8.8 (20 packets) ──
+    Write-DiagLog "  Ping test: 20 packets to 8.8.8.8..."
+    $pingData = Invoke-Safe {
+        $pings = Test-Connection -ComputerName "8.8.8.8" -Count 20 -ErrorAction Stop
+        $latencies = @($pings | ForEach-Object { $_.Latency })
+        $received = $latencies.Count
+        $loss = [math]::Round(((20 - $received) / 20) * 100, 1)
+
+        $avg = [math]::Round(($latencies | Measure-Object -Average).Average, 1)
+        $min = ($latencies | Measure-Object -Minimum).Minimum
+        $max = ($latencies | Measure-Object -Maximum).Maximum
+
+        # Jitter = standard deviation of RTT
+        $mean = ($latencies | Measure-Object -Average).Average
+        $sumSqDiff = 0
+        foreach ($l in $latencies) { $sumSqDiff += [math]::Pow($l - $mean, 2) }
+        $jitter = [math]::Round([math]::Sqrt($sumSqDiff / [math]::Max(1, $latencies.Count)), 1)
+
+        @{ AvgMs = $avg; MinMs = $min; MaxMs = $max; JitterMs = $jitter; PacketLossPct = $loss; PacketsSent = 20 }
+    } $results.PingTest
+
+    $results.PingTest = $pingData
+    Write-DiagLog "  Ping: Avg=$($pingData.AvgMs)ms, Min=$($pingData.MinMs), Max=$($pingData.MaxMs), Jitter=$($pingData.JitterMs)ms, Loss=$($pingData.PacketLossPct)%"
+
+    # ── 2. DNS response times for multiple domains ──
+    Write-DiagLog "  DNS response time tests..."
+    $dnsTargets = @("google.com", "cloudflare.com", "microsoft.com")
+    foreach ($domain in $dnsTargets) {
+        $dnsResult = Invoke-Safe {
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            $resolved = Resolve-DnsName $domain -Type A -ErrorAction Stop
+            $sw.Stop()
+            @{
+                Domain     = $domain
+                ResponseMs = [math]::Round($sw.Elapsed.TotalMilliseconds, 1)
+                IPAddress  = ($resolved | Where-Object { $_.Type -eq "A" } | Select-Object -First 1).IPAddress
+                Success    = $true
+            }
+        } @{ Domain = $domain; ResponseMs = $null; IPAddress = $null; Success = $false }
+        $results.DNSResponse += $dnsResult
+        Write-DiagLog "  DNS $domain`: $($dnsResult.ResponseMs)ms"
+    }
+
+    # ── 3. WiFi signal strength and details ──
+    Write-DiagLog "  WiFi signal check..."
+    $results.WiFi = Invoke-Safe {
+        $w = netsh wlan show interfaces 2>&1
+        $signal = $null; $ssid = $null; $channel = $null; $radioType = $null; $band = $null; $rxRate = $null; $txRate = $null
+        foreach ($l in $w) {
+            if ($l -match "^\s+SSID\s+:\s+(.+)$") { $ssid = $Matches[1].Trim() }
+            if ($l -match "Signal\s+:\s+(\d+)%") { $signal = [int]$Matches[1] }
+            if ($l -match "Channel\s+:\s+(.+)$") { $channel = $Matches[1].Trim() }
+            if ($l -match "Radio type\s+:\s+(.+)$") { $radioType = $Matches[1].Trim() }
+            if ($l -match "Band\s+:\s+(.+)$") { $band = $Matches[1].Trim() }
+            if ($l -match "Receive rate.*:\s+(.+)$") { $rxRate = $Matches[1].Trim() }
+            if ($l -match "Transmit rate.*:\s+(.+)$") { $txRate = $Matches[1].Trim() }
+        }
+        @{ SignalPercent = $signal; SSID = $ssid; Channel = $channel; RadioType = $radioType; Band = $band; RxRate = $rxRate; TxRate = $txRate }
+    } $results.WiFi
+
+    if ($results.WiFi.SignalPercent) {
+        Write-DiagLog "  WiFi: SSID=$($results.WiFi.SSID), Signal=$($results.WiFi.SignalPercent)%, Channel=$($results.WiFi.Channel), Radio=$($results.WiFi.RadioType)"
+    } else {
+        Write-DiagLog "  WiFi: Not connected or not available"
+    }
+
+    # ── 4. Ethernet / adapter link speeds ──
+    Write-DiagLog "  Adapter link speeds..."
+    $results.Adapters = @(Invoke-Safe {
+        $adapters = @()
+        Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq "Up" } | ForEach-Object {
+            $ip = (Get-NetIPAddress -InterfaceIndex $_.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object -First 1).IPAddress
+            $adapters += @{
+                Name      = $_.Name
+                MAC       = $_.MacAddress
+                LinkSpeed = $_.LinkSpeed
+                IP        = $ip
+                MediaType = $_.MediaConnectionState
+                IfType    = if ($_.InterfaceDescription -match "Wi-Fi|Wireless|WLAN") { "WiFi" } else { "Ethernet" }
+            }
+        }
+        $adapters
+    } @())
+
+    foreach ($a in $results.Adapters) {
+        Write-DiagLog "  Adapter: $($a.Name) ($($a.IfType)) LinkSpeed=$($a.LinkSpeed) IP=$($a.IP)"
+    }
+
+    # ── 5. Speedtest (reuse existing Invoke-SpeedtestCLI or Get-NetworkSpeedTest download) ──
+    Write-DiagLog "  Running speed test..."
+    $speedResult = Invoke-Safe { Invoke-SpeedtestCLI } @{ Available = $false }
+    if ($speedResult.Available) {
+        $results.Speedtest = $speedResult
+    } else {
+        # Fallback: use the built-in download speed test
+        $dlResult = Invoke-Safe {
+            $testUrl = "http://speedtest.tele2.net/10MB.zip"
+            $tmpFile = Join-Path $env:TEMP "pcplus_speedtest_deep.bin"
+            $start = Get-Date
+            Invoke-WebRequest -Uri $testUrl -OutFile $tmpFile -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
+            $elapsed = ((Get-Date) - $start).TotalSeconds
+            $fileSize = (Get-Item $tmpFile).Length
+            Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
+            $mbps = [math]::Round(($fileSize * 8 / 1000000) / $elapsed, 1)
+            @{ Available = $true; DownloadMbps = $mbps; UploadMbps = $null; PingMs = $null }
+        } @{ Available = $false }
+        $results.Speedtest = $dlResult
+    }
+
+    Write-DiagLog "  Speedtest: Download=$($results.Speedtest.DownloadMbps) Mbps, Upload=$($results.Speedtest.UploadMbps) Mbps"
+
+    # ── 6. Calculate network score ──
+    $score = 100
+
+    # Ping scoring
+    if ($null -ne $pingData.AvgMs) {
+        if ($pingData.AvgMs -gt 100) { $score -= 20 }
+        elseif ($pingData.AvgMs -gt 50) { $score -= 10 }
+        elseif ($pingData.AvgMs -gt 20) { $score -= 3 }
+    } else { $score -= 15 }
+
+    # Packet loss scoring
+    if ($null -ne $pingData.PacketLossPct) {
+        if ($pingData.PacketLossPct -gt 5) { $score -= 25 }
+        elseif ($pingData.PacketLossPct -gt 1) { $score -= 10 }
+        elseif ($pingData.PacketLossPct -gt 0) { $score -= 5 }
+    }
+
+    # Jitter scoring
+    if ($null -ne $pingData.JitterMs) {
+        if ($pingData.JitterMs -gt 20) { $score -= 15 }
+        elseif ($pingData.JitterMs -gt 10) { $score -= 8 }
+        elseif ($pingData.JitterMs -gt 5) { $score -= 3 }
+    }
+
+    # DNS scoring
+    $avgDns = ($results.DNSResponse | Where-Object { $_.Success } | ForEach-Object { $_.ResponseMs } | Measure-Object -Average).Average
+    if ($avgDns) {
+        if ($avgDns -gt 200) { $score -= 10 }
+        elseif ($avgDns -gt 100) { $score -= 5 }
+    }
+
+    # Download speed scoring
+    if ($results.Speedtest.DownloadMbps) {
+        if ($results.Speedtest.DownloadMbps -lt 10) { $score -= 20 }
+        elseif ($results.Speedtest.DownloadMbps -lt 25) { $score -= 10 }
+        elseif ($results.Speedtest.DownloadMbps -lt 50) { $score -= 5 }
+    }
+
+    $score = [math]::Max(0, $score)
+    $results.Score = $score
+    $results.Rating = if ($score -ge 85) { "Excellent" }
+                      elseif ($score -ge 70) { "Good" }
+                      elseif ($score -ge 50) { "Fair" }
+                      else { "Poor" }
+
+    Write-DiagLog "Network deep test complete: Score=$score, Rating=$($results.Rating)"
+    return $results
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ENHANCED POWER STABILITY (extends existing Get-PowerStabilityInfo)
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Get-EnhancedPowerStabilityInfo {
+    param(
+        [hashtable]$TimeSeriesData = $null
+    )
+
+    Write-DiagLog "Running enhanced power stability analysis..."
+    $startDate = (Get-Date).AddDays(-90)
+
+    $results = @{
+        KernelPower41Events    = @()
+        KernelPower41Count     = 0
+        UnexpectedShutdown6008 = @()
+        Shutdown6008Count      = 0
+        ClockDropsDuringStress = @()
+        ClockDropsDetected     = $false
+        BatteryInfo            = @{ Present = $false; IsLaptop = $false; ACAdapter = "N/A"; Wattage = "N/A"; ChargePercent = $null }
+        PowerPlan              = "N/A"
+        StabilityScore         = 100
+        Rating                 = "Good"
+        TotalPowerEvents       = 0
+    }
+
+    # ── 1. Kernel-Power 41 events (unexpected shutdown / power loss) ──
+    $results.KernelPower41Events = @(Invoke-Safe {
+        $events = @()
+        Get-WinEvent -FilterHashtable @{LogName='System'; Id=41; ProviderName='Microsoft-Windows-Kernel-Power'; StartTime=$startDate} -MaxEvents 50 -ErrorAction Stop | ForEach-Object {
+            $events += @{
+                Time    = $_.TimeCreated.ToString("yyyy-MM-dd HH:mm")
+                Message = ($_.Message -split "`n" | Select-Object -First 2) -join " "
+            }
+        }
+        $events
+    } @())
+    $results.KernelPower41Count = $results.KernelPower41Events.Count
+    Write-DiagLog "  Kernel-Power 41 events (90 days): $($results.KernelPower41Count)"
+
+    # ── 2. Event ID 6008 (unexpected shutdown record) ──
+    $results.UnexpectedShutdown6008 = @(Invoke-Safe {
+        $events = @()
+        Get-WinEvent -FilterHashtable @{LogName='System'; Id=6008; StartTime=$startDate} -MaxEvents 50 -ErrorAction Stop | ForEach-Object {
+            $events += @{
+                Time    = $_.TimeCreated.ToString("yyyy-MM-dd HH:mm")
+                Message = ($_.Message -split "`n" | Select-Object -First 1)
+            }
+        }
+        $events
+    } @())
+    $results.Shutdown6008Count = $results.UnexpectedShutdown6008.Count
+    Write-DiagLog "  Event 6008 (unexpected shutdown): $($results.Shutdown6008Count)"
+
+    # ── 3. Clock speed drops from time-series data (if provided) ──
+    if ($TimeSeriesData -and $TimeSeriesData.ThrottleDetected) {
+        $results.ClockDropsDetected = $true
+        $results.ClockDropsDuringStress = @($TimeSeriesData.ThrottleEvents)
+        Write-DiagLog "  Clock drops during stress: $($results.ClockDropsDuringStress.Count) events detected"
+    }
+
+    # ── 4. Battery / charger info for laptops ──
+    $results.BatteryInfo = Invoke-Safe {
+        $bat = Get-CimInstance Win32_Battery -ErrorAction Stop
+        if ($bat) {
+            $acStatus = switch ($bat.BatteryStatus) {
+                1 { "On Battery" }; 2 { "Charging" }; 3 { "Fully Charged" }
+                4 { "Low" }; 5 { "Critical" }; default { "AC Connected" }
+            }
+
+            # Try to get wattage from WMI
+            $wattage = Invoke-Safe {
+                $ps = Get-CimInstance Win32_PowerSupply -ErrorAction Stop | Select-Object -First 1
+                if ($ps -and $ps.TotalOutputPower -gt 0) { "$([math]::Round($ps.TotalOutputPower / 1000, 0))W" }
+                else {
+                    # Try battery discharge rate as proxy
+                    $st = Get-CimInstance -Namespace "root\WMI" -ClassName BatteryStatus -ErrorAction Stop | Select-Object -First 1
+                    if ($st -and $st.DischargeRate -and $st.DischargeRate -gt 0 -and $st.DischargeRate -lt 100000) {
+                        "$([math]::Round($st.DischargeRate / 1000, 1))W (discharge rate)"
+                    } else { "N/A" }
+                }
+            } "N/A"
+
+            @{
+                Present       = $true
+                IsLaptop      = $true
+                ACAdapter     = $acStatus
+                Wattage       = $wattage
+                ChargePercent = $bat.EstimatedChargeRemaining
+            }
+        } else {
+            @{ Present = $false; IsLaptop = $false; ACAdapter = "Desktop/No Battery"; Wattage = "N/A"; ChargePercent = $null }
+        }
+    } $results.BatteryInfo
+
+    Write-DiagLog "  Battery: Present=$($results.BatteryInfo.Present), AC=$($results.BatteryInfo.ACAdapter), Wattage=$($results.BatteryInfo.Wattage)"
+
+    # ── 5. Active power plan ──
+    $results.PowerPlan = Invoke-Safe {
+        $plan = powercfg /getactivescheme 2>&1
+        if ($plan -match ":\s*(.+)$") { $Matches[1].Trim() } else { "Unknown" }
+    } "N/A"
+    Write-DiagLog "  Power plan: $($results.PowerPlan)"
+
+    # ── 6. Calculate stability score ──
+    $results.TotalPowerEvents = $results.KernelPower41Count + $results.Shutdown6008Count
+
+    $score = 100
+    # Kernel-Power 41 (most serious - actual unexpected power loss)
+    if ($results.KernelPower41Count -gt 3) { $score -= 40 }
+    elseif ($results.KernelPower41Count -gt 1) { $score -= 20 }
+    elseif ($results.KernelPower41Count -eq 1) { $score -= 10 }
+
+    # Event 6008
+    if ($results.Shutdown6008Count -gt 3) { $score -= 25 }
+    elseif ($results.Shutdown6008Count -gt 1) { $score -= 12 }
+    elseif ($results.Shutdown6008Count -eq 1) { $score -= 5 }
+
+    # Clock throttling during stress
+    if ($results.ClockDropsDetected) { $score -= 15 }
+
+    $score = [math]::Max(0, $score)
+    $results.StabilityScore = $score
+
+    $results.Rating = if ($results.TotalPowerEvents -eq 0 -and -not $results.ClockDropsDetected) { "Good" }
+                      elseif ($results.TotalPowerEvents -le 3 -or ($results.ClockDropsDetected -and $results.TotalPowerEvents -eq 0)) { "Warning" }
+                      else { "Critical" }
+
+    Write-DiagLog "Enhanced power stability: Score=$score, Rating=$($results.Rating), TotalEvents=$($results.TotalPowerEvents)"
+    return $results
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GAMING PERFORMANCE TEST ORCHESTRATOR
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Invoke-GamingPerformanceTest {
+    param(
+        [int]$StressDurationSec = 120,
+        [scriptblock]$StatusCallback = $null
+    )
+
+    Write-DiagLog "=== GAMING PERFORMANCE TEST STARTING ==="
+    $masterStart = Get-Date
+
+    # Helper: report status
+    function _Status([string]$Phase, [string]$Message) {
+        Write-DiagLog "  [$Phase] $Message"
+        if ($StatusCallback) {
+            try { & $StatusCallback $Phase $Message } catch {}
+        }
+    }
+
+    $report = @{
+        StartTime         = $masterStart
+        SystemInfo        = $null
+        TimeSeries        = $null
+        Storage           = $null
+        Network           = $null
+        FPS               = $null
+        PowerStability    = $null
+        PreStressThermal  = @{ CPUTemp = $null; GPUTemp = $null; FanRPM = $null }
+        PostStressThermal = @{ CPUTemp = $null; GPUTemp = $null; FanRPM = $null }
+        RecoveryThermal   = @{ CPUTemp = $null; GPUTemp = $null; FanRPM = $null; RecoveryTimeSec = $null }
+        Scores            = @{
+            Overall        = 0
+            Thermal        = 0
+            FPSStability   = "N/A"
+            StorageSpeed   = "N/A"
+            PowerStability = "N/A"
+            NetworkScore   = 0
+            Grade          = "N/A"
+        }
+        Recommendations   = @()
+    }
+
+    # ── Phase 1: System Info ──
+    _Status "Phase1" "Collecting system information..."
+    $report.SystemInfo = Invoke-Safe { Get-FullSystemInfo } @{}
+
+    # ── Phase 2: Pre-stress thermal snapshot ──
+    _Status "Phase2" "Taking pre-stress thermal snapshot..."
+    $preTemp = Invoke-Safe {
+        $t = Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction Stop | Select-Object -First 1
+        [math]::Round(($t.CurrentTemperature / 10) - 273.15, 1)
+    } $null
+    $preGPUTemp = Invoke-Safe {
+        $zones = @(Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction Stop)
+        if ($zones.Count -ge 2) { [math]::Round(($zones[1].CurrentTemperature / 10) - 273.15, 1) } else { $null }
+    } $null
+    $preFan = Invoke-Safe {
+        $fan = Get-CimInstance Win32_Fan -ErrorAction Stop | Select-Object -First 1
+        if ($fan -and $fan.DesiredSpeed) { [int]$fan.DesiredSpeed } else { $null }
+    } $null
+
+    $report.PreStressThermal = @{ CPUTemp = $preTemp; GPUTemp = $preGPUTemp; FanRPM = $preFan }
+    _Status "Phase2" "Pre-stress: CPU=${preTemp}C, GPU=${preGPUTemp}C, Fan=${preFan}RPM"
+
+    # ── Phase 3: DiskSpd Storage Benchmark ──
+    _Status "Phase3" "Running storage benchmark..."
+    $report.Storage = Invoke-Safe { Invoke-DiskSpdBenchmark -TargetDrive "C:" -FileSizeMB 256 -DurationSec 30 } @{
+        ToolUsed = "Error"; SeqReadMBps = 0; SeqWriteMBps = 0
+        Random4KReadIOPS = 0; Random4KWriteIOPS = 0; AvgLatencyMs = 0; MaxLatencyMs = 0
+    }
+
+    # ── Phase 4: Time-sampled CPU+GPU stress test ──
+    _Status "Phase4" "Running CPU+GPU stress test with time-series sampling ($StressDurationSec seconds)..."
+    $report.TimeSeries = Invoke-Safe {
+        Start-TimeSampledStressTest -DurationSeconds $StressDurationSec -SampleIntervalSec 5
+    } @{
+        DurationSec = $StressDurationSec; SampleCount = 0; Samples = @()
+        PeakCPUTemp = $null; PeakGPUTemp = $null; AvgCPUTemp = $null; AvgGPUTemp = $null
+        MaxCPUClock = $null; MinCPUClock = $null; ThrottleDetected = $false; ThrottleEvents = @()
+        CPUStressPassed = $false; GPUStressPassed = $false; CoolingRecoveryTimeSec = $null
+    }
+
+    # ── Phase 5: Post-stress and recovery thermal data ──
+    _Status "Phase5" "Capturing post-stress thermals..."
+    $postTemp = Invoke-Safe {
+        $t = Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction Stop | Select-Object -First 1
+        [math]::Round(($t.CurrentTemperature / 10) - 273.15, 1)
+    } $null
+    $postGPUTemp = Invoke-Safe {
+        $zones = @(Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction Stop)
+        if ($zones.Count -ge 2) { [math]::Round(($zones[1].CurrentTemperature / 10) - 273.15, 1) } else { $null }
+    } $null
+    $postFan = Invoke-Safe {
+        $fan = Get-CimInstance Win32_Fan -ErrorAction Stop | Select-Object -First 1
+        if ($fan -and $fan.DesiredSpeed) { [int]$fan.DesiredSpeed } else { $null }
+    } $null
+
+    $report.PostStressThermal = @{ CPUTemp = $postTemp; GPUTemp = $postGPUTemp; FanRPM = $postFan }
+
+    # Recovery thermal = last sample from time-series (post-30s cool-down period)
+    if ($report.TimeSeries.Samples -and $report.TimeSeries.Samples.Count -gt 0) {
+        $lastSample = $report.TimeSeries.Samples[$report.TimeSeries.Samples.Count - 1]
+        $report.RecoveryThermal = @{
+            CPUTemp        = $lastSample.CPUTempC
+            GPUTemp        = $lastSample.GPUTempC
+            FanRPM         = $lastSample.FanRPM
+            RecoveryTimeSec = $report.TimeSeries.CoolingRecoveryTimeSec
+        }
+    }
+
+    # ── Phase 6: Network deep test ──
+    _Status "Phase6" "Running deep network test..."
+    $report.Network = Invoke-Safe { Get-NetworkDeepTest } @{
+        PingTest = @{}; DNSResponse = @(); WiFi = @{}; Adapters = @()
+        Speedtest = @{ Available = $false }; Score = 0; Rating = "Error"
+    }
+
+    # ── Phase 7: PresentMon capture ──
+    _Status "Phase7" "Attempting PresentMon frame capture..."
+    $report.FPS = Invoke-Safe { Invoke-PresentMonCapture -DurationSeconds 60 } @{
+        Available = $false; Message = "PresentMon capture failed."
+    }
+
+    # ── Phase 8: Power stability check ──
+    _Status "Phase8" "Analyzing power stability..."
+    $report.PowerStability = Invoke-Safe {
+        Get-EnhancedPowerStabilityInfo -TimeSeriesData $report.TimeSeries
+    } @{ StabilityScore = 0; Rating = "Error"; TotalPowerEvents = 0 }
+
+    # ── Phase 9: Calculate scores ──
+    _Status "Phase9" "Calculating performance scores..."
+    $recommendations = [System.Collections.ArrayList]::new()
+
+    # --- Thermal Score ---
+    $thermalScore = 100
+    $peakCPU = $report.TimeSeries.PeakCPUTemp
+    if ($null -ne $peakCPU -and $peakCPU -gt 80) {
+        $degreesOver = $peakCPU - 80
+        $thermalScore -= [math]::Min(50, $degreesOver * 5)
+    }
+    if ($report.TimeSeries.ThrottleDetected) {
+        $thermalScore -= 15
+        $null = $recommendations.Add("CPU thermal throttling detected during stress test. Clean cooling system, reapply thermal paste, and improve case airflow.")
+    }
+    if ($null -ne $report.TimeSeries.CoolingRecoveryTimeSec -and $report.TimeSeries.CoolingRecoveryTimeSec -gt 60) {
+        $thermalScore -= 10
+        $null = $recommendations.Add("Cooling system recovery is slow ($($report.TimeSeries.CoolingRecoveryTimeSec)s). Check fans and heatsink contact.")
+    }
+    if ($null -ne $peakCPU -and $peakCPU -gt 90) {
+        $null = $recommendations.Add("CPU peak temperature reached ${peakCPU}C under load. Risk of thermal damage. Address cooling immediately.")
+    }
+    $thermalScore = [math]::Max(0, $thermalScore)
+    $report.Scores.Thermal = $thermalScore
+
+    # --- Storage Score ---
+    $seqRead = $report.Storage.SeqReadMBps
+    $report.Scores.StorageSpeed = if ($seqRead -gt 1000) { "Excellent" }
+                                  elseif ($seqRead -gt 300) { "Good" }
+                                  elseif ($seqRead -gt 100) { "Fair" }
+                                  else { "Poor" }
+    if ($report.Scores.StorageSpeed -eq "Poor") {
+        $null = $recommendations.Add("Storage read speed is only $($seqRead) MB/s. Consider upgrading to an NVMe SSD for dramatically better game load times.")
+    } elseif ($report.Scores.StorageSpeed -eq "Fair") {
+        $null = $recommendations.Add("Storage speed is adequate but could be improved. An NVMe drive would significantly reduce game load times.")
+    }
+    $storageNumeric = switch ($report.Scores.StorageSpeed) { "Excellent" { 100 }; "Good" { 80 }; "Fair" { 55 }; "Poor" { 25 }; default { 50 } }
+
+    # --- FPS Stability Score ---
+    if ($report.FPS.Available -and $null -ne $report.FPS.OnePercentLowFPS) {
+        $report.Scores.FPSStability = if ($report.FPS.OnePercentLowFPS -gt 60) { "Excellent" }
+                                      elseif ($report.FPS.OnePercentLowFPS -gt 30) { "Good" }
+                                      elseif ($report.FPS.OnePercentLowFPS -gt 15) { "Fair" }
+                                      else { "Poor" }
+        if ($report.Scores.FPSStability -eq "Poor") {
+            $null = $recommendations.Add("1% low FPS is below 15. Severe frame drops will cause stuttering. Check GPU thermals and driver version.")
+        }
+    } else {
+        $report.Scores.FPSStability = "N/A"
+    }
+    $fpsNumeric = switch ($report.Scores.FPSStability) { "Excellent" { 100 }; "Good" { 80 }; "Fair" { 55 }; "Poor" { 25 }; "N/A" { $null }; default { $null } }
+
+    # --- Power Stability Score ---
+    $powerEvents = $report.PowerStability.TotalPowerEvents
+    $powerThrottle = $report.TimeSeries.ThrottleDetected
+    if ($powerEvents -eq 0 -and -not $powerThrottle) {
+        $report.Scores.PowerStability = "Good"
+    } elseif ($powerEvents -le 3 -or ($powerThrottle -and $powerEvents -eq 0)) {
+        $report.Scores.PowerStability = "Warning"
+        $null = $recommendations.Add("Power instability detected ($powerEvents unexpected shutdown events in 90 days). Check power supply and surge protection.")
+    } else {
+        $report.Scores.PowerStability = "Critical"
+        $null = $recommendations.Add("Critical power instability: $powerEvents unexpected shutdown events in 90 days. Replace power supply or investigate electrical issues immediately.")
+    }
+    $powerNumeric = switch ($report.Scores.PowerStability) { "Good" { 100 }; "Warning" { 55 }; "Critical" { 20 }; default { 50 } }
+
+    # --- Network Score ---
+    $report.Scores.NetworkScore = if ($report.Network.Score) { $report.Network.Score } else { 50 }
+    if ($report.Scores.NetworkScore -lt 50) {
+        $null = $recommendations.Add("Network performance is poor (score $($report.Scores.NetworkScore)/100). Check connection, consider wired Ethernet for gaming.")
+    } elseif ($report.Network.PingTest.JitterMs -and $report.Network.PingTest.JitterMs -gt 10) {
+        $null = $recommendations.Add("Network jitter is $($report.Network.PingTest.JitterMs)ms. High jitter causes lag spikes in online games. Use wired Ethernet if on WiFi.")
+    }
+
+    # --- Overall Score (weighted average) ---
+    # Weights: Thermal 30%, Storage 20%, Power 20%, Network 15%, FPS 15%
+    $weightedSum = 0; $totalWeight = 0
+
+    $weightedSum += $thermalScore * 30; $totalWeight += 30
+    $weightedSum += $storageNumeric * 20; $totalWeight += 20
+    $weightedSum += $powerNumeric * 20; $totalWeight += 20
+    $weightedSum += $report.Scores.NetworkScore * 15; $totalWeight += 15
+
+    if ($null -ne $fpsNumeric) {
+        $weightedSum += $fpsNumeric * 15; $totalWeight += 15
+    }
+
+    $overall = if ($totalWeight -gt 0) { [math]::Round($weightedSum / $totalWeight) } else { 50 }
+    $overall = [math]::Max(0, [math]::Min(100, $overall))
+    $report.Scores.Overall = $overall
+    $report.Scores.Grade = if ($overall -ge 90) { "A" }
+                           elseif ($overall -ge 80) { "B" }
+                           elseif ($overall -ge 70) { "C" }
+                           elseif ($overall -ge 60) { "D" }
+                           else { "F" }
+
+    # Add general recommendations based on grade
+    if (-not $report.TimeSeries.CPUStressPassed) {
+        $null = $recommendations.Add("CPU stress test detected compute errors. This may indicate CPU instability. Check for overclocking issues or consider CPU replacement.")
+    }
+    if (-not $report.TimeSeries.GPUStressPassed) {
+        $null = $recommendations.Add("GPU stress test failed. Update GPU drivers, check for overheating, or test with a different GPU.")
+    }
+
+    $report.Recommendations = @($recommendations)
+    $report.EndTime = Get-Date
+    $report.TotalMinutes = [math]::Round(((Get-Date) - $masterStart).TotalMinutes, 1)
+
+    Write-DiagLog "=== GAMING PERFORMANCE TEST COMPLETE: Overall=$overall ($($report.Scores.Grade)), Duration=$($report.TotalMinutes) min ==="
+    Write-DiagLog "  Thermal=$thermalScore, Storage=$($report.Scores.StorageSpeed), FPS=$($report.Scores.FPSStability), Power=$($report.Scores.PowerStability), Network=$($report.Scores.NetworkScore)"
+    if ($recommendations.Count -gt 0) {
+        Write-DiagLog "  Recommendations: $($recommendations.Count) items"
+    }
+
+    return $report
+}

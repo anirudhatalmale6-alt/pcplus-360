@@ -248,6 +248,7 @@ $xaml = @"
 
                         <TextBlock Text="  DIAGNOSTICS" FontSize="9" FontWeight="SemiBold" Foreground="#4a7a8a" Margin="0,12,0,4"/>
                         <Button x:Name="btnNavWearTear" Style="{StaticResource SideNav}"><TextBlock Text="  Wear &amp; Tear Report" FontSize="11.5" Foreground="#e879f9"/></Button>
+                        <Button x:Name="btnGamingPerfTest" Style="{StaticResource SideNav}"><TextBlock Text="  Gaming Perf Test" FontSize="11.5" Foreground="#f97316" FontWeight="SemiBold"/></Button>
 
                         <TextBlock Text="  REPORTS" FontSize="9" FontWeight="SemiBold" Foreground="#4a7a8a" Margin="0,12,0,4"/>
                         <Button x:Name="btnHWReport" Style="{StaticResource SideNav}"><TextBlock Text="  Hardware Report" FontSize="11.5" Foreground="#22c55e"/></Button>
@@ -1306,6 +1307,66 @@ $xaml = @"
         Set-Status "Gaming PC Report: $(if($pdfOK){'PDF saved'}else{'HTML saved'}) to reports folder" 100
         Start-Process explorer.exe -ArgumentList $p.OutputFolder
         [System.Windows.MessageBox]::Show($window, "Gaming PC Report saved!`n`nIncludes visual charts for:`n- Temperature bars (CPU/GPU)`n- Storage read/write speed bars`n- Network speed gauge`n- Component health donuts`n- RAM usage and fan speeds`n`nPrint-ready format with full branding.", "Gaming Report Ready", "OK", "Information")
+    })
+
+    # ── GAMING PERFORMANCE & STABILITY TEST ──
+    $window.FindName("btnGamingPerfTest").Add_Click({
+        $p = Get-Params; if (-not $p) { return }
+        $confirm = [System.Windows.MessageBox]::Show($window, "This will run a full Gaming Performance & Stability Test:`n`n- CPU+GPU stress test with time-series sampling`n- Storage benchmark (DiskSpd or fallback)`n- Deep network test with jitter/packet loss`n- PresentMon FPS capture (if available)`n- Power stability analysis`n- Cooling recovery measurement`n`nEstimated time: 5-8 minutes.`nThe system will be under heavy load during testing.`n`nProceed?", "Gaming Performance Test", "YesNo", "Question")
+        if ($confirm -ne [System.Windows.MessageBoxResult]::Yes) { return }
+
+        $window.Dispatcher.Invoke([Action]{
+            $window.FindName("btnGamingPerfTest").IsEnabled = $false
+        })
+
+        Set-Status "Starting Gaming Performance & Stability Test..." 5
+        $statusCB = {
+            param($Phase, $Message)
+            $window.Dispatcher.Invoke([Action]{
+                param($m)
+                $window.FindName("txtStatus").Text = $m
+            }, $Message)
+        }
+
+        $gamingResult = Invoke-GamingPerformanceTest -StressDurationSec 120 -StatusCallback $statusCB
+        $Global:DiagResults.GamingPerformance = $gamingResult
+
+        Set-Status "Generating Gaming Performance & Stability Report..." 85
+        $gamingPerfHTML = Build-GamingPerformanceReport `
+            -Params $p `
+            -SystemInfo $gamingResult.SystemInfo `
+            -TimeSeries $gamingResult.TimeSeries `
+            -Storage $gamingResult.Storage `
+            -NetworkDeep $gamingResult.Network `
+            -FPS $gamingResult.FPS `
+            -PowerStability $gamingResult.PowerStability `
+            -PreStress $gamingResult.PreStressThermal `
+            -PostStress $gamingResult.PostStressThermal `
+            -Recovery $gamingResult.RecoveryThermal `
+            -Scores $gamingResult.Scores `
+            -Recommendations $gamingResult.Recommendations `
+            -ScanMode "Gaming Performance Test"
+
+        $safeName = $p.CustomerName -replace '[\\/:*?"<>|]','_'
+        $safeDev = if ($gamingResult.SystemInfo.ComputerName) { $gamingResult.SystemInfo.ComputerName -replace '[\\/:*?"<>|]','_' } else { "PC" }
+        $ds = Get-Date -Format "yyyy-MM-dd"
+        $gamingPerfHTMLPath = Join-Path $p.OutputFolder "$safeName - $safeDev - Gaming Performance Report $ds.html"
+        $gamingPerfPDFPath  = Join-Path $p.OutputFolder "$safeName - $safeDev - Gaming Performance Report $ds.pdf"
+        [IO.File]::WriteAllText($gamingPerfHTMLPath, $gamingPerfHTML, [Text.Encoding]::UTF8)
+
+        Set-Status "Converting Gaming Performance Report to PDF..." 92
+        $pdfOK = Convert-ToPDF $gamingPerfHTMLPath $gamingPerfPDFPath
+
+        $window.Dispatcher.Invoke([Action]{
+            $window.FindName("btnGamingPerfTest").IsEnabled = $true
+        })
+
+        $grade = $gamingResult.Scores.Grade
+        $overall = $gamingResult.Scores.Overall
+        $recCount = $gamingResult.Recommendations.Count
+        Set-Status "Gaming Performance Test complete: Grade $grade ($overall/100)" 100
+        Start-Process explorer.exe -ArgumentList $p.OutputFolder
+        [System.Windows.MessageBox]::Show($window, "Gaming Performance & Stability Test Complete!`n`nOverall Score: $overall / 100 (Grade $grade)`nThermal Score: $($gamingResult.Scores.Thermal)`nStorage: $($gamingResult.Scores.StorageSpeed)`nFPS Stability: $($gamingResult.Scores.FPSStability)`nPower: $($gamingResult.Scores.PowerStability)`nNetwork: $($gamingResult.Scores.NetworkScore)/100`n`nRecommendations: $recCount`nDuration: $($gamingResult.TotalMinutes) minutes`n`nReport includes time-series SVG charts for:`n- CPU/GPU temperature over time`n- CPU/GPU usage over time`n- Clock speed with throttle detection`n- Fan RPM over time`n- Storage benchmarks (DiskSpd)`n- Network performance`n- FPS analysis (if PresentMon available)", "Gaming Performance Report Ready", "OK", "Information")
     })
 
     # ── SEND REPORT (PAPERLESS) ──
