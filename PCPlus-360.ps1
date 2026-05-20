@@ -892,6 +892,105 @@ function Get-GamingReadiness {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# BOOT PERFORMANCE
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Get-BootPerformance {
+    Write-DiagLog "Collecting boot performance data..."
+    $results = @{ Events = @(); BootTimeMs = "N/A"; ShutdownTimeMs = "N/A"; SlowStartupApps = @() }
+
+    $results.Events = Invoke-Safe {
+        $events = @()
+        Get-WinEvent -LogName "Microsoft-Windows-Diagnostics-Performance/Operational" -MaxEvents 50 -ErrorAction Stop |
+            Where-Object { $_.Id -in @(100,101,102,200) } | ForEach-Object {
+                $evType = switch ($_.Id) { 100 {"Boot Performance"}; 101 {"Slow Startup App"}; 102 {"Slow Startup Driver"}; 200 {"Shutdown Performance"} }
+                $events += @{ Time = $_.TimeCreated.ToString("yyyy-MM-dd HH:mm"); Type = $evType; Id = $_.Id; Message = ($_.Message -split "`n" | Select-Object -First 2) -join " " }
+            }
+        $events
+    } @()
+
+    $results.BootTimeMs = Invoke-Safe {
+        $bootEvt = Get-WinEvent -LogName "Microsoft-Windows-Diagnostics-Performance/Operational" -MaxEvents 5 -ErrorAction Stop | Where-Object { $_.Id -eq 100 } | Select-Object -First 1
+        if ($bootEvt -and $bootEvt.Properties.Count -ge 2) { "$($bootEvt.Properties[1].Value)ms" } else { "N/A" }
+    } "N/A"
+
+    $results.ShutdownTimeMs = Invoke-Safe {
+        $sdEvt = Get-WinEvent -LogName "Microsoft-Windows-Diagnostics-Performance/Operational" -MaxEvents 5 -ErrorAction Stop | Where-Object { $_.Id -eq 200 } | Select-Object -First 1
+        if ($sdEvt -and $sdEvt.Properties.Count -ge 2) { "$($sdEvt.Properties[1].Value)ms" } else { "N/A" }
+    } "N/A"
+
+    $results.SlowStartupApps = Invoke-Safe {
+        $apps = @()
+        Get-WinEvent -LogName "Microsoft-Windows-Diagnostics-Performance/Operational" -MaxEvents 30 -ErrorAction Stop |
+            Where-Object { $_.Id -eq 101 } | Select-Object -First 10 | ForEach-Object {
+                $name = if ($_.Properties.Count -ge 5) { $_.Properties[4].Value } else { "Unknown" }
+                $time = if ($_.Properties.Count -ge 2) { "$($_.Properties[1].Value)ms" } else { "N/A" }
+                $apps += @{ Name = $name; DelayMs = $time; Date = $_.TimeCreated.ToString("yyyy-MM-dd") }
+            }
+        $apps
+    } @()
+
+    Write-DiagLog "Boot: Time=$($results.BootTimeMs), Shutdown=$($results.ShutdownTimeMs), SlowApps=$($results.SlowStartupApps.Count)"
+    return $results
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WINDOWS 11 READINESS CHECK
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Get-Windows11Readiness {
+    Write-DiagLog "Checking Windows 11 readiness..."
+    $results = @{ Ready = $true; Checks = @(); Score = 0; MaxScore = 0 }
+
+    # TPM 2.0
+    $tpm = Invoke-Safe {
+        $t = Get-Tpm -ErrorAction Stop
+        $ver = (Get-CimInstance -Namespace "root\cimv2\Security\MicrosoftTpm" -ClassName Win32_Tpm -ErrorAction Stop).SpecVersion
+        @{ Present = $t.TpmPresent; Ready = $t.TpmReady; Version = $ver }
+    } @{ Present = $false; Ready = $false; Version = "N/A" }
+    $tpmPass = $tpm.Present -and ($tpm.Version -match "^2\.")
+    $results.Checks += @{ Name = "TPM 2.0"; Passed = $tpmPass; Value = "Present: $($tpm.Present), Version: $($tpm.Version)" }
+    $results.MaxScore += 20; if ($tpmPass) { $results.Score += 20 } else { $results.Ready = $false }
+
+    # Secure Boot
+    $sb = Invoke-Safe { Confirm-SecureBootUEFI -ErrorAction Stop } $false
+    $results.Checks += @{ Name = "Secure Boot / UEFI"; Passed = $sb; Value = if ($sb) { "Enabled" } else { "Disabled or Legacy BIOS" } }
+    $results.MaxScore += 20; if ($sb) { $results.Score += 20 } else { $results.Ready = $false }
+
+    # RAM >= 4 GB
+    $ram = Invoke-Safe { [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 1) } 0
+    $ramPass = $ram -ge 4
+    $results.Checks += @{ Name = "RAM >= 4 GB"; Passed = $ramPass; Value = "$ram GB" }
+    $results.MaxScore += 15; if ($ramPass) { $results.Score += 15 } else { $results.Ready = $false }
+
+    # Storage >= 64 GB
+    $osDisk = Invoke-Safe { [math]::Round((Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'").Size / 1GB, 0) } 0
+    $diskPass = $osDisk -ge 64
+    $results.Checks += @{ Name = "OS Drive >= 64 GB"; Passed = $diskPass; Value = "$osDisk GB" }
+    $results.MaxScore += 15; if ($diskPass) { $results.Score += 15 } else { $results.Ready = $false }
+
+    # CPU cores >= 2 and clock >= 1 GHz
+    $cpu = Invoke-Safe { Get-CimInstance Win32_Processor | Select-Object -First 1 } $null
+    $cpuPass = $false
+    if ($cpu) { $cpuPass = $cpu.NumberOfCores -ge 2 -and $cpu.MaxClockSpeed -ge 1000 }
+    $results.Checks += @{ Name = "CPU >= 2 cores, 1 GHz"; Passed = $cpuPass; Value = if ($cpu) { "$($cpu.NumberOfCores) cores, $($cpu.MaxClockSpeed) MHz" } else { "N/A" } }
+    $results.MaxScore += 15; if ($cpuPass) { $results.Score += 15 } else { $results.Ready = $false }
+
+    # DirectX 12 / WDDM 2.0
+    $dxPass = Invoke-Safe {
+        $gpu = Get-CimInstance Win32_VideoController | Where-Object { $_.AdapterRAM -gt 0 } | Select-Object -First 1
+        if ($gpu -and $gpu.DriverVersion) { $true } else { $false }
+    } $false
+    $results.Checks += @{ Name = "DirectX 12 / WDDM 2.0 GPU"; Passed = $dxPass; Value = if ($dxPass) { "Compatible" } else { "Check required" } }
+    $results.MaxScore += 15; if ($dxPass) { $results.Score += 15 }
+
+    $results.Verdict = if ($results.Ready) { "This PC meets Windows 11 requirements" } else { "This PC does NOT meet all Windows 11 requirements" }
+
+    Write-DiagLog "Win11 Readiness: Score=$($results.Score)/$($results.MaxScore), Ready=$($results.Ready)"
+    return $results
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # HISTORICAL TRACKING
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1388,7 +1487,7 @@ function Calculate-Score {
 # ─────────────────────────────────────────────────────────────────────────────
 
 function Build-HardwareReport {
-    param($Params, $SystemInfo, $Network, $Software, $Performance, $StressResults, $LicenseKeys, $Stability, $BatteryDetail, $PowerInfo, $SpeedTest, $Gaming, $HistoryComparison, $ScanMode)
+    param($Params, $SystemInfo, $Network, $Software, $Performance, $StressResults, $LicenseKeys, $Stability, $BatteryDetail, $PowerInfo, $SpeedTest, $Gaming, $HistoryComparison, $ScanMode, $BootPerf, $Win11Ready)
     $date = Get-Date -Format "MMMM dd, yyyy 'at' h:mm tt"
     $iconPass = "&#10004;"; $iconFail = "&#10008;"; $iconWarn = "&#9888;"
 
@@ -2017,6 +2116,44 @@ $gmOffset = [math]::Round(251 - (251 * $Gaming.Score / 100))
 </table>
 </div>
 </div>
+"@
+})
+
+<!-- ══════════════════════════ BOOT PERFORMANCE ══════════════════════════ -->
+$(if($BootPerf){
+@"
+<div class='sub-header'><span class='section-icon'>&#9889;</span> Boot Performance</div>
+<div style='display:flex;gap:15px;margin-bottom:14px;flex-wrap:wrap;'>
+<div class='score-card'><div style='font-size:16pt;font-weight:bold;color:#2563eb;'>$($BootPerf.BootTimeMs)</div><div class='score-card-label'>Last Boot Time</div></div>
+<div class='score-card'><div style='font-size:16pt;font-weight:bold;'>$($BootPerf.ShutdownTimeMs)</div><div class='score-card-label'>Last Shutdown Time</div></div>
+<div class='score-card'><div style='font-size:16pt;font-weight:bold;'>$($BootPerf.SlowStartupApps.Count)</div><div class='score-card-label'>Slow Startup Apps</div></div>
+</div>
+$(if($BootPerf.SlowStartupApps.Count -gt 0){
+$slowRows = ($BootPerf.SlowStartupApps | ForEach-Object { "<tr><td>$($_.Name)</td><td>$($_.DelayMs)</td><td>$($_.Date)</td></tr>" }) -join "`n"
+"<div class='sub-header'>Slow Startup Applications</div><table><tr><th>Application</th><th>Delay</th><th>Date</th></tr>$slowRows</table>"
+})
+"@
+})
+
+<!-- ══════════════════════════ WINDOWS 11 READINESS ══════════════════════════ -->
+$(if($Win11Ready){
+$w11Color = if($Win11Ready.Ready){"#16a34a"}else{"#dc2626"}
+$w11Rows = ($Win11Ready.Checks | ForEach-Object {
+    $cls = if($_.Passed){"pass"}else{"fail"}
+    $icon = if($_.Passed){"$iconPass"}else{"$iconFail"}
+    "<tr><td>$($_.Name)</td><td class='$cls'>$icon $(if($_.Passed){'PASS'}else{'FAIL'})</td><td>$($_.Value)</td></tr>"
+}) -join "`n"
+@"
+<div class='sub-header'><span class='section-icon'>&#128187;</span> Windows 11 Readiness</div>
+<div style='display:flex;align-items:center;gap:20px;margin-bottom:14px;'>
+<div style='text-align:center;padding:15px 25px;background:$(if($Win11Ready.Ready){"#eafaf1"}else{"#fef5f5"});border:2px solid $w11Color;border-radius:12px;'>
+<div style='font-size:18pt;font-weight:bold;color:$w11Color;'>$(if($Win11Ready.Ready){"READY"}else{"NOT READY"})</div>
+<div style='font-size:9pt;color:#64748b;'>Windows 11 Compatibility</div>
+</div>
+<div style='font-size:16pt;font-weight:bold;color:$w11Color;'>$($Win11Ready.Score) / $($Win11Ready.MaxScore)</div>
+</div>
+<table><tr><th>Requirement</th><th>Status</th><th>Details</th></tr>$w11Rows</table>
+<div style='font-size:8.5pt;color:#64748b;margin-top:8px;'>$($Win11Ready.Verdict)</div>
 "@
 })
 
@@ -2972,9 +3109,13 @@ $xaml = @"
             $Global:DiagResults.LicenseKeys = Get-LicenseKeys
             Set-Status "Quick Test: Crash history..." 85
             $Global:DiagResults.Stability = Get-CrashStabilityHistory
-            Set-Status "Quick Test: Battery info..." 90
+            Set-Status "Quick Test: Battery info..." 86
             $Global:DiagResults.BatteryDetail = Get-DetailedBatteryInfo
-            Set-Status "Quick Test: Calculating scores..." 95
+            Set-Status "Quick Test: Boot performance..." 90
+            $Global:DiagResults.BootPerf = Get-BootPerformance
+            Set-Status "Quick Test: Windows 11 readiness..." 93
+            $Global:DiagResults.Win11Ready = Get-Windows11Readiness
+            Set-Status "Quick Test: Calculating scores..." 97
             $Global:DiagResults.Scoring = Calculate-Score $Global:DiagResults.Security $Global:DiagResults.Patches
             $Global:DiagResults.StressResults = @{}
             $Global:DiagResults.SpeedTest = $null; $Global:DiagResults.Gaming = $null; $Global:DiagResults.PowerInfo = $null
@@ -3015,9 +3156,13 @@ $xaml = @"
             $Global:DiagResults.BatteryDetail = Get-DetailedBatteryInfo
             Set-Status "Standard Test: Power stability..." 47
             $Global:DiagResults.PowerInfo = Get-PowerStabilityInfo
-            Set-Status "Standard Test: Gaming readiness..." 50
+            Set-Status "Standard Test: Gaming readiness..." 49
             $Global:DiagResults.Gaming = Get-GamingReadiness
-            Set-Status "Standard Test: CPU stress (5 min)..." 53
+            Set-Status "Standard Test: Boot performance..." 51
+            $Global:DiagResults.BootPerf = Get-BootPerformance
+            Set-Status "Standard Test: Windows 11 readiness..." 53
+            $Global:DiagResults.Win11Ready = Get-Windows11Readiness
+            Set-Status "Standard Test: CPU stress (5 min)..." 55
             $Global:DiagResults.CPUStress = Start-CPUStressTest -DurationSeconds 300
             Set-Status "Standard Test: GPU stress (2 min)..." 70
             $Global:DiagResults.GPUStress = Start-GPUStressTest -DurationSeconds 120
@@ -3066,9 +3211,13 @@ $xaml = @"
             $Global:DiagResults.BatteryDetail = Get-DetailedBatteryInfo
             Set-Status "Deep Test: Power stability..." 30
             $Global:DiagResults.PowerInfo = Get-PowerStabilityInfo
-            Set-Status "Deep Test: Gaming readiness..." 33
+            Set-Status "Deep Test: Gaming readiness..." 32
             $Global:DiagResults.Gaming = Get-GamingReadiness
-            Set-Status "Deep Test: CPU stress (15 min)..." 36
+            Set-Status "Deep Test: Boot performance..." 34
+            $Global:DiagResults.BootPerf = Get-BootPerformance
+            Set-Status "Deep Test: Windows 11 readiness..." 35
+            $Global:DiagResults.Win11Ready = Get-Windows11Readiness
+            Set-Status "Deep Test: CPU stress (15 min)..." 37
             $Global:DiagResults.CPUStress = Start-CPUStressTest -DurationSeconds 900
             Set-Status "Deep Test: GPU stress (5 min)..." 56
             $Global:DiagResults.GPUStress = Start-GPUStressTest -DurationSeconds 300
@@ -3111,7 +3260,7 @@ $xaml = @"
         $ds = Get-Date -Format "yyyy-MM-dd"
         if ($DoHW) {
             Set-Status "Generating Hardware Report..." 20
-            $hwHTML = Build-HardwareReport $p $Global:DiagResults.SystemInfo $Global:DiagResults.Network $Global:DiagResults.Software $Global:DiagResults.Performance $Global:DiagResults.StressResults $Global:DiagResults.LicenseKeys $Global:DiagResults.Stability $Global:DiagResults.BatteryDetail $Global:DiagResults.PowerInfo $Global:DiagResults.SpeedTest $Global:DiagResults.Gaming $Global:DiagResults.HistoryComparison $Global:DiagResults.ScanMode
+            $hwHTML = Build-HardwareReport $p $Global:DiagResults.SystemInfo $Global:DiagResults.Network $Global:DiagResults.Software $Global:DiagResults.Performance $Global:DiagResults.StressResults $Global:DiagResults.LicenseKeys $Global:DiagResults.Stability $Global:DiagResults.BatteryDetail $Global:DiagResults.PowerInfo $Global:DiagResults.SpeedTest $Global:DiagResults.Gaming $Global:DiagResults.HistoryComparison $Global:DiagResults.ScanMode $Global:DiagResults.BootPerf $Global:DiagResults.Win11Ready
             $hwHTMLPath = Join-Path $p.OutputFolder "$safeName - $safeDev - Hardware Report $ds.html"
             $hwPDFPath = Join-Path $p.OutputFolder "$safeName - $safeDev - Hardware Report $ds.pdf"
             [IO.File]::WriteAllText($hwHTMLPath, $hwHTML, [Text.Encoding]::UTF8)
