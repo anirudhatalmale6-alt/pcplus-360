@@ -2285,3 +2285,729 @@ function Calculate-Score {
     $color = if ($grade -eq "A" -or $grade -eq "B"){"#27ae60"} elseif ($grade -eq "C" -or $grade -eq "D"){"#f39c12"} else {"#e74c3c"}
     return @{ Score = $score; Grade = $grade; Color = $color; Breakdown = $breakdown }
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WEAR & TEAR LIFE REPORT (inline integration - no HTML, no file output)
+# Mirrors PCPlus360-Wear-And-Tear-Life-Report.ps1 but returns structured data
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Invoke-WearAndTearReport {
+    param(
+        [string]$ToolsDir = $Global:ToolsDir
+    )
+
+    Write-DiagLog "=== WEAR & TEAR LIFE REPORT STARTING ==="
+
+    # --- Helper: grade/risk/life from score ---
+    function _WTGrade([int]$s) {
+        if ($s -ge 90) { "A" } elseif ($s -ge 80) { "B" } elseif ($s -ge 70) { "C" } elseif ($s -ge 60) { "D" } else { "F" }
+    }
+    function _WTGradeFull([int]$s) {
+        if ($s -ge 90) { "A - Excellent" } elseif ($s -ge 80) { "B - Good" } elseif ($s -ge 70) { "C - Fair" } elseif ($s -ge 60) { "D - Needs Attention" } else { "F - Critical" }
+    }
+    function _WTRisk([int]$s) {
+        if ($s -ge 85) { "Low" } elseif ($s -ge 70) { "Moderate" } elseif ($s -ge 55) { "High" } else { "Critical" }
+    }
+    function _WTLife([int]$s) {
+        if ($s -ge 90) { 4.0 } elseif ($s -ge 80) { 3.0 } elseif ($s -ge 70) { 2.0 } elseif ($s -ge 60) { 1.0 } else { 0.3 }
+    }
+    function _WTLifeText([int]$s) {
+        if ($s -ge 90) { "3-5+ years estimated remaining life if maintained properly" }
+        elseif ($s -ge 80) { "2-4 years estimated remaining life" }
+        elseif ($s -ge 70) { "1-3 years estimated remaining life; maintenance or upgrade recommended" }
+        elseif ($s -ge 60) { "6-18 months estimated useful life; plan repairs/upgrades soon" }
+        else { "Immediate attention recommended; failure/replacement risk is high" }
+    }
+
+    $recommendations = [System.Collections.ArrayList]::new()
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 1. SYSTEM AGE
+    # ─────────────────────────────────────────────────────────────────────
+    Write-DiagLog "Wear & Tear: Collecting system age..."
+    $sysAge = Invoke-Safe {
+        $cs   = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
+        $bios = Get-CimInstance Win32_BIOS -ErrorAction Stop
+        $os   = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+
+        $biosDate = $null
+        try { $biosDate = [Management.ManagementDateTimeConverter]::ToDateTime($bios.ReleaseDate) } catch {}
+        $installDate = $null
+        try { $installDate = $os.InstallDate } catch {}
+
+        $biosAgeYears = if ($biosDate) { [math]::Round(((Get-Date) - $biosDate).TotalDays / 365.25, 1) } else { $null }
+        $osAgeYears   = if ($installDate) { [math]::Round(((Get-Date) - $installDate).TotalDays / 365.25, 1) } else { $null }
+
+        # Pick the best available age estimate (BIOS date approximates hardware age)
+        $ageYears = if ($biosAgeYears) { $biosAgeYears } elseif ($osAgeYears) { $osAgeYears } else { $null }
+
+        $score = 100
+        if ($null -ne $biosAgeYears) {
+            if ($biosAgeYears -ge 8) { $score -= 25 }
+            elseif ($biosAgeYears -ge 5) { $score -= 15 }
+            elseif ($biosAgeYears -ge 3) { $score -= 5 }
+        }
+        $score = [math]::Max(0, $score)
+
+        @{
+            Score       = $score
+            AgeYears    = $ageYears
+            BIOSAgeYears = $biosAgeYears
+            OSAgeYears  = $osAgeYears
+            InstallDate = if ($installDate) { $installDate.ToString("yyyy-MM-dd") } else { $null }
+            BIOSDate    = if ($biosDate) { $biosDate.ToString("yyyy-MM-dd") } else { $null }
+            Manufacturer = $cs.Manufacturer
+            Model       = $cs.Model
+            Serial      = $bios.SerialNumber
+        }
+    } @{ Score = 100; AgeYears = $null; BIOSAgeYears = $null; OSAgeYears = $null; InstallDate = $null; BIOSDate = $null; Manufacturer = "Unknown"; Model = "Unknown"; Serial = "Unknown" }
+
+    if ($sysAge.AgeYears -and $sysAge.AgeYears -ge 5) {
+        $null = $recommendations.Add("System is approximately $($sysAge.AgeYears) years old - plan replacement or major hardware refresh")
+    }
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 2. STORAGE WEAR
+    # ─────────────────────────────────────────────────────────────────────
+    Write-DiagLog "Wear & Tear: Collecting storage wear..."
+
+    # Locate smartctl if available
+    $smartctlPath = Invoke-Safe {
+        $possible = @(
+            (Join-Path $ToolsDir "smartctl.exe"),
+            (Join-Path $ToolsDir "smartmontools\bin\smartctl.exe"),
+            "C:\Program Files\smartmontools\bin\smartctl.exe",
+            "C:\Program Files (x86)\smartmontools\bin\smartctl.exe"
+        )
+        foreach ($p in $possible) { if (Test-Path $p) { return $p } }
+        return $null
+    } $null
+
+    $storageData = Invoke-Safe {
+        $diskDrives    = @(Get-CimInstance Win32_DiskDrive -ErrorAction SilentlyContinue)
+        $physicalDisks = @(Get-PhysicalDisk -ErrorAction SilentlyContinue)
+        $logicalDisks  = @(Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" -ErrorAction SilentlyContinue)
+        $driveDetails  = @()
+
+        foreach ($d in $diskDrives) {
+            $matched = $physicalDisks | Where-Object { $_.FriendlyName -like "*$($d.Model)*" } | Select-Object -First 1
+            $rel = $null
+            try { if ($matched) { $rel = Get-StorageReliabilityCounter -PhysicalDisk $matched -ErrorAction SilentlyContinue } } catch {}
+
+            # Try smartctl for deeper SMART data
+            $smartHealth = $null; $smartPOH = $null; $smartTemp = $null; $smartWear = $null
+            $smartRealloc = $null; $smartPending = $null; $smartUncorr = $null; $smartUnsafe = $null; $smartWritesTB = $null
+            if ($smartctlPath) {
+                try {
+                    $psi = New-Object System.Diagnostics.ProcessStartInfo
+                    $psi.FileName = $smartctlPath
+                    $psi.Arguments = "-a `"$($d.DeviceID)`""
+                    $psi.RedirectStandardOutput = $true
+                    $psi.RedirectStandardError = $true
+                    $psi.UseShellExecute = $false
+                    $psi.CreateNoWindow = $true
+                    $p = New-Object System.Diagnostics.Process
+                    $p.StartInfo = $psi
+                    $null = $p.Start()
+                    $smartText = $p.StandardOutput.ReadToEnd()
+                    $p.WaitForExit()
+
+                    if ($smartText) {
+                        if ($smartText -match "SMART overall-health.*?:\s*(\w+)") { $smartHealth = $matches[1] }
+                        elseif ($smartText -match "SMART Health Status:\s*(\w+)") { $smartHealth = $matches[1] }
+                        if ($smartText -match "Power_On_Hours.*?\s(\d+)\s*$") { $smartPOH = [int64]$matches[1] }
+                        elseif ($smartText -match "Power On Hours:\s*([0-9,]+)") { $smartPOH = [int64](($matches[1]) -replace ",","") }
+                        if ($smartText -match "Temperature_Celsius.*?\s(\d+)\s*$") { $smartTemp = [int]$matches[1] }
+                        elseif ($smartText -match "Temperature:\s*([0-9]+)\s*Celsius") { $smartTemp = [int]$matches[1] }
+                        if ($smartText -match "Percentage Used:\s*([0-9]+)%") { $smartWear = [int]$matches[1] }
+                        if ($smartText -match "Unsafe Shutdowns:\s*([0-9,]+)") { $smartUnsafe = [int64](($matches[1]) -replace ",","") }
+                        if ($smartText -match "Reallocated_Sector_Ct.*?\s(\d+)\s*$") { $smartRealloc = [int64]$matches[1] }
+                        if ($smartText -match "Current_Pending_Sector.*?\s(\d+)\s*$") { $smartPending = [int64]$matches[1] }
+                        if ($smartText -match "Offline_Uncorrectable.*?\s(\d+)\s*$") { $smartUncorr = [int64]$matches[1] }
+                        if ($smartText -match "Data Units Written:\s*([0-9,]+)") {
+                            $units = [double](($matches[1]) -replace ",","")
+                            $smartWritesTB = [math]::Round(($units * 512000) / 1TB, 2)
+                        }
+                    }
+                } catch {}
+            }
+
+            # Merge smartctl + Windows Storage Reliability data
+            $health = if ($matched) { $matched.HealthStatus } else { $d.Status }
+            $temp   = if ($smartTemp) { $smartTemp } elseif ($rel -and $rel.Temperature) { $rel.Temperature } else { $null }
+            $wear   = if ($smartWear) { $smartWear } elseif ($rel -and $null -ne $rel.Wear) { $rel.Wear } else { $null }
+            $hours  = if ($smartPOH) { $smartPOH } elseif ($rel -and $null -ne $rel.PowerOnHours) { $rel.PowerOnHours } else { $null }
+
+            $driveScore = 100
+            # Health status penalty
+            if ($health -and $health -notmatch "Healthy|OK") { $driveScore -= 35 }
+            # Temperature penalty
+            if ($null -ne $temp) {
+                if ($temp -ge 75) { $driveScore -= 20 }
+                elseif ($temp -ge 65) { $driveScore -= 10 }
+            }
+            # Wear percentage penalty
+            if ($null -ne $wear) {
+                if ($wear -ge 90) { $driveScore -= 35 }
+                elseif ($wear -ge 70) { $driveScore -= 20 }
+                elseif ($wear -ge 50) { $driveScore -= 10 }
+            }
+            # Power-on hours penalty
+            if ($null -ne $hours) {
+                if ($hours -ge 40000) { $driveScore -= 20 }
+                elseif ($hours -ge 25000) { $driveScore -= 10 }
+            }
+            # Bad sector penalties
+            if ($smartRealloc -gt 0)  { $driveScore -= 20 }
+            if ($smartPending -gt 0)  { $driveScore -= 30 }
+            if ($smartUncorr -gt 0)   { $driveScore -= 30 }
+            if ($smartUnsafe -gt 50)  { $driveScore -= 5 }
+
+            $driveScore = [math]::Max(0, $driveScore)
+
+            $driveDetails += @{
+                Model              = $d.Model
+                SerialNumber       = ($d.SerialNumber -as [string]).Trim()
+                InterfaceType      = $d.InterfaceType
+                MediaType          = if ($matched) { "$($matched.MediaType)" } else { "$($d.MediaType)" }
+                BusType            = if ($matched) { "$($matched.BusType)" } else { $null }
+                SizeGB             = [math]::Round($d.Size / 1GB, 2)
+                HealthStatus       = "$health"
+                TemperatureC       = $temp
+                WearPercentUsed    = $wear
+                RemainingPercent   = if ($null -ne $wear) { [math]::Max(0, 100 - $wear) } else { $null }
+                PowerOnHours       = $hours
+                PowerOnYears       = if ($null -ne $hours) { [math]::Round($hours / 8760, 1) } else { $null }
+                TotalHostWritesTB  = $smartWritesTB
+                UnsafeShutdowns    = $smartUnsafe
+                ReallocatedSectors = $smartRealloc
+                PendingSectors     = $smartPending
+                UncorrectableErrors = $smartUncorr
+                SmartHealth        = $smartHealth
+                Score              = $driveScore
+            }
+        }
+
+        # Volume free space info
+        $volumes = @()
+        foreach ($v in $logicalDisks) {
+            $freePct = if ($v.Size -gt 0) { [math]::Round(($v.FreeSpace / $v.Size) * 100, 2) } else { $null }
+            $volumes += @{
+                Drive      = $v.DeviceID
+                FileSystem = $v.FileSystem
+                SizeGB     = [math]::Round($v.Size / 1GB, 2)
+                FreeGB     = [math]::Round($v.FreeSpace / 1GB, 2)
+                FreePercent = $freePct
+            }
+        }
+
+        $avgScore = if ($driveDetails.Count -gt 0) { [int](($driveDetails | ForEach-Object { $_.Score } | Measure-Object -Average).Average) } else { 100 }
+
+        @{
+            Score           = $avgScore
+            SmartCtlFound   = [bool]$smartctlPath
+            Drives          = $driveDetails
+            Volumes         = $volumes
+        }
+    } @{ Score = 100; SmartCtlFound = $false; Drives = @(); Volumes = @() }
+
+    # Storage recommendations
+    foreach ($drv in $storageData.Drives) {
+        if ($drv.PendingSectors -gt 0)        { $null = $recommendations.Add("Drive $($drv.Model) has pending sectors - back up data immediately and replace drive") }
+        if ($drv.ReallocatedSectors -gt 0)    { $null = $recommendations.Add("Drive $($drv.Model) has reallocated sectors - consider replacement") }
+        if ($drv.WearPercentUsed -ge 80)      { $null = $recommendations.Add("Drive $($drv.Model) is at $($drv.WearPercentUsed)% wear - plan SSD replacement") }
+        if ($drv.TemperatureC -ge 70)         { $null = $recommendations.Add("Drive $($drv.Model) temperature is $($drv.TemperatureC)C - improve cooling") }
+    }
+    foreach ($vol in $storageData.Volumes) {
+        if ($null -ne $vol.FreePercent -and $vol.FreePercent -lt 10) {
+            $null = $recommendations.Add("Volume $($vol.Drive) has only $($vol.FreePercent)% free space - free space or upgrade storage")
+        }
+    }
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 3. BATTERY WEAR
+    # ─────────────────────────────────────────────────────────────────────
+    Write-DiagLog "Wear & Tear: Collecting battery wear..."
+    $batteryData = Invoke-Safe {
+        $batt = @(Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue)
+        if ($batt.Count -eq 0) {
+            return @{
+                BatteryDetected = $false
+                Score           = 100
+                HealthPct       = $null
+                DesignCapMWh    = $null
+                FullChargeCapMWh = $null
+                CycleCount      = $null
+                ChargePercent   = $null
+            }
+        }
+
+        $design = $null; $full = $null; $cycles = $null; $healthPct = $null
+
+        # Try WMI battery classes for capacity/cycles
+        try {
+            $fc = Get-CimInstance -Namespace "root\WMI" -ClassName BatteryFullChargedCapacity -ErrorAction Stop
+            $dc = Get-CimInstance -Namespace "root\WMI" -ClassName BatteryStaticData -ErrorAction Stop
+            $full = $fc.FullChargedCapacity
+            $design = $dc.DesignedCapacity
+            if ($design -gt 0) { $healthPct = [math]::Round(($full / $design) * 100, 1) }
+            $cycles = (Get-CimInstance -Namespace "root\WMI" -ClassName BatteryCycleCount -ErrorAction Stop).CycleCount
+        } catch {}
+
+        # Fallback: try powercfg battery report (parse in-memory)
+        if ($null -eq $healthPct) {
+            try {
+                $tmpReport = Join-Path $env:TEMP "pcplus-batt-temp.html"
+                powercfg /batteryreport /output $tmpReport 2>&1 | Out-Null
+                if (Test-Path $tmpReport) {
+                    $html = Get-Content $tmpReport -Raw
+                    if ($html -match "DESIGN CAPACITY.*?([0-9,]+)\s*mWh") { $design = [int64](($matches[1]) -replace ",","") }
+                    if ($html -match "FULL CHARGE CAPACITY.*?([0-9,]+)\s*mWh") { $full = [int64](($matches[1]) -replace ",","") }
+                    if ($html -match "CYCLE COUNT.*?([0-9,]+)") { $cycles = [int64](($matches[1]) -replace ",","") }
+                    if ($design -and $full -and $design -gt 0) { $healthPct = [math]::Round(($full / $design) * 100, 1) }
+                    Remove-Item $tmpReport -Force -ErrorAction SilentlyContinue
+                }
+            } catch {}
+        }
+
+        $score = 100
+        if ($null -ne $healthPct) {
+            if ($healthPct -lt 40)     { $score -= 45 }
+            elseif ($healthPct -lt 60) { $score -= 30 }
+            elseif ($healthPct -lt 80) { $score -= 15 }
+        } else {
+            $score -= 5
+        }
+        if ($null -ne $cycles) {
+            if ($cycles -gt 800)     { $score -= 20 }
+            elseif ($cycles -gt 500) { $score -= 10 }
+        }
+        $score = [math]::Max(0, $score)
+
+        @{
+            BatteryDetected  = $true
+            Score            = $score
+            HealthPct        = $healthPct
+            DesignCapMWh     = $design
+            FullChargeCapMWh = $full
+            CycleCount       = $cycles
+            ChargePercent    = ($batt | Select-Object -First 1).EstimatedChargeRemaining
+        }
+    } @{ BatteryDetected = $false; Score = 100; HealthPct = $null; DesignCapMWh = $null; FullChargeCapMWh = $null; CycleCount = $null; ChargePercent = $null }
+
+    if ($batteryData.BatteryDetected) {
+        if ($batteryData.HealthPct -and $batteryData.HealthPct -lt 60) {
+            $null = $recommendations.Add("Replace battery within 6 months (health at $($batteryData.HealthPct)%)")
+        } elseif ($batteryData.HealthPct -and $batteryData.HealthPct -lt 80) {
+            $null = $recommendations.Add("Monitor battery health - currently at $($batteryData.HealthPct)%")
+        }
+        if ($batteryData.CycleCount -and $batteryData.CycleCount -gt 800) {
+            $null = $recommendations.Add("Battery has $($batteryData.CycleCount) charge cycles - replacement recommended")
+        }
+    }
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 4. THERMAL WEAR
+    # ─────────────────────────────────────────────────────────────────────
+    Write-DiagLog "Wear & Tear: Collecting thermal indicators..."
+    $thermalData = Invoke-Safe {
+        $score = 100
+        # Current thermal zone temperatures
+        $zones = @()
+        try {
+            Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace "root/wmi" -ErrorAction Stop | ForEach-Object {
+                $zones += @{ Zone = $_.InstanceName; TempC = [math]::Round(($_.CurrentTemperature / 10) - 273.15, 1) }
+            }
+        } catch {}
+
+        $maxTemp = if ($zones.Count -gt 0) { ($zones | ForEach-Object { $_.TempC } | Measure-Object -Maximum).Maximum } else { $null }
+        $avgTemp = if ($zones.Count -gt 0) { [math]::Round(($zones | ForEach-Object { $_.TempC } | Measure-Object -Average).Average, 1) } else { $null }
+
+        if ($null -ne $maxTemp) {
+            if ($maxTemp -ge 90)     { $score -= 30 }
+            elseif ($maxTemp -ge 80) { $score -= 20 }
+            elseif ($maxTemp -ge 70) { $score -= 10 }
+        }
+
+        # Thermal/throttling events from last 90 days
+        $thermalEventCount = 0
+        try {
+            $thermalEventCount = @(Get-WinEvent -FilterHashtable @{LogName='System'; StartTime=(Get-Date).AddDays(-90)} -ErrorAction SilentlyContinue |
+                Where-Object { $_.Message -match "thermal|overheat|temperature|throttl" }).Count
+        } catch {}
+        if ($thermalEventCount -gt 0) { $score -= 15 }
+
+        $score = [math]::Max(0, $score)
+
+        @{
+            Score             = $score
+            AvgTemp           = $avgTemp
+            MaxTemp           = $maxTemp
+            ThermalZones      = $zones
+            ThermalEventCount = $thermalEventCount
+        }
+    } @{ Score = 100; AvgTemp = $null; MaxTemp = $null; ThermalZones = @(); ThermalEventCount = 0 }
+
+    if ($thermalData.MaxTemp -ge 80) {
+        $null = $recommendations.Add("High thermal reading detected ($($thermalData.MaxTemp)C) - clean dust, check fans, replace thermal paste")
+    }
+    if ($thermalData.ThermalEventCount -gt 0) {
+        $null = $recommendations.Add("$($thermalData.ThermalEventCount) thermal/throttling event(s) in last 90 days - investigate cooling")
+    }
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 5. RAM WEAR
+    # ─────────────────────────────────────────────────────────────────────
+    Write-DiagLog "Wear & Tear: Collecting RAM wear indicators..."
+    $ramData = Invoke-Safe {
+        $os      = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+        $modules = @(Get-CimInstance Win32_PhysicalMemory -ErrorAction SilentlyContinue)
+        $totalGB = [math]::Round(($os.TotalVisibleMemorySize * 1KB) / 1GB, 2)
+
+        $score = 100
+        # Capacity check
+        if ($totalGB -lt 8)       { $score -= 25 }
+        elseif ($totalGB -lt 16)  { $score -= 10 }
+
+        # Mixed speed check
+        $speeds = @($modules | Where-Object { $_.Speed } | ForEach-Object { $_.Speed } | Select-Object -Unique)
+        if ($speeds.Count -gt 1) { $score -= 10 }
+
+        # WHEA hardware error events (last 90 days)
+        $wheaCount = 0
+        try {
+            $wheaCount = @(Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Microsoft-Windows-WHEA-Logger'; StartTime=(Get-Date).AddDays(-90)} -ErrorAction SilentlyContinue).Count
+        } catch {}
+        if ($wheaCount -gt 0) { $score -= 20 }
+
+        # Memory diagnostic events (last 180 days)
+        $memDiagCount = 0
+        try {
+            $memDiagCount = @(Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Microsoft-Windows-MemoryDiagnostics-Results'; StartTime=(Get-Date).AddDays(-180)} -ErrorAction SilentlyContinue).Count
+        } catch {}
+
+        $score = [math]::Max(0, $score)
+
+        @{
+            Score        = $score
+            TotalGB      = $totalGB
+            ModuleCount  = $modules.Count
+            MixedSpeeds  = ($speeds.Count -gt 1)
+            WHEAErrors   = $wheaCount
+            MemDiagEvents = $memDiagCount
+            Modules      = @($modules | ForEach-Object {
+                @{
+                    Slot         = $_.DeviceLocator
+                    CapacityGB   = [math]::Round($_.Capacity / 1GB, 1)
+                    SpeedMHz     = $_.Speed
+                    Manufacturer = if ($_.Manufacturer) { $_.Manufacturer.Trim() } else { "Unknown" }
+                    PartNumber   = if ($_.PartNumber) { $_.PartNumber.Trim() } else { "N/A" }
+                }
+            })
+        }
+    } @{ Score = 100; TotalGB = 0; ModuleCount = 0; MixedSpeeds = $false; WHEAErrors = 0; MemDiagEvents = 0; Modules = @() }
+
+    if ($ramData.WHEAErrors -gt 0) {
+        $null = $recommendations.Add("$($ramData.WHEAErrors) WHEA hardware error(s) detected - run memtest86 and check motherboard stability")
+    }
+    if ($ramData.TotalGB -lt 8) {
+        $null = $recommendations.Add("System has only $($ramData.TotalGB) GB RAM - upgrade to at least 8 GB (16 GB recommended)")
+    }
+    if ($ramData.MixedSpeeds) {
+        $null = $recommendations.Add("Mixed RAM speeds detected - use matched modules for best stability")
+    }
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 6. GPU WEAR
+    # ─────────────────────────────────────────────────────────────────────
+    Write-DiagLog "Wear & Tear: Collecting GPU wear indicators..."
+    $gpuData = Invoke-Safe {
+        $gpus = @(Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue)
+        $score = 100
+
+        # GPU/display driver crash events (last 90 days)
+        $gpuEventCount = 0
+        try {
+            $gpuEventCount = @(Get-WinEvent -FilterHashtable @{LogName='System'; StartTime=(Get-Date).AddDays(-90)} -ErrorAction SilentlyContinue |
+                Where-Object { $_.Message -match "display driver|nvlddmkm|amdkmdag|igfx|video hardware|LiveKernelEvent" }).Count
+        } catch {}
+        if ($gpuEventCount -gt 0) { $score -= 20 }
+
+        # Non-OK GPU status
+        foreach ($gpu in $gpus) {
+            if ($gpu.Status -and $gpu.Status -notmatch "OK") { $score -= 15 }
+        }
+        $score = [math]::Max(0, $score)
+
+        # Driver age calculation
+        $driverAgeText = $null
+        $primaryGpu = $gpus | Select-Object -First 1
+        if ($primaryGpu -and $primaryGpu.DriverDate) {
+            $driverAgeDays = [math]::Round(((Get-Date) - $primaryGpu.DriverDate).TotalDays, 0)
+            if ($driverAgeDays -ge 365) {
+                $years = [math]::Round($driverAgeDays / 365.25, 1)
+                $driverAgeText = "$years years"
+            } else {
+                $months = [math]::Round($driverAgeDays / 30.44, 0)
+                $driverAgeText = "$months months"
+            }
+        }
+
+        @{
+            Score         = $score
+            GPUEvents     = $gpuEventCount
+            DriverAge     = $driverAgeText
+            GPUs          = @($gpus | ForEach-Object {
+                @{
+                    Name           = $_.Name
+                    DriverVersion  = $_.DriverVersion
+                    DriverDate     = if ($_.DriverDate) { $_.DriverDate.ToString("yyyy-MM-dd") } else { $null }
+                    AdapterRAMGB   = if ($_.AdapterRAM -gt 0) { [math]::Round($_.AdapterRAM / 1GB, 1) } else { 0 }
+                    Resolution     = "$($_.CurrentHorizontalResolution)x$($_.CurrentVerticalResolution)"
+                    Status         = $_.Status
+                }
+            })
+        }
+    } @{ Score = 100; GPUEvents = 0; DriverAge = $null; GPUs = @() }
+
+    if ($gpuData.GPUEvents -gt 0) {
+        $null = $recommendations.Add("$($gpuData.GPUEvents) GPU/display driver event(s) found - update graphics drivers")
+    }
+    if ($gpuData.DriverAge -and $gpuData.DriverAge -match "(\d+) years" -and [double]$matches[1] -ge 1) {
+        $null = $recommendations.Add("GPU driver is $($gpuData.DriverAge) old - update to latest stable driver")
+    }
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 7. WINDOWS RELIABILITY
+    # ─────────────────────────────────────────────────────────────────────
+    Write-DiagLog "Wear & Tear: Collecting Windows reliability..."
+    $reliabilityData = Invoke-Safe {
+        $days = 90; $start = (Get-Date).AddDays(-$days); $score = 100
+
+        $eventDefs = @(
+            @{ Category = "BlueScreen";          Filter = @{LogName='System'; Id=1001; StartTime=$start}; Weight = 8; Cap = 25 },
+            @{ Category = "UnexpectedShutdown";  Filter = @{LogName='System'; Id=41; StartTime=$start};   Weight = 5; Cap = 20 },
+            @{ Category = "DirtyShutdown";       Filter = @{LogName='System'; Id=6008; StartTime=$start}; Weight = 5; Cap = 20 },
+            @{ Category = "DiskBadBlock";        Filter = @{LogName='System'; Id=7; StartTime=$start};    Weight = 8; Cap = 25 },
+            @{ Category = "NTFSCorruption";      Filter = @{LogName='System'; Id=55; StartTime=$start};   Weight = 8; Cap = 25 },
+            @{ Category = "StorageReset";        Filter = @{LogName='System'; Id=129; StartTime=$start};  Weight = 8; Cap = 25 },
+            @{ Category = "DiskIORetry";         Filter = @{LogName='System'; Id=153; StartTime=$start};  Weight = 8; Cap = 25 }
+        )
+
+        $bsodCount = 0; $appCrashCount = 0; $appHangCount = 0
+        $eventSummary = @{}
+
+        foreach ($def in $eventDefs) {
+            $count = 0
+            try { $count = @(Get-WinEvent -FilterHashtable $def.Filter -ErrorAction SilentlyContinue).Count } catch {}
+            $eventSummary[$def.Category] = $count
+            if ($count -gt 0) {
+                $penalty = [math]::Min($def.Cap, $count * $def.Weight)
+                $score -= $penalty
+            }
+            if ($def.Category -eq "BlueScreen") { $bsodCount = $count }
+        }
+
+        # Application errors/hangs
+        try { $appCrashCount = @(Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='Application Error'; StartTime=$start} -ErrorAction SilentlyContinue).Count } catch {}
+        try { $appHangCount  = @(Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='Application Hang'; StartTime=$start} -ErrorAction SilentlyContinue).Count } catch {}
+        $eventSummary["AppCrashes"] = $appCrashCount
+        $eventSummary["AppHangs"]   = $appHangCount
+        if (($appCrashCount + $appHangCount) -gt 10) { $score -= 10 }
+
+        $score = [math]::Max(0, $score)
+
+        @{
+            Score        = $score
+            DaysChecked  = $days
+            BSODs        = $bsodCount
+            AppCrashes   = $appCrashCount
+            AppHangs     = $appHangCount
+            EventSummary = $eventSummary
+        }
+    } @{ Score = 100; DaysChecked = 90; BSODs = 0; AppCrashes = 0; AppHangs = 0; EventSummary = @{} }
+
+    if ($reliabilityData.BSODs -gt 0) {
+        $null = $recommendations.Add("$($reliabilityData.BSODs) blue screen(s) in last 90 days - investigate hardware/driver stability")
+    }
+    if (($reliabilityData.AppCrashes + $reliabilityData.AppHangs) -gt 20) {
+        $null = $recommendations.Add("High application crash/hang count ($($reliabilityData.AppCrashes) crashes, $($reliabilityData.AppHangs) hangs) - review failing applications")
+    }
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 8. DEVICE HEALTH
+    # ─────────────────────────────────────────────────────────────────────
+    Write-DiagLog "Wear & Tear: Collecting device health..."
+    $deviceData = Invoke-Safe {
+        $score = 100
+        $problemDevices = @(Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object { $_.Status -ne "OK" })
+        $problemCount = $problemDevices.Count
+        if ($problemCount -gt 0) { $score -= [math]::Min(25, $problemCount * 5) }
+
+        # Network adapter issues
+        $netWarnings = @()
+        try {
+            Get-NetAdapter -ErrorAction SilentlyContinue | ForEach-Object {
+                if ($_.Status -ne "Up" -and $_.HardwareInterface) { $netWarnings += "$($_.Name) is $($_.Status)" }
+                if ($_.LinkSpeed -match "100 Mbps" -and $_.InterfaceDescription -match "Gigabit|GbE|1000") {
+                    $netWarnings += "$($_.Name) limited to 100Mbps on gigabit adapter"
+                }
+            }
+        } catch {}
+        if ($netWarnings.Count -gt 0) { $score -= 10 }
+
+        # USB events (last 90 days)
+        $usbEventCount = 0
+        try {
+            $usbEventCount = @(Get-WinEvent -FilterHashtable @{LogName='System'; StartTime=(Get-Date).AddDays(-90)} -ErrorAction SilentlyContinue |
+                Where-Object { $_.Message -match "USB|device not recognized|device descriptor|reset.*port" }).Count
+        } catch {}
+        if ($usbEventCount -gt 0) { $score -= 10 }
+
+        $score = [math]::Max(0, $score)
+
+        @{
+            Score           = $score
+            ProblemDevices  = $problemCount
+            ProblemList     = @($problemDevices | Select-Object -First 20 | ForEach-Object {
+                @{ Class = $_.Class; Name = $_.FriendlyName; Status = "$($_.Status)" }
+            })
+            NetworkWarnings = $netWarnings
+            USBEventCount   = $usbEventCount
+        }
+    } @{ Score = 100; ProblemDevices = 0; ProblemList = @(); NetworkWarnings = @(); USBEventCount = 0 }
+
+    if ($deviceData.ProblemDevices -gt 0) {
+        $null = $recommendations.Add("$($deviceData.ProblemDevices) device(s) with non-OK status - review Device Manager")
+    }
+
+    # ─────────────────────────────────────────────────────────────────────
+    # OVERALL WEIGHTED SCORE
+    # ─────────────────────────────────────────────────────────────────────
+    Write-DiagLog "Wear & Tear: Calculating overall score..."
+
+    $weights = @(
+        @{ Name = "SystemAge";          Score = $sysAge.Score;           Weight = 10 },
+        @{ Name = "Storage";            Score = $storageData.Score;      Weight = 25 },
+        @{ Name = "Battery";            Score = $batteryData.Score;      Weight = 10 },
+        @{ Name = "Thermal";            Score = $thermalData.Score;      Weight = 15 },
+        @{ Name = "RAM";                Score = $ramData.Score;          Weight = 15 },
+        @{ Name = "GPU";                Score = $gpuData.Score;          Weight = 5 },
+        @{ Name = "WindowsReliability"; Score = $reliabilityData.Score;  Weight = 15 },
+        @{ Name = "DeviceHealth";       Score = $deviceData.Score;       Weight = 5 }
+    )
+
+    # If no battery, exclude its weight from dragging score
+    if (-not $batteryData.BatteryDetected) {
+        $weights | Where-Object { $_.Name -eq "Battery" } | ForEach-Object { $_.Score = 100 }
+    }
+
+    $weightedSum   = 0; $totalWeight = 0
+    foreach ($w in $weights) {
+        $weightedSum  += ($w.Score * $w.Weight)
+        $totalWeight  += $w.Weight
+    }
+    $overallScore = [int]([math]::Round($weightedSum / $totalWeight, 0))
+    $overallGrade = _WTGrade $overallScore
+    $overallRisk  = _WTRisk $overallScore
+    $estimatedLifeYears = _WTLife $overallScore
+
+    # Refine life estimate using storage data if available
+    $storageLifeEstimates = @()
+    foreach ($drv in $storageData.Drives) {
+        if ($null -ne $drv.WearPercentUsed -and $drv.WearPercentUsed -gt 0 -and $null -ne $drv.PowerOnHours -and $drv.PowerOnHours -gt 0) {
+            $hoursPerPct = $drv.PowerOnHours / $drv.WearPercentUsed
+            $remaining   = [math]::Max(0, 100 - $drv.WearPercentUsed)
+            $yearsLeft   = [math]::Round(($hoursPerPct * $remaining) / 8760, 1)
+            $storageLifeEstimates += $yearsLeft
+        }
+    }
+    if ($storageLifeEstimates.Count -gt 0) {
+        $minStorageLife = ($storageLifeEstimates | Measure-Object -Minimum).Minimum
+        if ($minStorageLife -lt $estimatedLifeYears) {
+            $estimatedLifeYears = $minStorageLife
+        }
+    }
+
+    Write-DiagLog "Wear & Tear: Overall Score = $overallScore/100, Grade = $overallGrade, Risk = $overallRisk"
+    Write-DiagLog "=== WEAR & TEAR LIFE REPORT COMPLETE ==="
+
+    # ─────────────────────────────────────────────────────────────────────
+    # BUILD RETURN HASHTABLE
+    # ─────────────────────────────────────────────────────────────────────
+    return @{
+        Score              = $overallScore
+        Grade              = $overallGrade
+        GradeFull          = _WTGradeFull $overallScore
+        RiskLevel          = $overallRisk
+        EstimatedLifeYears = $estimatedLifeYears
+        LifeText           = _WTLifeText $overallScore
+        Components         = @{
+            SystemAge = @{
+                Score        = $sysAge.Score
+                AgeYears     = $sysAge.AgeYears
+                BIOSAgeYears = $sysAge.BIOSAgeYears
+                OSAgeYears   = $sysAge.OSAgeYears
+                InstallDate  = $sysAge.InstallDate
+                BIOSDate     = $sysAge.BIOSDate
+                Manufacturer = $sysAge.Manufacturer
+                Model        = $sysAge.Model
+                Serial       = $sysAge.Serial
+            }
+            Storage = @{
+                Score         = $storageData.Score
+                SmartCtlFound = $storageData.SmartCtlFound
+                Details       = $storageData.Drives
+                Volumes       = $storageData.Volumes
+            }
+            Battery = @{
+                Score            = $batteryData.Score
+                BatteryDetected  = $batteryData.BatteryDetected
+                HealthPct        = $batteryData.HealthPct
+                DesignCapMWh     = $batteryData.DesignCapMWh
+                FullChargeCapMWh = $batteryData.FullChargeCapMWh
+                CycleCount       = $batteryData.CycleCount
+                ChargePercent    = $batteryData.ChargePercent
+            }
+            Thermal = @{
+                Score             = $thermalData.Score
+                AvgTemp           = $thermalData.AvgTemp
+                MaxTemp           = $thermalData.MaxTemp
+                ThermalZones      = $thermalData.ThermalZones
+                ThermalEventCount = $thermalData.ThermalEventCount
+            }
+            RAM = @{
+                Score         = $ramData.Score
+                TotalGB       = $ramData.TotalGB
+                ModuleCount   = $ramData.ModuleCount
+                MixedSpeeds   = $ramData.MixedSpeeds
+                WHEAErrors    = $ramData.WHEAErrors
+                MemDiagEvents = $ramData.MemDiagEvents
+                Modules       = $ramData.Modules
+            }
+            GPU = @{
+                Score     = $gpuData.Score
+                GPUEvents = $gpuData.GPUEvents
+                DriverAge = $gpuData.DriverAge
+                GPUs      = $gpuData.GPUs
+            }
+            WindowsReliability = @{
+                Score        = $reliabilityData.Score
+                DaysChecked  = $reliabilityData.DaysChecked
+                BSODs        = $reliabilityData.BSODs
+                AppCrashes   = $reliabilityData.AppCrashes
+                AppHangs     = $reliabilityData.AppHangs
+                EventSummary = $reliabilityData.EventSummary
+            }
+            DeviceHealth = @{
+                Score           = $deviceData.Score
+                ProblemDevices  = $deviceData.ProblemDevices
+                ProblemList     = $deviceData.ProblemList
+                NetworkWarnings = $deviceData.NetworkWarnings
+                USBEventCount   = $deviceData.USBEventCount
+            }
+        }
+        ComponentScores    = $weights
+        Recommendations    = @($recommendations)
+    }
+}

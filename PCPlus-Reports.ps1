@@ -1806,3 +1806,1174 @@ th { background: #f1f5f9; padding: 8px 12px; text-align: left; font-size: 9.5pt;
 
     return $html
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WEAR & TEAR LIFECYCLE REPORT (branded HTML with component breakdown)
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Build-WearAndTearHTMLReport {
+    param($Params, $SystemInfo, $WearTear)
+    $date = Get-Date -Format "MMMM dd, yyyy 'at' h:mm tt"
+    $iconPass = "&#10004;"; $iconFail = "&#10008;"; $iconWarn = "&#9888;"
+
+    function Get-WTDonut([int]$score, [int]$max, [string]$label) {
+        $pct = if ($max -gt 0) { [math]::Round(($score / $max) * 100) } else { 0 }
+        $r = 36; $c = 226.2; $dash = [math]::Round($c * $pct / 100, 1); $gap = [math]::Round($c - $dash, 1)
+        $color = if ($pct -ge 80) { "#22c55e" } elseif ($pct -ge 60) { "#f59e0b" } else { "#ef4444" }
+        return @"
+<div style="display:inline-block;text-align:center;margin:6px 10px;width:90px;">
+<svg width="80" height="80" viewBox="0 0 80 80">
+<circle cx="40" cy="40" r="$r" fill="none" stroke="#e5e7eb" stroke-width="7"/>
+<circle cx="40" cy="40" r="$r" fill="none" stroke="$color" stroke-width="7" stroke-dasharray="$dash $gap" stroke-dashoffset="56.55" stroke-linecap="round" transform="rotate(-90 40 40)"/>
+<text x="40" y="37" text-anchor="middle" font-size="16" font-weight="bold" fill="$color">$score</text>
+<text x="40" y="50" text-anchor="middle" font-size="8" fill="#64748b">/ $max</text>
+</svg>
+<div style="font-size:8pt;font-weight:600;color:#334155;margin-top:2px;">$label</div>
+</div>
+"@
+    }
+
+    $c = $WearTear.Components
+    $donuts = ""
+    $donuts += Get-WTDonut $c.SystemAge.Score 100 "System Age"
+    $donuts += Get-WTDonut $c.Storage.Score 100 "Storage"
+    $donuts += Get-WTDonut $c.Battery.Score 100 "Battery"
+    $donuts += Get-WTDonut $c.Thermal.Score 100 "Thermal"
+    $donuts += Get-WTDonut $c.RAM.Score 100 "RAM"
+    $donuts += Get-WTDonut $c.GPU.Score 100 "GPU"
+    $donuts += Get-WTDonut $c.WindowsReliability.Score 100 "Windows"
+    $donuts += Get-WTDonut $c.DeviceHealth.Score 100 "Devices"
+
+    $riskColor = switch ($WearTear.RiskLevel) { "Low" { "#22c55e" }; "Moderate" { "#f59e0b" }; "High" { "#f97316" }; "Critical" { "#ef4444" }; default { "#64748b" } }
+
+    $componentRows = ""
+    foreach ($w in $WearTear.ComponentScores) {
+        $barColor = if ($w.Score -ge 80) { "#22c55e" } elseif ($w.Score -ge 60) { "#f59e0b" } else { "#ef4444" }
+        $statusIcon = if ($w.Score -ge 80) { "<span style='color:#22c55e;'>$iconPass</span>" } elseif ($w.Score -ge 60) { "<span style='color:#f59e0b;'>$iconWarn</span>" } else { "<span style='color:#ef4444;'>$iconFail</span>" }
+        $componentRows += "<tr><td>$($w.Name)</td><td style='text-align:center;'>$statusIcon $($w.Score)/100</td><td><div style='background:#e5e7eb;border-radius:4px;height:12px;width:100%;'><div style='background:$barColor;border-radius:4px;height:12px;width:$($w.Score)%;'></div></div></td><td style='text-align:center;font-size:9pt;color:#64748b;'>$($w.Weight)%</td></tr>"
+    }
+
+    $detailHTML = ""
+    if ($c.SystemAge.AgeYears) { $detailHTML += "<div class='detail-card'><div class='detail-title'>System Age</div><div class='detail-body'>Hardware: ~$($c.SystemAge.AgeYears) years | BIOS: $($c.SystemAge.BIOSDate) | OS Install: $($c.SystemAge.InstallDate)<br/>Make: $($c.SystemAge.Manufacturer) $($c.SystemAge.Model) | S/N: $($c.SystemAge.Serial)</div></div>" }
+    if ($c.Storage.Details -and $c.Storage.Details.Count -gt 0) {
+        $storageLines = ""
+        foreach ($d in $c.Storage.Details) {
+            $lifeBar = if ($null -ne $d.LifeRemainingPct) { "$($d.LifeRemainingPct)% life remaining" } else { "Life data N/A" }
+            $storageLines += "$($d.Model) | $($d.Type) $($d.SizeGB) GB | $lifeBar | POH: $($d.PowerOnHours)h<br/>"
+        }
+        $detailHTML += "<div class='detail-card'><div class='detail-title'>Storage Health</div><div class='detail-body'>$storageLines</div></div>"
+    }
+    if ($c.Battery.BatteryDetected) { $detailHTML += "<div class='detail-card'><div class='detail-title'>Battery</div><div class='detail-body'>Health: $($c.Battery.HealthPct)% | Cycles: $($c.Battery.CycleCount) | Charge: $($c.Battery.ChargePercent)%<br/>Design: $($c.Battery.DesignCapMWh) mWh | Current Max: $($c.Battery.FullChargeCapMWh) mWh</div></div>" }
+    else { $detailHTML += "<div class='detail-card'><div class='detail-title'>Battery</div><div class='detail-body'>No battery detected (desktop)</div></div>" }
+    $detailHTML += "<div class='detail-card'><div class='detail-title'>Thermal</div><div class='detail-body'>Avg Temp: $($c.Thermal.AvgTemp)C | Max: $($c.Thermal.MaxTemp)C | Thermal Events (90d): $($c.Thermal.ThermalEventCount)</div></div>"
+    $detailHTML += "<div class='detail-card'><div class='detail-title'>RAM</div><div class='detail-body'>Total: $($c.RAM.TotalGB) GB | Modules: $($c.RAM.ModuleCount) | Mixed Speeds: $(if($c.RAM.MixedSpeeds){'Yes'}else{'No'}) | WHEA Errors: $($c.RAM.WHEAErrors)</div></div>"
+    if ($c.GPU.GPUs -and $c.GPU.GPUs.Count -gt 0) {
+        $gpuLines = ($c.GPU.GPUs | ForEach-Object { "$($_.Name) ($($_.DriverVersion))" }) -join "<br/>"
+        $detailHTML += "<div class='detail-card'><div class='detail-title'>GPU</div><div class='detail-body'>$gpuLines<br/>Driver Crashes (90d): $($c.GPU.GPUEvents) | Driver Age: $($c.GPU.DriverAge)</div></div>"
+    }
+    $detailHTML += "<div class='detail-card'><div class='detail-title'>Windows Reliability</div><div class='detail-body'>BSODs: $($c.WindowsReliability.BSODs) | App Crashes: $($c.WindowsReliability.AppCrashes) | App Hangs: $($c.WindowsReliability.AppHangs) | Period: $($c.WindowsReliability.DaysChecked) days</div></div>"
+    $detailHTML += "<div class='detail-card'><div class='detail-title'>Device Health</div><div class='detail-body'>Problem Devices: $($c.DeviceHealth.ProblemDevices) | Network Warnings: $($c.DeviceHealth.NetworkWarnings) | USB Events: $($c.DeviceHealth.USBEventCount)</div></div>"
+
+    $recsHTML = ""
+    if ($WearTear.Recommendations -and $WearTear.Recommendations.Count -gt 0) {
+        foreach ($r in $WearTear.Recommendations) { $recsHTML += "<li>$r</li>" }
+    } else { $recsHTML = "<li>No immediate action required - system is in good condition</li>" }
+
+    $logoDataUri = ""
+    $logoPath = Join-Path $Global:ScriptDir "logo-base64.txt"
+    if (Test-Path $logoPath) { try { $logoDataUri = "data:image/png;base64,$((Get-Content $logoPath -Raw).Trim())" } catch {} }
+    $logoHTML = if ($logoDataUri) { "<img src='$logoDataUri' alt='PC Plus Computing' style='width:240px;'/>" } else { "<div style='font-size:18pt;font-weight:700;color:#0a3a56;letter-spacing:2px;'>PC PLUS COMPUTING</div>" }
+
+    $html = @"
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"/><title>Wear &amp; Tear Life Report - $($Params.CustomerName)</title>
+<style>
+@page { size:A4; margin:12mm; }
+body { font-family:'Segoe UI',Tahoma,sans-serif; margin:0; padding:0; background:#f8fafc; color:#1e293b; font-size:10pt; }
+.page { max-width:800px; margin:0 auto; background:white; padding:32px; }
+.header { text-align:center; border-bottom:3px solid #0d4b71; padding-bottom:16px; margin-bottom:20px; }
+.header-sub { font-size:9pt; color:#64748b; margin-top:6px; }
+.title-bar { background:linear-gradient(135deg,#0d4b71,#2596be); color:white; border-radius:8px; padding:16px 20px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; }
+.title-bar .score { font-size:32pt; font-weight:800; }
+.title-bar .meta { text-align:right; }
+.donut-row { display:flex; flex-wrap:wrap; justify-content:center; background:#f8fafc; border-radius:8px; padding:12px; margin-bottom:16px; border:1px solid #e2e8f0; }
+.section-title { font-size:12pt; font-weight:700; color:#0d4b71; border-bottom:2px solid #2596be; padding-bottom:4px; margin:16px 0 10px; }
+table { width:100%; border-collapse:collapse; margin-bottom:12px; }
+th { background:#0d4b71; color:white; padding:6px 8px; text-align:left; font-size:9pt; }
+td { padding:5px 8px; border-bottom:1px solid #e2e8f0; font-size:9pt; }
+tr:nth-child(even) { background:#f8fafc; }
+.detail-card { background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:10px 14px; margin-bottom:8px; }
+.detail-title { font-weight:700; color:#0d4b71; font-size:9.5pt; margin-bottom:3px; }
+.detail-body { font-size:9pt; color:#475569; line-height:1.5; }
+.risk-badge { display:inline-block; padding:4px 14px; border-radius:20px; font-weight:700; font-size:11pt; }
+.recs { background:#f0f9ff; border-left:4px solid #2596be; border-radius:0 6px 6px 0; padding:10px 16px; }
+.recs li { margin-bottom:4px; }
+.footer { text-align:center; border-top:2px solid #0d4b71; padding-top:12px; margin-top:20px; font-size:8pt; color:#64748b; }
+@media print { body { background:white; } .page { padding:0; box-shadow:none; } }
+</style></head><body>
+<div class="page">
+    <div class="header">
+        $logoHTML
+        <div style="font-size:8pt;color:#2596be;font-weight:600;letter-spacing:3px;margin-top:4px;">YOUR SECURITY, OUR PRIORITY</div>
+        <div class="header-sub">604-760-1662 | 236-500-2700 | pcpluscomputing.com</div>
+    </div>
+
+    <div style="text-align:center;font-size:14pt;font-weight:700;color:#0d4b71;margin-bottom:4px;">WEAR &amp; TEAR LIFECYCLE REPORT</div>
+    <div style="text-align:center;font-size:9pt;color:#64748b;margin-bottom:16px;">
+        Customer: $($Params.CustomerName) | Computer: $($SystemInfo.ComputerName) | Date: $date
+    </div>
+
+    <div class="title-bar">
+        <div>
+            <div style="font-size:10pt;opacity:0.8;">Overall Health Score</div>
+            <div class="score">$($WearTear.Score)<span style="font-size:14pt;opacity:0.6;">/100</span></div>
+            <div style="font-size:10pt;">$($WearTear.GradeFull)</div>
+        </div>
+        <div class="meta">
+            <div class="risk-badge" style="background:$riskColor;color:white;">$($WearTear.RiskLevel) Risk</div>
+            <div style="margin-top:8px;font-size:10pt;color:rgba(255,255,255,0.9);">Est. Life: $($WearTear.EstimatedLifeYears) years</div>
+            <div style="font-size:9pt;color:rgba(255,255,255,0.7);margin-top:2px;">$($WearTear.LifeText)</div>
+        </div>
+    </div>
+
+    <div class="section-title">Component Health Overview</div>
+    <div class="donut-row">$donuts</div>
+
+    <div class="section-title">Component Breakdown</div>
+    <table>
+        <tr><th>Component</th><th style="text-align:center;">Score</th><th>Health Bar</th><th style="text-align:center;">Weight</th></tr>
+        $componentRows
+    </table>
+
+    <div class="section-title">Detailed Analysis</div>
+    $detailHTML
+
+    <div class="section-title">Recommendations</div>
+    <div class="recs"><ul style="margin:0;padding-left:18px;">$recsHTML</ul></div>
+
+    <div class="footer">
+        <div style="font-weight:700;color:#0d4b71;">PC Plus Computing</div>
+        <div>604-760-1662 | 236-500-2700 | pcpluscomputing.com</div>
+        <div style="color:#2596be;">Your Security, Our Priority</div>
+        <div style="margin-top:6px;">Technician: $($Params.TechName) | Report generated $(Get-Date -Format 'yyyy-MM-dd HH:mm')</div>
+    </div>
+</div>
+</body></html>
+"@
+
+    return $html
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PAPERLESS DELIVERY - Server upload, email, config, and UI dialog
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Initialize-PaperlessConfig {
+    <#
+    .SYNOPSIS
+        Creates or reads the PCPlus360-Config.json paperless delivery config.
+    .DESCRIPTION
+        If the config file does not exist, creates one with sensible defaults
+        (all delivery methods disabled). Returns the parsed config object.
+    #>
+    param(
+        [string]$ConfigPath = ""
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
+        $ConfigPath = Join-Path $Global:ScriptDir "PCPlus360-Config.json"
+    }
+
+    $defaultConfig = @{
+        ServerUpload = @{
+            Enabled    = $false
+            Url        = "https://reports.pcpluscomputing.com/api/upload"
+            ApiKey     = ""
+            AutoUpload = $false
+        }
+        Email = @{
+            Enabled          = $false
+            SmtpServer       = ""
+            SmtpPort         = 587
+            UseSSL           = $true
+            FromAddress      = ""
+            FromName         = "PC Plus Computing"
+            Username         = ""
+            Password         = ""
+            DefaultRecipient = ""
+        }
+    }
+
+    if (Test-Path $ConfigPath) {
+        try {
+            $raw = Get-Content $ConfigPath -Raw -Encoding UTF8
+            $config = $raw | ConvertFrom-Json
+
+            # Ensure all expected keys exist (merge with defaults for forward compat)
+            if (-not $config.ServerUpload) {
+                $config | Add-Member -NotePropertyName "ServerUpload" -NotePropertyValue ($defaultConfig.ServerUpload | ConvertTo-Json -Depth 3 | ConvertFrom-Json) -Force
+            }
+            if (-not $config.Email) {
+                $config | Add-Member -NotePropertyName "Email" -NotePropertyValue ($defaultConfig.Email | ConvertTo-Json -Depth 3 | ConvertFrom-Json) -Force
+            }
+
+            Write-DiagLog "Paperless config loaded from $ConfigPath"
+            return $config
+        }
+        catch {
+            Write-DiagLog "Failed to parse config at $ConfigPath : $($_.Exception.Message)" "WARN"
+            # Fall through to create new default
+        }
+    }
+
+    # Create default config
+    try {
+        $json = $defaultConfig | ConvertTo-Json -Depth 5
+        [IO.File]::WriteAllText($ConfigPath, $json, [Text.Encoding]::UTF8)
+        Write-DiagLog "Created default paperless config at $ConfigPath"
+    }
+    catch {
+        Write-DiagLog "Could not write config file: $($_.Exception.Message)" "WARN"
+    }
+
+    return ($defaultConfig | ConvertTo-Json -Depth 5 | ConvertFrom-Json)
+}
+
+
+function Send-ReportToServer {
+    <#
+    .SYNOPSIS
+        Uploads a diagnostic report (HTML or PDF) to the PC Plus reporting server.
+    .DESCRIPTION
+        Reads the server URL and API key from PCPlus360-Config.json, then performs
+        a multipart/form-data POST with file + metadata. Returns a hashtable with
+        Success, Message, and ViewUrl keys. Fails gracefully on network errors.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$ReportPath,
+        [string]$CustomerName  = "",
+        [string]$ComputerName  = "",
+        [string]$TechName      = "",
+        [string]$ScanMode      = "",
+        [string]$ServerUrl     = ""
+    )
+
+    $result = @{ Success = $false; Message = ""; ViewUrl = "" }
+
+    # Validate file exists
+    if (-not (Test-Path $ReportPath)) {
+        $result.Message = "Report file not found: $ReportPath"
+        Write-DiagLog $result.Message "WARN"
+        return $result
+    }
+
+    # Load config
+    $config = Initialize-PaperlessConfig
+    if (-not $config.ServerUpload.Enabled -and [string]::IsNullOrWhiteSpace($ServerUrl)) {
+        $result.Message = "Server upload is disabled in config and no override URL provided."
+        Write-DiagLog $result.Message "WARN"
+        return $result
+    }
+
+    $uploadUrl = if (-not [string]::IsNullOrWhiteSpace($ServerUrl)) { $ServerUrl } else { $config.ServerUpload.Url }
+    $apiKey    = $config.ServerUpload.ApiKey
+
+    if ([string]::IsNullOrWhiteSpace($uploadUrl)) {
+        $result.Message = "No server URL configured."
+        Write-DiagLog $result.Message "WARN"
+        return $result
+    }
+
+    # Determine file type
+    $ext = [IO.Path]::GetExtension($ReportPath).ToLower()
+    $fileType = switch ($ext) {
+        ".pdf"  { "application/pdf" }
+        ".html" { "text/html" }
+        ".htm"  { "text/html" }
+        default { "application/octet-stream" }
+    }
+    $friendlyType = if ($ext -eq ".pdf") { "PDF" } else { "HTML" }
+
+    try {
+        Write-DiagLog "Uploading report to $uploadUrl ..."
+
+        # Build multipart form body
+        $boundary = [System.Guid]::NewGuid().ToString("N")
+        $LF = "`r`n"
+        $fileName = [IO.Path]::GetFileName($ReportPath)
+        $fileBytes = [IO.File]::ReadAllBytes($ReportPath)
+
+        # Metadata fields
+        $fields = @{
+            customer_name = $CustomerName
+            computer_name = $ComputerName
+            tech_name     = $TechName
+            scan_mode     = $ScanMode
+            scan_date     = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+            file_type     = $friendlyType
+        }
+
+        $bodyParts = [System.Collections.ArrayList]::new()
+        foreach ($key in $fields.Keys) {
+            [void]$bodyParts.Add("--$boundary$LF")
+            [void]$bodyParts.Add("Content-Disposition: form-data; name=`"$key`"$LF$LF")
+            [void]$bodyParts.Add("$($fields[$key])$LF")
+        }
+
+        # File part header
+        $fileHeader = "--$boundary${LF}Content-Disposition: form-data; name=`"report_file`"; filename=`"$fileName`"${LF}Content-Type: $fileType${LF}${LF}"
+        $fileFooter = "${LF}--${boundary}--${LF}"
+
+        # Assemble as bytes
+        $enc = [Text.Encoding]::UTF8
+        $textPreamble = $enc.GetBytes(($bodyParts -join ""))
+        $headerBytes  = $enc.GetBytes($fileHeader)
+        $footerBytes  = $enc.GetBytes($fileFooter)
+
+        $bodyStream = [IO.MemoryStream]::new()
+        $bodyStream.Write($textPreamble, 0, $textPreamble.Length)
+        $bodyStream.Write($headerBytes,  0, $headerBytes.Length)
+        $bodyStream.Write($fileBytes,    0, $fileBytes.Length)
+        $bodyStream.Write($footerBytes,  0, $footerBytes.Length)
+        $fullBody = $bodyStream.ToArray()
+        $bodyStream.Close()
+
+        # Build headers
+        $headers = @{
+            "Content-Type" = "multipart/form-data; boundary=$boundary"
+        }
+        if (-not [string]::IsNullOrWhiteSpace($apiKey)) {
+            $headers["Authorization"] = "Bearer $apiKey"
+        }
+
+        # Allow TLS 1.2
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11
+
+        $response = Invoke-RestMethod -Uri $uploadUrl -Method Post -Headers $headers -Body $fullBody -ContentType "multipart/form-data; boundary=$boundary" -TimeoutSec 60 -ErrorAction Stop
+
+        $result.Success = $true
+        $result.Message = "Report uploaded successfully."
+        if ($response.url)      { $result.ViewUrl = $response.url }
+        elseif ($response.link) { $result.ViewUrl = $response.link }
+        elseif ($response.id)   { $result.ViewUrl = "$($uploadUrl -replace '/api/upload.*$','')/view/$($response.id)" }
+        Write-DiagLog "Upload complete. View URL: $($result.ViewUrl)"
+    }
+    catch [System.Net.WebException] {
+        $statusCode = ""
+        if ($_.Exception.Response) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+        }
+        $result.Message = "Server unreachable or returned error$(if($statusCode){" (HTTP $statusCode)"}): $($_.Exception.Message)"
+        Write-DiagLog $result.Message "WARN"
+    }
+    catch {
+        $result.Message = "Upload failed: $($_.Exception.Message)"
+        Write-DiagLog $result.Message "WARN"
+    }
+
+    return $result
+}
+
+
+function Send-ReportByEmail {
+    <#
+    .SYNOPSIS
+        Emails a diagnostic report to a recipient via SMTP or falls back to mailto:.
+    .DESCRIPTION
+        Reads SMTP config from PCPlus360-Config.json. Sends the report as an
+        attachment with a branded plaintext body. If SMTP fails, opens the default
+        email client via mailto: so the tech can send manually.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$ReportPath,
+        [string]$RecipientEmail = "",
+        [string]$CustomerName   = "",
+        [string]$TechName       = "",
+        [string]$ScanMode       = ""
+    )
+
+    $result = @{ Success = $false; Message = ""; FallbackUsed = $false }
+
+    # Validate file
+    if (-not (Test-Path $ReportPath)) {
+        $result.Message = "Report file not found: $ReportPath"
+        Write-DiagLog $result.Message "WARN"
+        return $result
+    }
+
+    # Load config
+    $config = Initialize-PaperlessConfig
+    $smtp = $config.Email
+
+    if ([string]::IsNullOrWhiteSpace($RecipientEmail)) {
+        $RecipientEmail = $smtp.DefaultRecipient
+    }
+    if ([string]::IsNullOrWhiteSpace($RecipientEmail)) {
+        $result.Message = "No recipient email provided and no default configured."
+        Write-DiagLog $result.Message "WARN"
+        return $result
+    }
+
+    # Build email content
+    $fileName  = [IO.Path]::GetFileName($ReportPath)
+    $dateStr   = Get-Date -Format "MMMM dd, yyyy"
+    $techLabel = if (-not [string]::IsNullOrWhiteSpace($TechName)) { $TechName } else { "PC Plus Computing" }
+
+    $subject = "PC Plus Computing - Diagnostic Report for $CustomerName"
+
+    $body = @"
+Hello,
+
+Please find attached the diagnostic report for $CustomerName.
+
+Report:      $fileName
+Scan Mode:   $ScanMode
+Date:        $dateStr
+Technician:  $techLabel
+
+If you have any questions about this report, please don't hesitate to contact us.
+
+Best regards,
+$techLabel
+PC Plus Computing
+604-760-1662 | 236-500-2700
+pcpluscomputing.com
+Your Security, Our Priority
+"@
+
+    # Attempt SMTP send
+    $smtpAttempted = $false
+    if ($smtp.Enabled -and -not [string]::IsNullOrWhiteSpace($smtp.SmtpServer)) {
+        $smtpAttempted = $true
+        try {
+            Write-DiagLog "Sending email via SMTP ($($smtp.SmtpServer):$($smtp.SmtpPort))..."
+
+            $fromAddr = if (-not [string]::IsNullOrWhiteSpace($smtp.FromAddress)) { $smtp.FromAddress } else { $smtp.Username }
+            if ([string]::IsNullOrWhiteSpace($fromAddr)) {
+                throw "No From address or Username configured for SMTP."
+            }
+
+            $mailParams = @{
+                From        = if (-not [string]::IsNullOrWhiteSpace($smtp.FromName)) { "$($smtp.FromName) <$fromAddr>" } else { $fromAddr }
+                To          = $RecipientEmail
+                Subject     = $subject
+                Body        = $body
+                SmtpServer  = $smtp.SmtpServer
+                Port        = $smtp.SmtpPort
+                Attachments = $ReportPath
+                Encoding    = [Text.Encoding]::UTF8
+            }
+
+            if ($smtp.UseSSL) {
+                $mailParams["UseSsl"] = $true
+            }
+
+            if (-not [string]::IsNullOrWhiteSpace($smtp.Username) -and -not [string]::IsNullOrWhiteSpace($smtp.Password)) {
+                $secPass = ConvertTo-SecureString $smtp.Password -AsPlainText -Force
+                $cred = New-Object System.Management.Automation.PSCredential($smtp.Username, $secPass)
+                $mailParams["Credential"] = $cred
+            }
+
+            Send-MailMessage @mailParams -ErrorAction Stop
+
+            $result.Success = $true
+            $result.Message = "Email sent to $RecipientEmail via SMTP."
+            Write-DiagLog $result.Message
+            return $result
+        }
+        catch {
+            Write-DiagLog "SMTP send failed: $($_.Exception.Message)" "WARN"
+            # Fall through to mailto: fallback
+        }
+    }
+
+    # Fallback: open default mail client
+    Write-DiagLog "Using mailto: fallback..."
+    $result.FallbackUsed = $true
+
+    try {
+        # Copy report path to clipboard so tech can attach it
+        try { [System.Windows.Clipboard]::SetText($ReportPath) } catch {}
+
+        $encodedSubject = [Uri]::EscapeDataString($subject)
+        $encodedBody    = [Uri]::EscapeDataString($body)
+        $mailto = "mailto:${RecipientEmail}?subject=$encodedSubject&body=$encodedBody"
+        Start-Process $mailto
+
+        $reason = if ($smtpAttempted) { "SMTP failed - opened default email client" } else { "SMTP not configured - opened default email client" }
+        $result.Success = $true
+        $result.Message = "$reason. Report path copied to clipboard - please attach manually."
+        Write-DiagLog $result.Message
+    }
+    catch {
+        $result.Success = $false
+        $result.Message = "Could not open email client: $($_.Exception.Message)"
+        Write-DiagLog $result.Message "WARN"
+    }
+
+    return $result
+}
+
+
+function Show-PaperlessDialog {
+    <#
+    .SYNOPSIS
+        WPF dialog for paperless report delivery (upload to server + email).
+    .DESCRIPTION
+        Shows a branded dark-themed dialog where the tech can toggle server upload
+        and email delivery, enter a recipient, and see real-time status. Returns
+        a hashtable summarizing what was sent and any errors.
+    .PARAMETER ReportPath
+        Path to the report file (HTML or PDF) to deliver.
+    .PARAMETER CustomerName
+        Customer name for metadata.
+    .PARAMETER ComputerName
+        Computer name for metadata.
+    .PARAMETER TechName
+        Technician name for metadata.
+    .PARAMETER ScanMode
+        Scan mode label (Quick, Full, etc.).
+    #>
+    param(
+        [Parameter(Mandatory)][string]$ReportPath,
+        [string]$CustomerName = "",
+        [string]$ComputerName = "",
+        [string]$TechName     = "",
+        [string]$ScanMode     = ""
+    )
+
+    $dialogResult = @{
+        Cancelled    = $true
+        ServerResult = $null
+        EmailResult  = $null
+    }
+
+    # Load config for defaults
+    $config = Initialize-PaperlessConfig
+    $defaultEmail = $config.Email.DefaultRecipient
+
+    $xaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="PC Plus 360 - Paperless Delivery" Height="520" Width="540"
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
+        Background="#eef4f8" FontFamily="Segoe UI">
+    <Window.Resources>
+        <Style x:Key="FlatBtn" TargetType="Button">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="bd" Property="Opacity" Value="0.7"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#0a3a56" Padding="16,14">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Border Width="36" Height="36" CornerRadius="8" Margin="0,0,12,0">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                            <GradientStop Color="#2596be" Offset="0"/>
+                            <GradientStop Color="#3bbde0" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
+                    <TextBlock Text="&#xE122;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="Paperless Report Delivery" FontSize="15" FontWeight="SemiBold" Foreground="White"/>
+                    <TextBlock Text="Upload to server or email directly to customer" FontSize="10.5" Foreground="#3bbde0"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Content -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0">
+            <StackPanel Margin="18,14,18,10">
+
+                <!-- Report Info -->
+                <Border Background="White" CornerRadius="7" Padding="12" Margin="0,0,0,12" BorderBrush="#d8e8f0" BorderThickness="1">
+                    <StackPanel>
+                        <TextBlock Text="REPORT FILE" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa" Margin="0,0,0,3"/>
+                        <TextBlock x:Name="lblReportFile" Text="" FontSize="11" Foreground="#1a2b3c" FontFamily="Consolas" TextWrapping="Wrap"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <TextBlock Text="Customer:" FontSize="10" Foreground="#5a7080" Margin="0,0,6,0"/>
+                            <TextBlock x:Name="lblCustomer" Text="" FontSize="10" FontWeight="SemiBold" Foreground="#1a2b3c"/>
+                            <TextBlock Text="  |  Computer:" FontSize="10" Foreground="#5a7080" Margin="8,0,6,0"/>
+                            <TextBlock x:Name="lblComputer" Text="" FontSize="10" FontWeight="SemiBold" Foreground="#1a2b3c"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Server Upload Section -->
+                <Border Background="White" CornerRadius="7" Padding="12" Margin="0,0,0,10" BorderBrush="#d8e8f0" BorderThickness="1">
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Width="28" Height="28" CornerRadius="6" Background="#eef8ff" Margin="0,0,10,0">
+                                <TextBlock Text="&#xE128;" FontFamily="Segoe MDL2 Assets" FontSize="13" Foreground="#2596be" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                <TextBlock Text="Upload to Server" FontSize="12.5" FontWeight="SemiBold" Foreground="#1a2b3c"/>
+                                <TextBlock Text="Send to PC Plus reporting dashboard" FontSize="9.5" Foreground="#5a7080"/>
+                            </StackPanel>
+                            <CheckBox x:Name="chkUpload" Grid.Column="2" VerticalAlignment="Center" IsChecked="False"/>
+                        </Grid>
+                        <TextBlock x:Name="lblUploadStatus" Text="" FontSize="9.5" Foreground="#5a7080" Margin="38,6,0,0" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Email Section -->
+                <Border Background="White" CornerRadius="7" Padding="12" Margin="0,0,0,10" BorderBrush="#d8e8f0" BorderThickness="1">
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Width="28" Height="28" CornerRadius="6" Background="#f0fdf4" Margin="0,0,10,0">
+                                <TextBlock Text="&#xE119;" FontFamily="Segoe MDL2 Assets" FontSize="13" Foreground="#16a34a" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                <TextBlock Text="Send by Email" FontSize="12.5" FontWeight="SemiBold" Foreground="#1a2b3c"/>
+                                <TextBlock Text="Email report directly to customer" FontSize="9.5" Foreground="#5a7080"/>
+                            </StackPanel>
+                            <CheckBox x:Name="chkEmail" Grid.Column="2" VerticalAlignment="Center" IsChecked="False"/>
+                        </Grid>
+                        <StackPanel Margin="38,8,0,0">
+                            <TextBlock Text="RECIPIENT EMAIL" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa" Margin="0,0,0,2"/>
+                            <TextBox x:Name="txtEmail" FontSize="12" Padding="6,4" Background="#f6f9fb" Foreground="#1a2b3c" BorderBrush="#d8e8f0"/>
+                        </StackPanel>
+                        <TextBlock x:Name="lblEmailStatus" Text="" FontSize="9.5" Foreground="#5a7080" Margin="38,6,0,0" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Status Section -->
+                <Border x:Name="borderStatus" Background="#f8fafc" CornerRadius="7" Padding="12" Margin="0,0,0,4" BorderBrush="#d8e8f0" BorderThickness="1" Visibility="Collapsed">
+                    <StackPanel>
+                        <TextBlock Text="DELIVERY STATUS" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa" Margin="0,0,0,6"/>
+                        <TextBlock x:Name="lblStatus" Text="" FontSize="11" Foreground="#1a2b3c" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Footer Buttons -->
+        <Border Grid.Row="2" Background="#f0f5f9" Padding="18,10" BorderBrush="#d8e8f0" BorderThickness="0,1,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" VerticalAlignment="Center" FontSize="9.5" Foreground="#5a7080">
+                    <Run Text="PC Plus Computing"/>
+                    <Run Text=" | "/>
+                    <Run Text="pcpluscomputing.com"/>
+                </TextBlock>
+                <Button x:Name="btnCancel" Grid.Column="1" Style="{StaticResource FlatBtn}" Background="#e2e8f0" Padding="18,8" Margin="0,0,8,0">
+                    <TextBlock Text="Cancel" FontSize="11.5" FontWeight="SemiBold" Foreground="#475569"/>
+                </Button>
+                <Button x:Name="btnSend" Grid.Column="2" Style="{StaticResource FlatBtn}" Background="#2596be" Padding="22,8">
+                    <TextBlock Text="Send" FontSize="11.5" FontWeight="SemiBold" Foreground="White"/>
+                </Button>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
+"@
+
+    try {
+        $reader = [System.Xml.XmlReader]::Create([System.IO.StringReader]::new($xaml))
+        $dlg = [System.Windows.Markup.XamlReader]::Load($reader)
+    }
+    catch {
+        Write-DiagLog "Failed to load Paperless dialog XAML: $($_.Exception.Message)" "ERROR"
+        return $dialogResult
+    }
+
+    # Grab controls
+    $lblReportFile  = $dlg.FindName("lblReportFile")
+    $lblCustomer    = $dlg.FindName("lblCustomer")
+    $lblComputer    = $dlg.FindName("lblComputer")
+    $chkUpload      = $dlg.FindName("chkUpload")
+    $chkEmail       = $dlg.FindName("chkEmail")
+    $txtEmail       = $dlg.FindName("txtEmail")
+    $lblUploadStatus = $dlg.FindName("lblUploadStatus")
+    $lblEmailStatus  = $dlg.FindName("lblEmailStatus")
+    $borderStatus   = $dlg.FindName("borderStatus")
+    $lblStatus      = $dlg.FindName("lblStatus")
+    $btnSend        = $dlg.FindName("btnSend")
+    $btnCancel      = $dlg.FindName("btnCancel")
+
+    # Populate initial values
+    $lblReportFile.Text = [IO.Path]::GetFileName($ReportPath)
+    $lblCustomer.Text   = $CustomerName
+    $lblComputer.Text   = $ComputerName
+    $txtEmail.Text      = $defaultEmail
+
+    # Pre-check boxes if config has them enabled
+    $chkUpload.IsChecked = $config.ServerUpload.Enabled
+    $chkEmail.IsChecked  = $config.Email.Enabled
+
+    # Upload status hint
+    if (-not $config.ServerUpload.Enabled) {
+        $lblUploadStatus.Text = "Server upload is disabled in config. Check the box to upload anyway."
+    }
+    elseif ([string]::IsNullOrWhiteSpace($config.ServerUpload.ApiKey)) {
+        $lblUploadStatus.Text = "Warning: No API key configured. Upload may fail."
+        $lblUploadStatus.Foreground = [System.Windows.Media.Brushes]::DarkOrange
+    }
+
+    # Email status hint
+    if (-not $config.Email.Enabled -or [string]::IsNullOrWhiteSpace($config.Email.SmtpServer)) {
+        $lblEmailStatus.Text = "SMTP not configured. Will open default email client as fallback."
+    }
+
+    # Helper to update status panel
+    $showStatus = {
+        param([string]$Text, [string]$Color)
+        $borderStatus.Visibility = "Visible"
+        $lblStatus.Text = $Text
+        $lblStatus.Foreground = if ($Color) {
+            [System.Windows.Media.BrushConverter]::new().ConvertFrom($Color)
+        } else {
+            [System.Windows.Media.Brushes]::SlateGray
+        }
+        $dlg.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Background)
+    }
+
+    # Cancel button
+    $btnCancel.Add_Click({
+        $dlg.Close()
+    })
+
+    # Send button
+    $btnSend.Add_Click({
+        $doUpload = $chkUpload.IsChecked
+        $doEmail  = $chkEmail.IsChecked
+
+        if (-not $doUpload -and -not $doEmail) {
+            & $showStatus "Please select at least one delivery method." "#dc2626"
+            return
+        }
+
+        $btnSend.IsEnabled   = $false
+        $btnCancel.IsEnabled = $false
+        $statusLines = @()
+
+        # Server Upload
+        if ($doUpload) {
+            & $showStatus "Uploading report to server..." "#2596be"
+            $uploadRes = Send-ReportToServer -ReportPath $ReportPath -CustomerName $CustomerName -ComputerName $ComputerName -TechName $TechName -ScanMode $ScanMode
+            $dialogResult.ServerResult = $uploadRes
+            if ($uploadRes.Success) {
+                $statusLines += "Server: Uploaded successfully."
+                if ($uploadRes.ViewUrl) { $statusLines += "  View: $($uploadRes.ViewUrl)" }
+                $lblUploadStatus.Text = "Uploaded"
+                $lblUploadStatus.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#16a34a")
+            }
+            else {
+                $statusLines += "Server: $($uploadRes.Message)"
+                $lblUploadStatus.Text = "Failed: $($uploadRes.Message)"
+                $lblUploadStatus.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#dc2626")
+            }
+        }
+
+        # Email
+        if ($doEmail) {
+            $recipient = $txtEmail.Text.Trim()
+            if ([string]::IsNullOrWhiteSpace($recipient)) {
+                $statusLines += "Email: No recipient address entered."
+                $lblEmailStatus.Text = "No recipient"
+                $lblEmailStatus.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#dc2626")
+            }
+            else {
+                & $showStatus (($statusLines + "Sending email...") -join "`n") "#2596be"
+                $emailRes = Send-ReportByEmail -ReportPath $ReportPath -RecipientEmail $recipient -CustomerName $CustomerName -TechName $TechName -ScanMode $ScanMode
+                $dialogResult.EmailResult = $emailRes
+                if ($emailRes.Success -and -not $emailRes.FallbackUsed) {
+                    $statusLines += "Email: Sent to $recipient via SMTP."
+                    $lblEmailStatus.Text = "Sent"
+                    $lblEmailStatus.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#16a34a")
+                }
+                elseif ($emailRes.Success -and $emailRes.FallbackUsed) {
+                    $statusLines += "Email: Opened mail client for $recipient (report path on clipboard)."
+                    $lblEmailStatus.Text = "Mail client opened"
+                    $lblEmailStatus.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#f59e0b")
+                }
+                else {
+                    $statusLines += "Email: $($emailRes.Message)"
+                    $lblEmailStatus.Text = "Failed"
+                    $lblEmailStatus.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#dc2626")
+                }
+            }
+        }
+
+        $dialogResult.Cancelled = $false
+        $anySuccess = ($dialogResult.ServerResult -and $dialogResult.ServerResult.Success) -or ($dialogResult.EmailResult -and $dialogResult.EmailResult.Success)
+        $finalColor = if ($anySuccess) { "#16a34a" } else { "#dc2626" }
+        & $showStatus ($statusLines -join "`n") $finalColor
+
+        $btnCancel.IsEnabled = $true
+        # Change cancel to "Close" now that we're done
+        ($btnCancel.Content).Text = "Close"
+        $btnSend.IsEnabled = $true
+    })
+
+    $dlg.ShowDialog() | Out-Null
+    return $dialogResult
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GAMING PC REPORT - Visual charts for gaming/performance diagnostics
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Build-GamingPCReport {
+    param($Params, $SystemInfo, $StressResults, $Network, $SpeedTest, $SSDLife, $Thermal, $Gaming, $BatteryDetail, $Performance, $FanInfo, $ScanMode)
+    $date = Get-Date -Format "MMMM dd, yyyy 'at' h:mm tt"
+
+    $logoDataUri = ""
+    $logoPath = Join-Path $Global:ScriptDir "logo-base64.txt"
+    if (Test-Path $logoPath) { try { $logoDataUri = "data:image/png;base64,$((Get-Content $logoPath -Raw).Trim())" } catch {} }
+    $logoHTML = if ($logoDataUri) { "<img src='$logoDataUri' alt='PC Plus Computing' style='width:240px;'/>" } else { "<div style='font-size:18pt;font-weight:700;color:white;letter-spacing:2px;'>PC PLUS COMPUTING</div>" }
+
+    # ── Helper: SVG Donut ──
+    function Get-GPDonut([int]$score, [int]$max, [string]$label, [string]$subtitle) {
+        $pct = if ($max -gt 0) { [math]::Min(100, [math]::Round(($score / $max) * 100)) } else { 0 }
+        $r = 40; $c = 251.3; $dash = [math]::Round($c * $pct / 100, 1); $gap = [math]::Round($c - $dash, 1)
+        $color = if ($pct -ge 80) { "#22c55e" } elseif ($pct -ge 60) { "#f59e0b" } else { "#ef4444" }
+        $badge = if ($pct -ge 80) { "PASS" } elseif ($pct -ge 60) { "WARN" } else { "FAIL" }
+        $badgeBg = if ($pct -ge 80) { "#dcfce7" } elseif ($pct -ge 60) { "#fef3c7" } else { "#fee2e2" }
+        return @"
+<div style="display:inline-block;text-align:center;margin:8px 12px;width:110px;vertical-align:top;">
+<svg width="90" height="90" viewBox="0 0 90 90">
+<circle cx="45" cy="45" r="$r" fill="none" stroke="#1e293b" stroke-width="8"/>
+<circle cx="45" cy="45" r="$r" fill="none" stroke="$color" stroke-width="8" stroke-dasharray="$dash $gap" stroke-dashoffset="62.83" stroke-linecap="round" transform="rotate(-90 45 45)"/>
+<text x="45" y="42" text-anchor="middle" font-size="18" font-weight="bold" fill="$color">$score</text>
+<text x="45" y="56" text-anchor="middle" font-size="8" fill="#94a3b8">/ $max</text>
+</svg>
+<div style="font-size:9pt;font-weight:700;color:#e2e8f0;margin-top:2px;">$label</div>
+<div style="display:inline-block;background:$badgeBg;color:$color;font-size:7pt;font-weight:700;padding:1px 8px;border-radius:8px;margin-top:2px;">$badge</div>
+$(if($subtitle){"<div style='font-size:7.5pt;color:#64748b;margin-top:2px;'>$subtitle</div>"})
+</div>
+"@
+    }
+
+    # ── Helper: Horizontal Bar ──
+    function Get-HBar([string]$label, [double]$value, [double]$max, [string]$unit, [string]$color, [double]$refLine, [string]$refLabel) {
+        $pct = if ($max -gt 0) { [math]::Min(100, [math]::Round(($value / $max) * 100)) } else { 0 }
+        $refPct = if ($refLine -gt 0 -and $max -gt 0) { [math]::Min(100, [math]::Round(($refLine / $max) * 100)) } else { 0 }
+        $refSVG = if ($refPct -gt 0) { "<line x1='$($refPct * 5.6)' y1='0' x2='$($refPct * 5.6)' y2='26' stroke='#f59e0b' stroke-width='2' stroke-dasharray='3,2'/><text x='$($refPct * 5.6)' y='-2' font-size='7' fill='#f59e0b' text-anchor='middle'>$refLabel</text>" } else { "" }
+        return @"
+<div style="margin-bottom:8px;">
+<div style="display:flex;justify-content:space-between;margin-bottom:2px;">
+<span style="font-size:9pt;font-weight:600;color:#e2e8f0;">$label</span>
+<span style="font-size:9pt;font-weight:700;color:$color;">$value $unit</span>
+</div>
+<svg width="560" height="26" viewBox="0 0 560 26">
+<rect x="0" y="4" width="560" height="18" rx="4" fill="#1e293b"/>
+<rect x="0" y="4" width="$([math]::Round($pct * 5.6))" height="18" rx="4" fill="$color"/>
+$refSVG
+</svg>
+</div>
+"@
+    }
+
+    # ── Helper: Temperature Bar (color zones) ──
+    function Get-TempBar([string]$label, [double]$temp) {
+        if ($null -eq $temp -or $temp -le 0) { $temp = 0 }
+        $maxTemp = 110
+        $pct = [math]::Min(100, [math]::Round(($temp / $maxTemp) * 100))
+        $color = if ($temp -lt 60) { "#22c55e" } elseif ($temp -lt 75) { "#f59e0b" } elseif ($temp -lt 90) { "#f97316" } else { "#ef4444" }
+        $zone = if ($temp -lt 60) { "Cool" } elseif ($temp -lt 75) { "Normal" } elseif ($temp -lt 90) { "Warm" } else { "HOT!" }
+        return @"
+<div style="margin-bottom:10px;">
+<div style="display:flex;justify-content:space-between;margin-bottom:2px;">
+<span style="font-size:9pt;font-weight:600;color:#e2e8f0;">$label</span>
+<span style="font-size:9pt;font-weight:700;color:$color;">${temp}C - $zone</span>
+</div>
+<svg width="560" height="22" viewBox="0 0 560 22">
+<defs>
+<linearGradient id="tempGrad" x1="0" y1="0" x2="1" y2="0">
+<stop offset="0%" stop-color="#22c55e"/><stop offset="55%" stop-color="#22c55e"/>
+<stop offset="68%" stop-color="#f59e0b"/><stop offset="82%" stop-color="#f97316"/>
+<stop offset="100%" stop-color="#ef4444"/>
+</linearGradient>
+</defs>
+<rect x="0" y="2" width="560" height="18" rx="4" fill="#1e293b"/>
+<rect x="0" y="2" width="$([math]::Round($pct * 5.6))" height="18" rx="4" fill="$color"/>
+<line x1="305" y1="0" x2="305" y2="22" stroke="#ffffff33" stroke-width="1" stroke-dasharray="2,2"/>
+<text x="308" y="14" font-size="7" fill="#64748b">70C</text>
+<line x1="458" y1="0" x2="458" y2="22" stroke="#ffffff33" stroke-width="1" stroke-dasharray="2,2"/>
+<text x="461" y="14" font-size="7" fill="#64748b">90C</text>
+</svg>
+</div>
+"@
+    }
+
+    # ── Helper: Speed Gauge (semi-circle) ──
+    function Get-SpeedGauge([string]$label, [double]$value, [double]$max, [string]$unit, [string]$color) {
+        if ($max -le 0) { $max = 1000 }
+        $pct = [math]::Min(100, [math]::Round(($value / $max) * 100))
+        $r = 55; $halfC = 173; $dash = [math]::Round($halfC * $pct / 100, 1); $gap = [math]::Round($halfC - $dash, 1)
+        return @"
+<div style="display:inline-block;text-align:center;margin:8px 20px;width:140px;">
+<svg width="130" height="80" viewBox="0 0 130 80">
+<path d="M 10 75 A 55 55 0 0 1 120 75" fill="none" stroke="#1e293b" stroke-width="10" stroke-linecap="round"/>
+<path d="M 10 75 A 55 55 0 0 1 120 75" fill="none" stroke="$color" stroke-width="10" stroke-linecap="round" stroke-dasharray="$dash $gap"/>
+<text x="65" y="65" text-anchor="middle" font-size="20" font-weight="bold" fill="$color">$value</text>
+<text x="65" y="78" text-anchor="middle" font-size="9" fill="#94a3b8">$unit</text>
+</svg>
+<div style="font-size:9pt;font-weight:600;color:#e2e8f0;margin-top:2px;">$label</div>
+</div>
+"@
+    }
+
+    # ── Collect data safely ──
+    $cpuTemp = if ($Thermal -and $Thermal.CPUTemp) { $Thermal.CPUTemp } else { 0 }
+    $gpuTemp = if ($Thermal -and $Thermal.GPUTemp) { $Thermal.GPUTemp } elseif ($StressResults -and $StressResults.GPU -and $StressResults.GPU.MaxTemp) { $StressResults.GPU.MaxTemp } else { 0 }
+    $cpuMaxTemp = if ($StressResults -and $StressResults.CPU -and $StressResults.CPU.MaxTemp) { $StressResults.CPU.MaxTemp } else { $cpuTemp }
+
+    $diskRead = if ($StressResults -and $StressResults.Disk) { $StressResults.Disk.SeqReadMBps } else { 0 }
+    $diskWrite = if ($StressResults -and $StressResults.Disk) { $StressResults.Disk.SeqWriteMBps } else { 0 }
+
+    $dlSpeed = if ($SpeedTest -and $SpeedTest.DownloadMbps) { $SpeedTest.DownloadMbps } else { 0 }
+    $ulSpeed = if ($SpeedTest -and $SpeedTest.UploadMbps) { $SpeedTest.UploadMbps } else { 0 }
+    $ping = if ($SpeedTest -and $SpeedTest.PingMs) { $SpeedTest.PingMs } elseif ($SpeedTest -and $SpeedTest.Ping) { $SpeedTest.Ping } else { 0 }
+
+    $cpuScore = 100; $ramScore = 100; $gpuScore = 100; $storScore = 100; $netScore = 100; $battScore = 100
+
+    if ($StressResults -and $StressResults.CPU) { if (-not $StressResults.CPU.Passed) { $cpuScore = 40 } elseif ($cpuMaxTemp -gt 85) { $cpuScore = 65 } }
+    if ($StressResults -and $StressResults.RAM) { if (-not $StressResults.RAM.Passed) { $ramScore = 30 } }
+    if ($StressResults -and $StressResults.GPU) { if (-not $StressResults.GPU.Passed) { $gpuScore = 35 } elseif ($gpuTemp -gt 90) { $gpuScore = 60 } }
+    if ($diskRead -gt 0) { if ($diskRead -lt 100) { $storScore = 50 } elseif ($diskRead -lt 300) { $storScore = 70 } }
+    if ($dlSpeed -gt 0) { if ($dlSpeed -lt 10) { $netScore = 40 } elseif ($dlSpeed -lt 50) { $netScore = 65 } elseif ($dlSpeed -lt 100) { $netScore = 80 } }
+    if ($BatteryDetail -and $BatteryDetail.Present) { $battScore = if ($BatteryDetail.HealthPct) { [math]::Min(100, $BatteryDetail.HealthPct) } else { 100 } } else { $battScore = 100 }
+
+    $gamingScore = if ($Gaming -and $Gaming.Score) { $Gaming.Score } else { [math]::Round(($cpuScore + $ramScore + $gpuScore + $storScore + $netScore) / 5) }
+    $gamingTier = if ($Gaming -and $Gaming.Tier) { $Gaming.Tier } else { if ($gamingScore -ge 85) { "High-End" } elseif ($gamingScore -ge 70) { "Mid-Range" } elseif ($gamingScore -ge 50) { "Entry-Level" } else { "Not Gaming Ready" } }
+
+    # ── Component donuts ──
+    $cpuSub = if ($StressResults -and $StressResults.CPU -and $StressResults.CPU.Iterations) { "$($StressResults.CPU.Iterations) iter" } else { "" }
+    $gpuSub = if ($StressResults -and $StressResults.GPU -and $StressResults.GPU.GPUName) { $StressResults.GPU.GPUName.Substring(0, [math]::Min(15, $StressResults.GPU.GPUName.Length)) } else { "" }
+    $ramSub = if ($Performance -and $Performance.MemTotalGB) { "$($Performance.MemTotalGB) GB" } elseif ($SystemInfo -and $SystemInfo.RAMTotal) { "$($SystemInfo.RAMTotal) GB" } else { "" }
+    $storSub = if ($diskRead -gt 0) { "R:${diskRead} W:${diskWrite}" } else { "" }
+    $netSub = if ($dlSpeed -gt 0) { "${dlSpeed} Mbps" } else { "" }
+    $battSub = if ($BatteryDetail -and $BatteryDetail.Present) { "$($BatteryDetail.HealthPct)% health" } else { "N/A" }
+
+    $donutsHTML = ""
+    $donutsHTML += Get-GPDonut $cpuScore 100 "CPU" $cpuSub
+    $donutsHTML += Get-GPDonut $ramScore 100 "RAM" $ramSub
+    $donutsHTML += Get-GPDonut $gpuScore 100 "GPU" $gpuSub
+    $donutsHTML += Get-GPDonut $storScore 100 "Storage" $storSub
+    $donutsHTML += Get-GPDonut $netScore 100 "Network" $netSub
+    $donutsHTML += Get-GPDonut $battScore 100 "Battery" $battSub
+
+    # ── Temperature bars ──
+    $tempBars = ""
+    $tempBars += Get-TempBar "CPU Temperature (Idle/Current)" $cpuTemp
+    if ($cpuMaxTemp -gt 0 -and $cpuMaxTemp -ne $cpuTemp) { $tempBars += Get-TempBar "CPU Temperature (Stress Peak)" $cpuMaxTemp }
+    if ($gpuTemp -gt 0) { $tempBars += Get-TempBar "GPU Temperature" $gpuTemp }
+
+    # ── Storage speed bars ──
+    $storageBars = ""
+    $maxDisk = [math]::Max(600, [math]::Max($diskRead, $diskWrite) * 1.2)
+    $readColor = if ($diskRead -ge 400) { "#22c55e" } elseif ($diskRead -ge 150) { "#3b82f6" } else { "#f59e0b" }
+    $writeColor = if ($diskWrite -ge 300) { "#22c55e" } elseif ($diskWrite -ge 100) { "#3b82f6" } else { "#f59e0b" }
+    $storageBars += Get-HBar "Sequential Read" $diskRead $maxDisk "MB/s" $readColor 500 "SSD Good"
+    $storageBars += Get-HBar "Sequential Write" $diskWrite $maxDisk "MB/s" $writeColor 400 "SSD Good"
+
+    # ── Network speed gauges ──
+    $maxNet = [math]::Max(200, $dlSpeed * 1.5)
+    $dlColor = if ($dlSpeed -ge 100) { "#22c55e" } elseif ($dlSpeed -ge 25) { "#3b82f6" } else { "#f59e0b" }
+    $ulColor = if ($ulSpeed -ge 50) { "#22c55e" } elseif ($ulSpeed -ge 10) { "#3b82f6" } else { "#f59e0b" }
+    $pingColor = if ($ping -lt 20) { "#22c55e" } elseif ($ping -lt 60) { "#3b82f6" } else { "#ef4444" }
+
+    $netGauges = ""
+    $netGauges += Get-SpeedGauge "Download" $dlSpeed $maxNet "Mbps" $dlColor
+    $netGauges += Get-SpeedGauge "Upload" $ulSpeed ([math]::Max(100, $ulSpeed * 2)) "Mbps" $ulColor
+    $netGauges += Get-SpeedGauge "Ping" $ping 200 "ms" $pingColor
+
+    # ── RAM usage bar ──
+    $memUsed = if ($Performance -and $Performance.MemUsedGB) { $Performance.MemUsedGB } else { 0 }
+    $memTotal = if ($Performance -and $Performance.MemTotalGB) { $Performance.MemTotalGB } elseif ($SystemInfo -and $SystemInfo.RAMTotal) { $SystemInfo.RAMTotal } else { 16 }
+    $memPct = if ($memTotal -gt 0) { [math]::Round(($memUsed / $memTotal) * 100) } else { 0 }
+    $memColor = if ($memPct -lt 60) { "#22c55e" } elseif ($memPct -lt 80) { "#f59e0b" } else { "#ef4444" }
+
+    # ── Fan speeds ──
+    $fanHTML = ""
+    if ($FanInfo -and $FanInfo.Fans -and $FanInfo.Fans.Count -gt 0) {
+        foreach ($fan in $FanInfo.Fans) {
+            $rpm = if ($fan.RPM) { $fan.RPM } else { 0 }
+            $maxRPM = if ($fan.MaxRPM -and $fan.MaxRPM -gt 0) { $fan.MaxRPM } else { 3000 }
+            $fanPct = [math]::Min(100, [math]::Round(($rpm / $maxRPM) * 100))
+            $fanColor = if ($fanPct -lt 50) { "#22c55e" } elseif ($fanPct -lt 80) { "#3b82f6" } else { "#f59e0b" }
+            $fanHTML += "<div style='display:inline-block;margin:4px 10px;'><div style='font-size:8pt;color:#94a3b8;'>$($fan.Name)</div><div style='font-size:14pt;font-weight:700;color:$fanColor;'>$rpm <span style='font-size:8pt;color:#64748b;'>RPM</span></div></div>"
+        }
+    } else {
+        $fanHTML = "<div style='font-size:9pt;color:#64748b;padding:6px;'>Fan data not available (use HWiNFO for detailed fan monitoring)</div>"
+    }
+
+    # ── System info ──
+    $cpuName = if ($SystemInfo -and $SystemInfo.CPUModel) { $SystemInfo.CPUModel -replace '\(R\)','' -replace '\(TM\)','' -replace 'CPU ','' } else { "Unknown" }
+    $gpuName = ""
+    if ($StressResults -and $StressResults.GPU -and $StressResults.GPU.GPUName) { $gpuName = $StressResults.GPU.GPUName }
+    elseif ($SystemInfo -and $SystemInfo.GPU) { $gpuName = $SystemInfo.GPU }
+    if (-not $gpuName) { $gpuName = "Unknown" }
+    $ramInfo = if ($SystemInfo -and $SystemInfo.RAMTotal) { "$($SystemInfo.RAMTotal) GB" } else { "Unknown" }
+    $osInfo = if ($SystemInfo -and $SystemInfo.OSVersion) { $SystemInfo.OSVersion -replace 'Microsoft ','' } else { "Unknown" }
+
+    $tierColor = switch -Wildcard ($gamingTier) { "High*" { "#22c55e" }; "Mid*" { "#3b82f6" }; "Entry*" { "#f59e0b" }; default { "#ef4444" } }
+
+    $html = @"
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"/><title>Gaming PC Report - $($Params.CustomerName)</title>
+<style>
+@page { size:A4; margin:10mm; }
+body { font-family:'Segoe UI',Tahoma,sans-serif; margin:0; padding:0; background:#0f172a; color:#e2e8f0; font-size:10pt; }
+.page { max-width:800px; margin:0 auto; background:#0f172a; padding:24px; }
+.header { background:linear-gradient(135deg,#0d4b71,#1a1a2e); border-radius:10px; padding:18px 24px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; border:1px solid #2596be33; }
+.header-left { display:flex; align-items:center; gap:14px; }
+.section { background:#1e293b; border-radius:8px; padding:16px 20px; margin-bottom:12px; border:1px solid #334155; }
+.section-title { font-size:11pt; font-weight:700; color:#3bbde0; margin-bottom:10px; text-transform:uppercase; letter-spacing:1px; }
+.divider { height:1px; background:linear-gradient(to right,transparent,#2596be,transparent); margin:4px 0 12px; }
+.specs-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.spec-item { background:#0f172a; border-radius:6px; padding:8px 12px; border:1px solid #334155; }
+.spec-label { font-size:7.5pt; color:#64748b; text-transform:uppercase; letter-spacing:1px; }
+.spec-value { font-size:10pt; font-weight:600; color:#e2e8f0; margin-top:1px; }
+.tier-badge { display:inline-block; padding:6px 18px; border-radius:20px; font-weight:800; font-size:13pt; letter-spacing:1px; }
+.donut-row { display:flex; flex-wrap:wrap; justify-content:center; }
+.gauge-row { display:flex; justify-content:center; flex-wrap:wrap; }
+.mem-bar-outer { background:#0f172a; border-radius:6px; height:28px; width:100%; position:relative; border:1px solid #334155; }
+.mem-bar-inner { border-radius:6px; height:28px; display:flex; align-items:center; justify-content:center; font-size:9pt; font-weight:700; color:white; }
+.footer { text-align:center; border-top:1px solid #334155; padding-top:10px; margin-top:16px; font-size:8pt; color:#475569; }
+@media print { body { background:#0f172a; -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
+</style></head><body>
+<div class="page">
+
+    <!-- Header -->
+    <div class="header">
+        <div class="header-left">
+            $logoHTML
+        </div>
+        <div style="text-align:right;">
+            <div style="font-size:14pt;font-weight:800;color:#3bbde0;">GAMING PC</div>
+            <div style="font-size:9pt;color:#94a3b8;">Performance Report</div>
+            <div style="margin-top:6px;">
+                <span class="tier-badge" style="background:$tierColor;color:white;font-size:10pt;padding:3px 12px;">$gamingTier</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Customer / System Info -->
+    <div class="section">
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+            <div><span style="color:#64748b;">Customer:</span> <strong>$($Params.CustomerName)</strong></div>
+            <div><span style="color:#64748b;">Computer:</span> <strong>$(if($SystemInfo){$SystemInfo.ComputerName}else{'N/A'})</strong></div>
+            <div><span style="color:#64748b;">Date:</span> <strong>$date</strong></div>
+        </div>
+        <div class="specs-grid">
+            <div class="spec-item"><div class="spec-label">Processor</div><div class="spec-value">$cpuName</div></div>
+            <div class="spec-item"><div class="spec-label">Graphics</div><div class="spec-value">$gpuName</div></div>
+            <div class="spec-item"><div class="spec-label">Memory</div><div class="spec-value">$ramInfo</div></div>
+            <div class="spec-item"><div class="spec-label">Operating System</div><div class="spec-value">$osInfo</div></div>
+        </div>
+    </div>
+
+    <!-- Overall Score + Component Donuts -->
+    <div class="section">
+        <div style="text-align:center;margin-bottom:8px;">
+            <div style="font-size:48pt;font-weight:900;color:$tierColor;">$gamingScore<span style="font-size:16pt;color:#64748b;">/100</span></div>
+            <div style="font-size:9pt;color:#94a3b8;">Overall Gaming Readiness Score</div>
+        </div>
+        <div class="divider"></div>
+        <div class="section-title">Component Health</div>
+        <div class="donut-row">$donutsHTML</div>
+    </div>
+
+    <!-- Temperature Bars -->
+    <div class="section">
+        <div class="section-title">Thermal Performance</div>
+        <div style="font-size:8pt;color:#64748b;margin-bottom:8px;">Green &lt;60C | Yellow 60-75C | Orange 75-90C | Red &gt;90C</div>
+        $tempBars
+    </div>
+
+    <!-- Storage Speed Bars -->
+    <div class="section">
+        <div class="section-title">Storage Speed</div>
+        $storageBars
+    </div>
+
+    <!-- Network Speed Gauges -->
+    <div class="section">
+        <div class="section-title">Network Speed</div>
+        <div class="gauge-row">$netGauges</div>
+    </div>
+
+    <!-- RAM Usage -->
+    <div class="section">
+        <div class="section-title">Memory Usage</div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+            <span style="font-size:9pt;color:#94a3b8;">$memUsed GB used of $memTotal GB ($memPct%)</span>
+            <span style="font-size:9pt;color:$memColor;font-weight:600;">$([math]::Round($memTotal - $memUsed, 1)) GB free</span>
+        </div>
+        <div class="mem-bar-outer">
+            <div class="mem-bar-inner" style="width:$memPct%;background:$memColor;">$memPct%</div>
+        </div>
+    </div>
+
+    <!-- Fan Speeds -->
+    <div class="section">
+        <div class="section-title">Fan Speeds</div>
+        $fanHTML
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+        <div style="font-weight:700;color:#2596be;">PC Plus Computing</div>
+        <div>604-760-1662 | 236-500-2700 | pcpluscomputing.com</div>
+        <div style="color:#3bbde0;">Your Security, Our Priority</div>
+        <div style="margin-top:4px;">Scan: $ScanMode | Tech: $($Params.TechName) | $(Get-Date -Format 'yyyy-MM-dd HH:mm')</div>
+    </div>
+</div>
+</body></html>
+"@
+
+    return $html
+}

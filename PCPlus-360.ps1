@@ -7,7 +7,7 @@
     Runs from USB drive with no installation required.
 .NOTES
     Company:  PC Plus Computing
-    Version:  2.2.0
+    Version:  2.3.0
     Requires: PowerShell 5.1+, Windows 10/11, Administrator privileges
 #>
 
@@ -83,7 +83,7 @@ $Global:LogLines = [System.Collections.ArrayList]::new()
 $COMPANY      = "PC Plus Computing"
 $PHONE        = "604-760-1662 | 236-500-2700"
 $WEBSITE      = "pcpluscomputing.com"
-$VERSION      = "2.2.0"
+$VERSION      = "2.3.0"
 
 if (-not (Test-Path $Global:ReportsDir)) { New-Item -Path $Global:ReportsDir -ItemType Directory -Force | Out-Null }
 if (-not (Test-Path $Global:ToolsDir)) { New-Item -Path $Global:ToolsDir -ItemType Directory -Force | Out-Null }
@@ -218,7 +218,7 @@ $xaml = @"
 
                 <Border DockPanel.Dock="Bottom" Padding="14,8" BorderBrush="#0d4b71" BorderThickness="0,1,0,0">
                     <StackPanel>
-                        <TextBlock Text="v2.2.0" FontSize="10" Foreground="#2596be" FontFamily="Consolas"/>
+                        <TextBlock Text="v2.3.0" FontSize="10" Foreground="#2596be" FontFamily="Consolas"/>
                         <TextBlock Text="604-760-1662 | 236-500-2700" FontSize="8.5" Foreground="#4a7a8a" Margin="0,2,0,0"/>
                         <TextBlock Text="pcpluscomputing.com" FontSize="8.5" Foreground="#3a6a7a"/>
                     </StackPanel>
@@ -246,11 +246,16 @@ $xaml = @"
                         <Button x:Name="btnHWMon" Style="{StaticResource SideNav}"><TextBlock Text="    HWMonitor" FontSize="10.5" Foreground="#6a8a98"/></Button>
                         <Button x:Name="btnBattView" Style="{StaticResource SideNav}"><TextBlock Text="    BatteryInfoView" FontSize="10.5" Foreground="#6a8a98"/></Button>
 
+                        <TextBlock Text="  DIAGNOSTICS" FontSize="9" FontWeight="SemiBold" Foreground="#4a7a8a" Margin="0,12,0,4"/>
+                        <Button x:Name="btnNavWearTear" Style="{StaticResource SideNav}"><TextBlock Text="  Wear &amp; Tear Report" FontSize="11.5" Foreground="#e879f9"/></Button>
+
                         <TextBlock Text="  REPORTS" FontSize="9" FontWeight="SemiBold" Foreground="#4a7a8a" Margin="0,12,0,4"/>
                         <Button x:Name="btnHWReport" Style="{StaticResource SideNav}"><TextBlock Text="  Hardware Report" FontSize="11.5" Foreground="#22c55e"/></Button>
                         <Button x:Name="btnSecReport" Style="{StaticResource SideNav}"><TextBlock Text="  Security Report" FontSize="11.5" Foreground="#f59e0b"/></Button>
                         <Button x:Name="btnBothReports" Style="{StaticResource SideNav}"><TextBlock Text="  Both Reports" FontSize="11.5" Foreground="#2596be"/></Button>
                         <Button x:Name="btnCustomerSummary" Style="{StaticResource SideNav}"><TextBlock Text="  Customer Summary" FontSize="11.5" Foreground="#3bbde0" FontWeight="SemiBold"/></Button>
+                        <Button x:Name="btnGamingReport" Style="{StaticResource SideNav}"><TextBlock Text="  Gaming PC Report" FontSize="11.5" Foreground="#f472b6" FontWeight="SemiBold"/></Button>
+                        <Button x:Name="btnPaperless" Style="{StaticResource SideNav}"><TextBlock Text="  Send Report" FontSize="11.5" Foreground="#34d399" FontWeight="SemiBold"/></Button>
                     </StackPanel>
                 </ScrollViewer>
             </DockPanel>
@@ -403,7 +408,7 @@ $xaml = @"
                             <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
-                            <RowDefinition Height="30"/><RowDefinition Height="30"/><RowDefinition Height="30"/><RowDefinition Height="30"/><RowDefinition Height="30"/>
+                            <RowDefinition Height="30"/><RowDefinition Height="30"/><RowDefinition Height="30"/><RowDefinition Height="30"/><RowDefinition Height="30"/><RowDefinition Height="30"/>
                         </Grid.RowDefinitions>
                         <Border Grid.Row="0" Grid.Column="0" Background="White" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#d8e8f0" BorderThickness="1">
                             <CheckBox x:Name="chkCPU" Content=" CPU Stress Test" FontSize="11" Foreground="#1a2b3c" VerticalContentAlignment="Center"/>
@@ -449,6 +454,15 @@ $xaml = @"
                         </Border>
                         <Border Grid.Row="4" Grid.Column="2" Background="White" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#d8e8f0" BorderThickness="1">
                             <CheckBox x:Name="chkGPU" Content=" GPU Stress Test" FontSize="11" Foreground="#1a2b3c" VerticalContentAlignment="Center"/>
+                        </Border>
+                        <Border Grid.Row="5" Grid.Column="0" Background="#fdf4ff" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#e879f9" BorderThickness="1">
+                            <CheckBox x:Name="chkWearTear" Content=" Wear &amp; Tear" FontSize="11" Foreground="#7e22ce" VerticalContentAlignment="Center"/>
+                        </Border>
+                        <Border Grid.Row="5" Grid.Column="1" Background="White" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#d8e8f0" BorderThickness="1">
+                            <CheckBox x:Name="chkSpeedTest" Content=" Speed Test" FontSize="11" Foreground="#1a2b3c" VerticalContentAlignment="Center"/>
+                        </Border>
+                        <Border Grid.Row="5" Grid.Column="2" Background="White" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#d8e8f0" BorderThickness="1">
+                            <CheckBox x:Name="chkThermal" Content=" Thermal Check" FontSize="11" Foreground="#1a2b3c" VerticalContentAlignment="Center"/>
                         </Border>
                     </Grid>
 
@@ -531,6 +545,9 @@ $xaml = @"
     $chkNirSoft = $window.FindName("chkNirSoft")
     $chkSSDLife = $window.FindName("chkSSDLife")
     $chkGPU = $window.FindName("chkGPU")
+    $chkWearTear = $window.FindName("chkWearTear")
+    $chkSpeedTest = $window.FindName("chkSpeedTest")
+    $chkThermal = $window.FindName("chkThermal")
 
     $tools = Get-ToolStatus
 
@@ -619,20 +636,22 @@ $xaml = @"
 
     # Checkbox count update
     $updateCount = {
-        $allChecks = @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkDebloat,$chkRAMIso,$chkPassRecovery,$chkWinDeep,$chkNirSoft,$chkSSDLife,$chkGPU)
+        $allChecks = @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkDebloat,$chkRAMIso,$chkPassRecovery,$chkWinDeep,$chkNirSoft,$chkSSDLife,$chkGPU,$chkWearTear,$chkSpeedTest,$chkThermal)
         $count = ($allChecks | Where-Object { $_.IsChecked }).Count
         $lblSelectedCount.Text = "$count tests selected"
         if ($count -gt 0) {
-            $inlineCnt = @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkSSDLife,$chkGPU).Where({$_.IsChecked}).Count
+            $inlineCnt = @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkSSDLife,$chkGPU,$chkWearTear,$chkSpeedTest,$chkThermal).Where({$_.IsChecked}).Count
             $extCnt = @($chkDebloat,$chkRAMIso,$chkPassRecovery,$chkWinDeep,$chkNirSoft).Where({$_.IsChecked}).Count
             $mins = ($inlineCnt * 2) + ($extCnt * 5)
             if ($chkGPU.IsChecked) { $mins += 1 }
             if ($chkWinDeep.IsChecked) { $mins += 10 }
+            if ($chkWearTear.IsChecked) { $mins += 3 }
+            if ($chkSpeedTest.IsChecked) { $mins += 2 }
             if ($mins -lt 1) { $mins = 1 }
             $lblEstTime.Text = "Estimated: ~$mins min"
         } else { $lblEstTime.Text = "Select tests to begin" }
     }
-    foreach ($chk in @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkDebloat,$chkRAMIso,$chkPassRecovery,$chkWinDeep,$chkNirSoft,$chkSSDLife,$chkGPU)) {
+    foreach ($chk in @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkDebloat,$chkRAMIso,$chkPassRecovery,$chkWinDeep,$chkNirSoft,$chkSSDLife,$chkGPU,$chkWearTear,$chkSpeedTest,$chkThermal)) {
         $chk.Add_Checked($updateCount)
         $chk.Add_Unchecked($updateCount)
     }
@@ -681,6 +700,38 @@ $xaml = @"
         if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
         else { [System.Windows.MessageBox]::Show($window, "PCPlus-RAMIsolation.ps1 not found in $Global:ScriptDir", "Not Found", "OK", "Warning") }
     })
+    $window.FindName("btnNavWearTear").Add_Click({
+        $p = Get-Params; if (-not $p) { return }
+        Set-ScanButtons $false
+        $lblReadyStatus.Text = "Running..."
+        try {
+            Set-Status "Running Wear & Tear lifecycle analysis..." 10
+            if (-not $Global:DiagResults.SystemInfo) {
+                Set-Status "Collecting system info first..." 5
+                $Global:DiagResults.SystemInfo = Get-FullSystemInfo
+                Update-SystemInfo
+            }
+            $Global:DiagResults.WearTear = Invoke-WearAndTearReport
+            $wt = $Global:DiagResults.WearTear
+            Set-Status "Generating Wear & Tear report..." 70
+            $wtHTML = Build-WearAndTearHTMLReport -Params $p -SystemInfo $Global:DiagResults.SystemInfo -WearTear $wt
+            $safeName = $p.CustomerName -replace '[\\/:*?"<>|]','_'
+            $safeDev = $Global:DiagResults.SystemInfo.ComputerName -replace '[\\/:*?"<>|]','_'
+            $ds = Get-Date -Format "yyyy-MM-dd"
+            $wtHTMLPath = Join-Path $p.OutputFolder "$safeName - $safeDev - Wear and Tear Report $ds.html"
+            $wtPDFPath = Join-Path $p.OutputFolder "$safeName - $safeDev - Wear and Tear Report $ds.pdf"
+            [IO.File]::WriteAllText($wtHTMLPath, $wtHTML, [Text.Encoding]::UTF8)
+            $pdfOK = Convert-ToPDF $wtHTMLPath $wtPDFPath
+            Set-Status "Wear & Tear: Score=$($wt.Score)/100 ($($wt.Grade)) - $($wt.RiskLevel) risk" 100
+            Complete-Scan
+            Start-Process explorer.exe -ArgumentList $p.OutputFolder
+            [System.Windows.MessageBox]::Show($window, "Wear & Tear Report Complete!`n`nScore: $($wt.Score)/100 ($($wt.Grade))`nRisk: $($wt.RiskLevel)`nEst. Life: $($wt.EstimatedLifeYears) years`n`n$(($wt.Recommendations | Select-Object -First 3) -join "`n")", "Wear & Tear Complete", "OK", "Information")
+        } catch {
+            Write-DebugLog "Wear&Tear ERROR: $($_.Exception.Message)"
+            Set-Status "ERROR: $($_.Exception.Message)" 0
+            [System.Windows.MessageBox]::Show($window, "Error: $($_.Exception.Message)", "Error", "OK", "Error")
+        } finally { Set-ScanButtons $true; $lblReadyStatus.Text = "Ready" }
+    })
 
     # Startup: populate system info cards immediately
     $window.Add_Loaded({
@@ -705,7 +756,7 @@ $xaml = @"
     })
 
     function Set-ScanButtons($enabled) {
-        foreach ($bn in @("btnQuick","btnStandard","btnFull","btnMRI","btnRunSelected","btnQuickScan")) {
+        foreach ($bn in @("btnQuick","btnStandard","btnFull","btnMRI","btnRunSelected","btnQuickScan","btnNavWearTear")) {
             $b = $window.FindName($bn)
             if ($b) { $b.IsEnabled = $enabled }
         }
@@ -721,7 +772,7 @@ $xaml = @"
         try {
             $p = Get-Params; if (-not $p) { return }
             $anyChecked = $false
-            foreach ($c in @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkDebloat,$chkRAMIso,$chkPassRecovery,$chkWinDeep,$chkNirSoft,$chkSSDLife,$chkGPU)) {
+            foreach ($c in @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkDebloat,$chkRAMIso,$chkPassRecovery,$chkWinDeep,$chkNirSoft,$chkSSDLife,$chkGPU,$chkWearTear,$chkSpeedTest,$chkThermal)) {
                 if ($c.IsChecked) { $anyChecked = $true; break }
             }
             if (-not $anyChecked) {
@@ -736,7 +787,7 @@ $xaml = @"
             $Global:DiagResults.SystemInfo = Get-FullSystemInfo
             Update-SystemInfo
 
-            $inlineTests = @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkSSDLife,$chkGPU,$chkWinDeep)
+            $inlineTests = @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkSSDLife,$chkGPU,$chkWinDeep,$chkWearTear,$chkSpeedTest,$chkThermal)
             $totalInline = ($inlineTests | Where-Object { $_.IsChecked }).Count
             if ($totalInline -eq 0) { $totalInline = 1 }
             $stepsDone = 0
@@ -816,6 +867,30 @@ $xaml = @"
                 $Global:DiagResults.WindowsDeep = Invoke-DeepWindowsTest
                 $wd = $Global:DiagResults.WindowsDeep
                 Set-Status "Windows Deep: Score=$($wd.Score)/100 ($($wd.Grade))" ([int](10 + ($stepsDone / $totalInline) * 80))
+            }
+            if ($chkWearTear.IsChecked) {
+                $stepsDone++
+                Set-Status "Running Wear & Tear lifecycle analysis..." ([int](10 + ($stepsDone / $totalInline) * 80))
+                $Global:DiagResults.WearTear = Invoke-WearAndTearReport
+                $wt = $Global:DiagResults.WearTear
+                Set-Status "Wear & Tear: Score=$($wt.Score)/100 ($($wt.Grade)) - $($wt.RiskLevel) risk" ([int](10 + ($stepsDone / $totalInline) * 80))
+            }
+            if ($chkSpeedTest.IsChecked) {
+                $stepsDone++
+                Set-Status "Running internet speed test..." ([int](10 + ($stepsDone / $totalInline) * 80))
+                $Global:DiagResults.SpeedTest = Get-NetworkSpeedTest
+                $Global:DiagResults.SpeedTest2 = Invoke-SpeedtestCLI
+                $st = $Global:DiagResults.SpeedTest
+                Set-Status "Speed: Down=$($st.DownloadMbps) Up=$($st.UploadMbps) Mbps, Ping=$($st.PingMs)ms" ([int](10 + ($stepsDone / $totalInline) * 80))
+            }
+            if ($chkThermal.IsChecked) {
+                $stepsDone++
+                Set-Status "Checking thermal status and DPC latency..." ([int](10 + ($stepsDone / $totalInline) * 80))
+                $Global:DiagResults.Thermal = Get-ThermalSnapshot
+                $Global:DiagResults.DPCLatency = Test-DPCLatency
+                $Global:DiagResults.FanInfo = Get-FanInfo
+                $th = $Global:DiagResults.Thermal
+                Set-Status "Thermal: CPU=$($th.CPUTemp)C $(if($th.OverheatDetected){'OVERHEAT!'}else{'OK'})" ([int](10 + ($stepsDone / $totalInline) * 80))
             }
 
             # External scripts launch in separate windows
@@ -1072,8 +1147,10 @@ $xaml = @"
             $Global:DiagResults.SSDLife = Get-SSDLifeReport
             Set-Status "MRI Phase 2: Disk fragmentation..." 32
             $Global:DiagResults.Fragmentation = Get-DiskFragmentation
-            Set-Status "MRI Phase 2: CrystalDiskInfo SMART scan..." 34
+            Set-Status "MRI Phase 2: CrystalDiskInfo SMART scan..." 33
             $Global:DiagResults.CrystalDiskInfo = Invoke-CrystalDiskInfoScan
+            Set-Status "MRI Phase 2: Wear & Tear lifecycle analysis..." 34
+            $Global:DiagResults.WearTear = Invoke-WearAndTearReport
 
             Set-Status "MRI Phase 3: CPU stress test (2 min)..." 36
             $Global:DiagResults.CPUStress = Start-CPUStressTest -DurationSeconds 120
@@ -1103,6 +1180,7 @@ $xaml = @"
             if ($Global:DiagResults.WindowsDeep) { $wdScore = $Global:DiagResults.WindowsDeep.Score; $overallScore -= [math]::Max(0, 20 - [math]::Round($wdScore * 0.2)) }
             if ($Global:DiagResults.Scoring) { $overallScore -= [math]::Max(0, 25 - [math]::Round($Global:DiagResults.Scoring.Score * 0.25)) }
             if ($Global:DiagResults.Thermal -and $Global:DiagResults.Thermal.OverheatDetected) { $overallScore -= 10; $issues += "Overheating" }
+            if ($Global:DiagResults.WearTear) { $wtScore = $Global:DiagResults.WearTear.Score; $overallScore -= [math]::Max(0, 10 - [math]::Round($wtScore * 0.1)); if ($Global:DiagResults.WearTear.RiskLevel -eq "Critical") { $issues += "Critical wear detected" } }
             if ($overallScore -lt 0) { $overallScore = 0 }
             $mriGrade = if ($overallScore -ge 90){"A"} elseif ($overallScore -ge 80){"B"} elseif ($overallScore -ge 70){"C"} elseif ($overallScore -ge 60){"D"} else {"F"}
             $Global:DiagResults.MRIScore = $overallScore
@@ -1113,6 +1191,7 @@ $xaml = @"
             $msg = "Full System MRI Complete!`n`nOverall Score: $overallScore/100 ($mriGrade)`n`nCPU: $(if($cs.Passed){'PASS'}else{'FAIL'})`nRAM: $(if($rs.Passed){'PASS'}else{'FAIL'})`nGPU: $(if($gs.Passed){'PASS'}else{'FAIL'})`nDisk: W=$($ds.SeqWriteMBps) / R=$($ds.SeqReadMBps) MB/s"
             if ($Global:DiagResults.WindowsDeep) { $msg += "`nWindows Health: $($Global:DiagResults.WindowsDeep.Score)/100 ($($Global:DiagResults.WindowsDeep.Grade))" }
             if ($Global:DiagResults.Scoring) { $msg += "`nSecurity: $($Global:DiagResults.Scoring.Score)/100 ($($Global:DiagResults.Scoring.Grade))" }
+            if ($Global:DiagResults.WearTear) { $msg += "`nWear & Tear: $($Global:DiagResults.WearTear.Score)/100 ($($Global:DiagResults.WearTear.Grade)) - $($Global:DiagResults.WearTear.RiskLevel) risk" }
             $msg += "`n`nClick Report buttons in sidebar to generate PDFs."
             [System.Windows.MessageBox]::Show($window, $msg, "Full System MRI Complete", "OK", "Information")
         } catch {
@@ -1208,6 +1287,39 @@ $xaml = @"
         Set-Status "Customer Summary: $(if($pdfOK){'PDF saved'}else{'HTML saved'}) to reports folder" 100
         Start-Process explorer.exe -ArgumentList $p.OutputFolder
         [System.Windows.MessageBox]::Show($window, "Customer Health Summary saved!`n`nThis is a customer-friendly 1-2 page report with donut charts and plain English - ready to hand to the customer.", "Summary Ready", "OK", "Information")
+    })
+
+    # ── GAMING PC REPORT ──
+    $window.FindName("btnGamingReport").Add_Click({
+        $p = Get-Params; if (-not $p) { return }
+        if (-not $Global:DiagResults.SystemInfo) { [System.Windows.MessageBox]::Show($window, "Run a diagnostic first.", "No Data", "OK", "Warning"); return }
+        Set-Status "Generating Gaming PC Report with visual graphs..." 30
+        $gamingHTML = Build-GamingPCReport -Params $p -SystemInfo $Global:DiagResults.SystemInfo -StressResults $Global:DiagResults.StressResults -Network $Global:DiagResults.Network -SpeedTest $Global:DiagResults.SpeedTest -SSDLife $Global:DiagResults.SSDLife -Thermal $Global:DiagResults.Thermal -Gaming $Global:DiagResults.Gaming -BatteryDetail $Global:DiagResults.BatteryDetail -Performance $Global:DiagResults.Performance -FanInfo $Global:DiagResults.FanInfo -ScanMode $Global:DiagResults.ScanMode
+        $safeName = $p.CustomerName -replace '[\\/:*?"<>|]','_'
+        $safeDev = $Global:DiagResults.SystemInfo.ComputerName -replace '[\\/:*?"<>|]','_'
+        $ds = Get-Date -Format "yyyy-MM-dd"
+        $gamingHTMLPath = Join-Path $p.OutputFolder "$safeName - $safeDev - Gaming PC Report $ds.html"
+        $gamingPDFPath = Join-Path $p.OutputFolder "$safeName - $safeDev - Gaming PC Report $ds.pdf"
+        [IO.File]::WriteAllText($gamingHTMLPath, $gamingHTML, [Text.Encoding]::UTF8)
+        Set-Status "Converting Gaming Report to PDF..." 70
+        $pdfOK = Convert-ToPDF $gamingHTMLPath $gamingPDFPath
+        Set-Status "Gaming PC Report: $(if($pdfOK){'PDF saved'}else{'HTML saved'}) to reports folder" 100
+        Start-Process explorer.exe -ArgumentList $p.OutputFolder
+        [System.Windows.MessageBox]::Show($window, "Gaming PC Report saved!`n`nIncludes visual charts for:`n- Temperature bars (CPU/GPU)`n- Storage read/write speed bars`n- Network speed gauge`n- Component health donuts`n- RAM usage and fan speeds`n`nPrint-ready format with full branding.", "Gaming Report Ready", "OK", "Information")
+    })
+
+    # ── SEND REPORT (PAPERLESS) ──
+    $window.FindName("btnPaperless").Add_Click({
+        $p = Get-Params; if (-not $p) { return }
+        if (-not $Global:DiagResults.SystemInfo) { [System.Windows.MessageBox]::Show($window, "Run a diagnostic and generate a report first.", "No Data", "OK", "Warning"); return }
+        $reportFiles = @()
+        Get-ChildItem $p.OutputFolder -Filter "*.pdf" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 5 | ForEach-Object { $reportFiles += $_.FullName }
+        if ($reportFiles.Count -eq 0) {
+            Get-ChildItem $p.OutputFolder -Filter "*.html" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 5 | ForEach-Object { $reportFiles += $_.FullName }
+        }
+        if ($reportFiles.Count -eq 0) { [System.Windows.MessageBox]::Show($window, "No reports found. Generate a report first.", "No Reports", "OK", "Warning"); return }
+        $latestReport = $reportFiles[0]
+        Show-PaperlessDialog -ReportPath $latestReport -CustomerName $p.CustomerName -ComputerName $Global:DiagResults.SystemInfo.ComputerName -TechName $p.TechName -ScanMode $Global:DiagResults.ScanMode
     })
 
     $window.ShowDialog() | Out-Null
