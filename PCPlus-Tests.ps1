@@ -1197,6 +1197,622 @@ function Start-GPUStressTest {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# SSD LIFE & DRIVE HEALTH
+# ─────────────────────────────────────────────────────────────────────────────
+function Get-SSDLifeReport {
+    Write-DiagLog "Collecting SSD/HDD life and health data..."
+    $results = @{ Drives = @(); OverallHealthy = $true }
+
+    $diskDrives = Invoke-Safe { Get-CimInstance Win32_DiskDrive -ErrorAction Stop } @()
+    $physicalDisks = Invoke-Safe { Get-PhysicalDisk -ErrorAction Stop } @()
+
+    foreach ($d in $diskDrives) {
+        $matched = $physicalDisks | Where-Object { $_.FriendlyName -like "*$($d.Model)*" } | Select-Object -First 1
+        $reliability = $null
+        if ($matched) {
+            $reliability = Invoke-Safe { Get-StorageReliabilityCounter -PhysicalDisk $matched -ErrorAction Stop } $null
+        }
+
+        $sizeGB = [math]::Round($d.Size / 1GB, 1)
+        $mediaType = if ($matched) { $matched.MediaType } else { $d.MediaType }
+        $busType = if ($matched) { $matched.BusType } else { $d.InterfaceType }
+        $healthStatus = if ($matched) { $matched.HealthStatus } else { "Unknown" }
+        $opStatus = if ($matched) { ($matched.OperationalStatus -join ", ") } else { $d.Status }
+
+        $wear = if ($reliability -and $null -ne $reliability.Wear) { $reliability.Wear } else { $null }
+        $powerOnHours = if ($reliability -and $null -ne $reliability.PowerOnHours) { $reliability.PowerOnHours } else { $null }
+        $tempC = if ($reliability -and $null -ne $reliability.Temperature) { $reliability.Temperature } else { $null }
+        $readErrors = if ($reliability) { $reliability.ReadErrorsTotal } else { $null }
+        $writeErrors = if ($reliability) { $reliability.WriteErrorsTotal } else { $null }
+
+        $lifeRemaining = $null
+        $estimatedYearsLeft = $null
+        $grade = "N/A"
+
+        if ($null -ne $wear) {
+            $lifeRemaining = 100 - $wear
+            if ($powerOnHours -and $powerOnHours -gt 0 -and $wear -gt 0) {
+                $hoursPerWearPercent = $powerOnHours / $wear
+                $hoursLeft = $hoursPerWearPercent * $lifeRemaining
+                $estimatedYearsLeft = [math]::Round($hoursLeft / 8760, 1)
+            }
+            if ($lifeRemaining -ge 80) { $grade = "A" }
+            elseif ($lifeRemaining -ge 60) { $grade = "B" }
+            elseif ($lifeRemaining -ge 40) { $grade = "C" }
+            elseif ($lifeRemaining -ge 20) { $grade = "D" }
+            else { $grade = "F"; $results.OverallHealthy = $false }
+        } elseif ($healthStatus -eq "Healthy") {
+            $grade = "A"
+        }
+
+        if ($healthStatus -ne "Healthy") { $results.OverallHealthy = $false }
+
+        $powerOnDays = if ($powerOnHours) { [math]::Round($powerOnHours / 24, 0) } else { $null }
+        $powerOnYears = if ($powerOnHours) { [math]::Round($powerOnHours / 8760, 1) } else { $null }
+
+        $results.Drives += @{
+            Model = $d.Model
+            Serial = ($d.SerialNumber -as [string]).Trim()
+            SizeGB = $sizeGB
+            MediaType = $mediaType
+            BusType = $busType
+            HealthStatus = $healthStatus
+            OperationalStatus = $opStatus
+            WearPercent = $wear
+            LifeRemainingPercent = $lifeRemaining
+            PowerOnHours = $powerOnHours
+            PowerOnDays = $powerOnDays
+            PowerOnYears = $powerOnYears
+            TemperatureC = $tempC
+            ReadErrorsTotal = $readErrors
+            WriteErrorsTotal = $writeErrors
+            EstimatedYearsLeft = $estimatedYearsLeft
+            Grade = $grade
+        }
+
+        Write-DiagLog "Drive: $($d.Model), Health=$healthStatus, Wear=$wear%, Life=$lifeRemaining%, PowerOn=$powerOnHours hrs, Grade=$grade"
+    }
+
+    return $results
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DEEP WINDOWS PERFORMANCE & INTEGRITY TESTS
+# ─────────────────────────────────────────────────────────────────────────────
+function Invoke-SFCScan {
+    Write-DiagLog "Running SFC /scannow (this may take several minutes)..."
+    $results = @{ Skipped = $false; ExitCode = $null; Summary = "Unknown"; Seconds = 0 }
+
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = "sfc.exe"
+        $psi.Arguments = "/scannow"
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $p = New-Object System.Diagnostics.Process
+        $p.StartInfo = $psi
+        $null = $p.Start()
+        $stdout = $p.StandardOutput.ReadToEnd()
+        $stderr = $p.StandardError.ReadToEnd()
+        $p.WaitForExit()
+        $sw.Stop()
+
+        $results.ExitCode = $p.ExitCode
+        $results.Seconds = [math]::Round($sw.Elapsed.TotalSeconds, 1)
+        $raw = $stdout + $stderr
+
+        if ($raw -match "did not find any integrity violations") {
+            $results.Summary = "PASS - No integrity violations found."
+        } elseif ($raw -match "found corrupt files and successfully repaired") {
+            $results.Summary = "REPAIRED - Corrupt files found and repaired."
+        } elseif ($raw -match "found corrupt files but was unable to fix") {
+            $results.Summary = "FAIL - Corrupt files found but could not be repaired."
+        } elseif ($raw -match "could not perform the requested operation") {
+            $results.Summary = "WARNING - SFC could not complete."
+        }
+
+        $logPath = Join-Path $Global:ScriptDir "sfc-output.txt"
+        Set-Content -Path $logPath -Value $raw -Encoding UTF8 -ErrorAction SilentlyContinue
+    } catch {
+        $sw.Stop()
+        $results.Summary = "ERROR - $($_.Exception.Message)"
+        Write-DiagLog "SFC error: $($_.Exception.Message)" "WARN"
+    }
+
+    Write-DiagLog "SFC result: $($results.Summary) ($($results.Seconds)s)"
+    return $results
+}
+
+function Invoke-DISMCheck {
+    param([switch]$RunRepair)
+    Write-DiagLog "Running DISM health checks..."
+    $results = @{ CheckHealth = "Not run"; ScanHealth = "Not run"; RestoreHealth = "Not run" }
+
+    function Run-DismCmd($args) {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = "dism.exe"
+        $psi.Arguments = $args
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $p = New-Object System.Diagnostics.Process
+        $p.StartInfo = $psi
+        $null = $p.Start()
+        $out = $p.StandardOutput.ReadToEnd() + $p.StandardError.ReadToEnd()
+        $p.WaitForExit()
+        return $out
+    }
+
+    function Parse-DismResult($text) {
+        if ($text -match "No component store corruption detected") { return "PASS - No corruption detected." }
+        if ($text -match "The component store is repairable") { return "WARNING - Component store is repairable." }
+        if ($text -match "The restore operation completed successfully") { return "REPAIRED - Restore completed." }
+        if ($text -match "The operation completed successfully") { return "PASS - Completed successfully." }
+        return "Review required."
+    }
+
+    try {
+        $out = Run-DismCmd "/Online /Cleanup-Image /CheckHealth"
+        $results.CheckHealth = Parse-DismResult $out
+        Write-DiagLog "DISM CheckHealth: $($results.CheckHealth)"
+    } catch { $results.CheckHealth = "ERROR - $($_.Exception.Message)" }
+
+    try {
+        $out = Run-DismCmd "/Online /Cleanup-Image /ScanHealth"
+        $results.ScanHealth = Parse-DismResult $out
+        Write-DiagLog "DISM ScanHealth: $($results.ScanHealth)"
+    } catch { $results.ScanHealth = "ERROR - $($_.Exception.Message)" }
+
+    if ($RunRepair) {
+        try {
+            $out = Run-DismCmd "/Online /Cleanup-Image /RestoreHealth"
+            $results.RestoreHealth = Parse-DismResult $out
+            Write-DiagLog "DISM RestoreHealth: $($results.RestoreHealth)"
+        } catch { $results.RestoreHealth = "ERROR - $($_.Exception.Message)" }
+    }
+
+    return $results
+}
+
+function Get-FileSystemHealth {
+    Write-DiagLog "Checking file system integrity..."
+    $results = @()
+    $volumes = Invoke-Safe { Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" -ErrorAction Stop } @()
+
+    foreach ($v in $volumes) {
+        $letter = $v.DeviceID
+        $dirty = Invoke-Safe { (cmd.exe /c "fsutil dirty query $letter" 2>&1) -join " " } "Unable to query"
+
+        $chkdsk = "Not run"
+        try {
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName = "chkdsk.exe"
+            $psi.Arguments = "$letter /scan"
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow = $true
+            $p = New-Object System.Diagnostics.Process
+            $p.StartInfo = $psi
+            $null = $p.Start()
+            $out = $p.StandardOutput.ReadToEnd()
+            $p.WaitForExit()
+
+            if ($out -match "found no problems") { $chkdsk = "PASS - No problems found." }
+            elseif ($out -match "found problems") { $chkdsk = "WARNING - Problems found." }
+            else { $chkdsk = "Review required." }
+        } catch {
+            $chkdsk = "Skipped - $($_.Exception.Message)"
+        }
+
+        $freePercent = if ($v.Size -gt 0) { [math]::Round(($v.FreeSpace / $v.Size) * 100, 1) } else { $null }
+
+        $results += @{
+            Drive = $letter
+            FileSystem = $v.FileSystem
+            SizeGB = [math]::Round($v.Size / 1GB, 1)
+            FreeGB = [math]::Round($v.FreeSpace / 1GB, 1)
+            FreePercent = $freePercent
+            DirtyBit = $dirty
+            ChkdskResult = $chkdsk
+        }
+        Write-DiagLog "FileSystem $letter: Free=$freePercent%, Dirty=$dirty, Chkdsk=$chkdsk"
+    }
+    return $results
+}
+
+function Test-ServiceHealth {
+    Write-DiagLog "Checking critical Windows services..."
+    $critical = @("EventLog","Winmgmt","wuauserv","BITS","CryptSvc","Schedule","VSS","Spooler","Dhcp","Dnscache","LanmanWorkstation","LanmanServer","ProfSvc","Themes")
+    $results = @()
+
+    foreach ($svc in $critical) {
+        $s = Get-Service -Name $svc -ErrorAction SilentlyContinue
+        if ($s) {
+            $startMode = Invoke-Safe { (Get-CimInstance Win32_Service -Filter "Name='$svc'" -ErrorAction Stop).StartMode } "Unknown"
+            $healthy = ($s.Status -eq "Running") -or ($svc -in @("wuauserv","VSS","Spooler"))
+            $results += @{ Name = $svc; DisplayName = $s.DisplayName; Status = $s.Status.ToString(); StartType = $startMode; Healthy = $healthy }
+        } else {
+            $results += @{ Name = $svc; DisplayName = "Not found"; Status = "Missing"; StartType = "Unknown"; Healthy = $false }
+        }
+    }
+    $badCount = @($results | Where-Object { $_.Healthy -eq $false }).Count
+    Write-DiagLog "Services: $($results.Count) checked, $badCount unhealthy"
+    return $results
+}
+
+function Test-WMIHealth {
+    Write-DiagLog "Checking WMI/CIM repository health..."
+    $results = @{ QueryTests = @(); RepositoryStatus = "Unknown" }
+
+    $queries = @("Win32_OperatingSystem","Win32_ComputerSystem","Win32_Processor","Win32_LogicalDisk")
+    foreach ($q in $queries) {
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $ok = $true
+        try { Get-CimInstance $q -ErrorAction Stop | Out-Null } catch { $ok = $false }
+        $sw.Stop()
+        $results.QueryTests += @{ Class = $q; Success = $ok; Seconds = [math]::Round($sw.Elapsed.TotalSeconds, 2) }
+    }
+
+    $results.RepositoryStatus = Invoke-Safe { (winmgmt /verifyrepository 2>&1) -join " " } "Unable to verify"
+    Write-DiagLog "WMI repo: $($results.RepositoryStatus)"
+    return $results
+}
+
+function Get-StartupHealth {
+    Write-DiagLog "Collecting startup app health..."
+    $results = @{ StartupCommands = @(); RunKeys = @(); ScheduledTasks = @() }
+
+    $results.StartupCommands = @(Invoke-Safe {
+        Get-CimInstance Win32_StartupCommand -ErrorAction Stop | Select-Object Name, Command, Location, User
+    } @())
+
+    $paths = @("HKLM:\Software\Microsoft\Windows\CurrentVersion\Run","HKCU:\Software\Microsoft\Windows\CurrentVersion\Run","HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run")
+    foreach ($p in $paths) {
+        try {
+            $props = Get-ItemProperty -Path $p -ErrorAction SilentlyContinue
+            if ($props) {
+                $props.PSObject.Properties | Where-Object { $_.Name -notmatch "^PS" } | ForEach-Object {
+                    $results.RunKeys += @{ Location = $p; Name = $_.Name; Value = $_.Value }
+                }
+            }
+        } catch {}
+    }
+
+    $results.ScheduledTasks = @(Invoke-Safe {
+        Get-ScheduledTask -ErrorAction Stop | Where-Object { $_.State -ne "Disabled" -and ($_.TaskPath -notlike "\Microsoft*") } |
+        Select-Object TaskName, TaskPath, State -First 50
+    } @())
+
+    Write-DiagLog "Startup: $($results.StartupCommands.Count) commands, $($results.RunKeys.Count) run keys, $($results.ScheduledTasks.Count) third-party tasks"
+    return $results
+}
+
+function Get-DeepEventLogScan {
+    param([int]$DaysBack = 30)
+    Write-DiagLog "Running deep event log scan ($DaysBack days)..."
+    $start = (Get-Date).AddDays(-$DaysBack)
+    $summary = @()
+
+    $queries = @(
+        @{Category="Kernel Power Unexpected Shutdown"; Filter=@{LogName='System'; Id=41; StartTime=$start}},
+        @{Category="Blue Screen BugCheck"; Filter=@{LogName='System'; Id=1001; StartTime=$start}},
+        @{Category="Unexpected Shutdown"; Filter=@{LogName='System'; Id=6008; StartTime=$start}},
+        @{Category="Disk Bad Block"; Filter=@{LogName='System'; Id=7; StartTime=$start}},
+        @{Category="Disk Warning"; Filter=@{LogName='System'; Id=51; StartTime=$start}},
+        @{Category="NTFS Corruption"; Filter=@{LogName='System'; Id=55; StartTime=$start}},
+        @{Category="Storage Reset"; Filter=@{LogName='System'; Id=129; StartTime=$start}},
+        @{Category="Disk IO Retry"; Filter=@{LogName='System'; Id=153; StartTime=$start}},
+        @{Category="WHEA Hardware Error"; Filter=@{LogName='System'; ProviderName='Microsoft-Windows-WHEA-Logger'; StartTime=$start}},
+        @{Category="Application Error"; Filter=@{LogName='Application'; ProviderName='Application Error'; StartTime=$start}},
+        @{Category="Application Hang"; Filter=@{LogName='Application'; ProviderName='Application Hang'; StartTime=$start}}
+    )
+
+    foreach ($q in $queries) {
+        $events = @()
+        try { $events = @(Get-WinEvent -FilterHashtable $q.Filter -ErrorAction SilentlyContinue) } catch {}
+        $summary += @{
+            Category = $q.Category
+            Count = $events.Count
+            MostRecent = ($events | Sort-Object TimeCreated -Descending | Select-Object -First 1).TimeCreated
+        }
+    }
+
+    $totalIssues = ($summary | Measure-Object -Property Count -Sum).Sum
+    Write-DiagLog "Event scan: $totalIssues total events across $($summary.Count) categories"
+    return $summary
+}
+
+function Get-WindowsUpdateHealth {
+    Write-DiagLog "Checking Windows Update health..."
+    $results = @{ Services = @(); RebootPending = $false; RecentHotfixes = @() }
+
+    $results.Services = @("wuauserv","BITS","CryptSvc") | ForEach-Object {
+        $s = Get-Service $_ -ErrorAction SilentlyContinue
+        @{ Name = $_; Status = if ($s) { $s.Status.ToString() } else { "Missing" } }
+    }
+
+    $rebootKeys = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"
+    )
+    foreach ($key in $rebootKeys) {
+        if (Test-Path $key) { $results.RebootPending = $true }
+    }
+
+    $results.RecentHotfixes = @(Invoke-Safe {
+        Get-HotFix -ErrorAction Stop | Sort-Object InstalledOn -Descending | Select-Object HotFixID, InstalledOn, Description -First 10
+    } @())
+
+    Write-DiagLog "WU: RebootPending=$($results.RebootPending), RecentPatches=$($results.RecentHotfixes.Count)"
+    return $results
+}
+
+function Test-WindowsResponsiveness {
+    Write-DiagLog "Testing Windows responsiveness..."
+    $results = @()
+
+    $apps = @(
+        @{Name="Notepad"; Path="notepad.exe"},
+        @{Name="Control Panel"; Path="control.exe"}
+    )
+
+    foreach ($app in $apps) {
+        try {
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            $p = Start-Process -FilePath $app.Path -PassThru -ErrorAction Stop
+            Start-Sleep -Milliseconds 900
+            $sw.Stop()
+            try { $p.CloseMainWindow() | Out-Null; Start-Sleep -Milliseconds 300; if (-not $p.HasExited) { $p.Kill() } } catch {}
+            $results += @{ Test = "Launch $($app.Name)"; Success = $true; ResponseMS = $sw.ElapsedMilliseconds }
+        } catch {
+            $results += @{ Test = "Launch $($app.Name)"; Success = $false; ResponseMS = $null; Error = $_.Exception.Message }
+        }
+    }
+
+    try {
+        $testDir = Join-Path $env:TEMP "PCPlus360_RespTest"
+        New-Item -ItemType Directory -Path $testDir -Force | Out-Null
+        $src = Join-Path $testDir "test.bin"
+        $dst = Join-Path $testDir "copy.bin"
+        $buf = New-Object byte[] (32MB)
+        (New-Object Random).NextBytes($buf)
+
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        [System.IO.File]::WriteAllBytes($src, $buf)
+        Copy-Item $src $dst -Force
+        Remove-Item $src, $dst -Force
+        $sw.Stop()
+        $results += @{ Test = "File Create/Copy/Delete 32MB"; Success = $true; ResponseMS = $sw.ElapsedMilliseconds }
+        Remove-Item $testDir -Recurse -Force -ErrorAction SilentlyContinue
+    } catch {
+        $results += @{ Test = "File Create/Copy/Delete 32MB"; Success = $false; ResponseMS = $null; Error = $_.Exception.Message }
+    }
+
+    Write-DiagLog "Responsiveness: $($results.Count) tests completed"
+    return $results
+}
+
+function Get-DriverDeviceHealth {
+    Write-DiagLog "Checking driver and device health..."
+    $results = @{ ProblemDeviceCount = 0; ProblemDevices = @(); OldDriverCount = 0 }
+
+    $problems = Invoke-Safe { Get-PnpDevice -ErrorAction Stop | Where-Object { $_.Status -ne "OK" } } @()
+    $results.ProblemDeviceCount = @($problems).Count
+    $results.ProblemDevices = @($problems | Select-Object Class, FriendlyName, Status, Problem -First 20)
+
+    try {
+        $cutoff = (Get-Date).AddYears(-5)
+        $drivers = Get-CimInstance Win32_PnPSignedDriver -ErrorAction SilentlyContinue
+        $old = @($drivers | Where-Object {
+            $_.DriverDate -and ([Management.ManagementDateTimeConverter]::ToDateTime($_.DriverDate) -lt $cutoff)
+        })
+        $results.OldDriverCount = $old.Count
+    } catch {}
+
+    Write-DiagLog "Devices: $($results.ProblemDeviceCount) problems, $($results.OldDriverCount) drivers older than 5 years"
+    return $results
+}
+
+function Invoke-DeepWindowsTest {
+    Write-DiagLog "Starting Deep Windows Performance & Integrity Test..."
+    $results = @{
+        SFC = $null; DISM = $null; FileSystem = @(); Services = @()
+        WMI = $null; Startup = $null; EventLog = @(); WindowsUpdate = $null
+        Responsiveness = @(); DriverDevice = $null; Score = 0; Grade = "N/A"
+    }
+
+    $results.SFC = Invoke-SFCScan
+    $results.DISM = Invoke-DISMCheck
+    $results.FileSystem = Get-FileSystemHealth
+    $results.Services = Test-ServiceHealth
+    $results.WMI = Test-WMIHealth
+    $results.Startup = Get-StartupHealth
+    $results.EventLog = Get-DeepEventLogScan -DaysBack 30
+    $results.WindowsUpdate = Get-WindowsUpdateHealth
+    $results.Responsiveness = Test-WindowsResponsiveness
+    $results.DriverDevice = Get-DriverDeviceHealth
+
+    # Calculate Windows health score
+    $score = 100; $issues = @()
+    if ($results.SFC.Summary -match "FAIL") { $score -= 20; $issues += $results.SFC.Summary }
+    elseif ($results.SFC.Summary -match "REPAIRED|WARNING") { $score -= 8; $issues += $results.SFC.Summary }
+    if ($results.DISM.CheckHealth -match "WARNING") { $score -= 8 }
+    if ($results.DISM.ScanHealth -match "WARNING") { $score -= 10 }
+    foreach ($fs in $results.FileSystem) {
+        if ($fs.DirtyBit -match "dirty") { $score -= 10 }
+        if ($fs.ChkdskResult -match "WARNING|problems") { $score -= 10 }
+    }
+    if ($results.DriverDevice.ProblemDeviceCount -gt 0) { $score -= [math]::Min(15, $results.DriverDevice.ProblemDeviceCount * 3) }
+    $badSvcs = @($results.Services | Where-Object { $_.Healthy -eq $false }).Count
+    if ($badSvcs -gt 0) { $score -= [math]::Min(15, $badSvcs * 3) }
+    if ($results.WMI.RepositoryStatus -notmatch "consistent") { $score -= 10 }
+    foreach ($e in $results.EventLog) {
+        if ($e.Count -gt 0 -and $e.Category -match "Blue Screen|WHEA|Disk Bad|NTFS|Storage Reset") { $score -= 10 }
+        elseif ($e.Count -gt 0 -and $e.Category -match "Unexpected Shutdown|Application Error|Application Hang") { $score -= 5 }
+    }
+    if ($results.WindowsUpdate.RebootPending) { $score -= 5 }
+    if ($score -lt 0) { $score = 0 }
+
+    $results.Score = $score
+    $results.Grade = if ($score -ge 90){"A"} elseif ($score -ge 80){"B"} elseif ($score -ge 70){"C"} elseif ($score -ge 60){"D"} else {"F"}
+    $results.Issues = $issues
+
+    Write-DiagLog "Deep Windows Test complete: Score=$score, Grade=$($results.Grade)"
+    return $results
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RAM ISOLATION TEST (Guided Technician Workflow)
+# ─────────────────────────────────────────────────────────────────────────────
+function Start-RAMIsolationTest {
+    param(
+        [ValidateSet("Quick","Standard","Deep")]
+        [string]$Mode = "Standard",
+        [string]$CustomerName = "Customer",
+        [string]$TechnicianName = "PC Plus Technician",
+        [int]$MemoryUsePercent = 75
+    )
+
+    Write-DiagLog "Launching RAM Isolation Test (Mode=$Mode)..."
+    $durationMap = @{ Quick = 3; Standard = 10; Deep = 30 }
+    $duration = $durationMap[$Mode]
+
+    $sessionDir = Join-Path "C:\PCPlus360\RAM-Isolation" "$($env:COMPUTERNAME)-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+    New-Item -ItemType Directory -Path $sessionDir -Force | Out-Null
+
+    $ramInventory = @(Invoke-Safe {
+        Get-CimInstance Win32_PhysicalMemory -ErrorAction Stop | ForEach-Object {
+            @{
+                Slot = $_.DeviceLocator; Bank = $_.BankLabel
+                CapacityGB = [math]::Round($_.Capacity / 1GB, 2)
+                SpeedMHz = $_.Speed; ConfiguredClockSpeedMHz = $_.ConfiguredClockSpeed
+                Manufacturer = ($_.Manufacturer -as [string]).Trim()
+                PartNumber = ($_.PartNumber -as [string]).Trim()
+                SerialNumber = ($_.SerialNumber -as [string]).Trim()
+            }
+        }
+    } @())
+
+    $warnings = @()
+    $speeds = @($ramInventory | Where-Object { $_.SpeedMHz } | ForEach-Object { $_.SpeedMHz } | Select-Object -Unique)
+    if ($speeds.Count -gt 1) { $warnings += "Mixed RAM speeds: $($speeds -join ', ') MHz" }
+    $sizes = @($ramInventory | ForEach-Object { $_.CapacityGB } | Select-Object -Unique)
+    if ($sizes.Count -gt 1) { $warnings += "Mixed RAM capacities: $($sizes -join ', ') GB" }
+    $mfrs = @($ramInventory | Where-Object { $_.Manufacturer } | ForEach-Object { $_.Manufacturer } | Select-Object -Unique)
+    if ($mfrs.Count -gt 1) { $warnings += "Mixed RAM manufacturers: $($mfrs -join ', ')" }
+
+    $memoryEvents = @()
+    $start = (Get-Date).AddHours(-24)
+    $filters = @(
+        @{LogName='System'; Id=41; StartTime=$start},
+        @{LogName='System'; Id=1001; StartTime=$start},
+        @{LogName='System'; Id=6008; StartTime=$start}
+    )
+    foreach ($f in $filters) {
+        try { $memoryEvents += @(Get-WinEvent -FilterHashtable $f -ErrorAction SilentlyContinue) } catch {}
+    }
+    try {
+        $memoryEvents += @(Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Microsoft-Windows-WHEA-Logger'; StartTime=$start} -ErrorAction SilentlyContinue)
+    } catch {}
+
+    return @{
+        SessionDir = $sessionDir
+        RAMInventory = $ramInventory
+        ConfigWarnings = $warnings
+        RecentMemoryEvents = $memoryEvents.Count
+        DurationMinutes = $duration
+        MemoryUsePercent = $MemoryUsePercent
+        Mode = $Mode
+    }
+}
+
+function Invoke-RAMIsolationRound {
+    param(
+        [int]$DurationMinutes = 10,
+        [int]$UsePercent = 75,
+        [string]$StickLabel = "Not specified",
+        [string]$SlotLabel = "Not specified",
+        [string]$TestType = "General"
+    )
+
+    Write-DiagLog "RAM isolation round: $TestType - Stick=$StickLabel, Slot=$SlotLabel, Duration=$DurationMinutes min"
+
+    $os = Get-CimInstance Win32_OperatingSystem
+    $totalBytes = [double]$os.TotalVisibleMemorySize * 1KB
+    $targetBytes = [int64]($totalBytes * ($UsePercent / 100))
+    $blockBytes = 128MB
+    $blocksToAllocate = [math]::Max(1, [math]::Floor($targetBytes / $blockBytes))
+
+    $allocated = New-Object System.Collections.Generic.List[byte[]]
+    $end = (Get-Date).AddMinutes($DurationMinutes)
+    $patternErrors = 0; $randomErrors = 0; $allocFailures = 0
+    $samples = @()
+
+    try {
+        for ($i = 0; $i -lt $blocksToAllocate; $i++) {
+            try { $allocated.Add((New-Object byte[] $blockBytes)) }
+            catch { $allocFailures++; break }
+        }
+
+        if ($allocated.Count -eq 0) { throw "No memory blocks could be allocated." }
+        $patterns = @(0x00, 0xFF, 0xAA, 0x55)
+
+        while ((Get-Date) -lt $end) {
+            foreach ($p in $patterns) {
+                foreach ($block in $allocated) {
+                    try {
+                        [Array]::Fill($block, [byte]$p)
+                        for ($offset = 0; $offset -lt $block.Length; $offset += 4096) {
+                            if ($block[$offset] -ne [byte]$p) { $patternErrors++ }
+                        }
+                    } catch { $patternErrors++ }
+                }
+            }
+
+            $rng = [Random]::new()
+            foreach ($block in $allocated) {
+                try {
+                    for ($j = 0; $j -lt 256; $j++) {
+                        $idx = $rng.Next(0, $block.Length)
+                        $val = [byte]$rng.Next(0, 256)
+                        $block[$idx] = $val
+                        if ($block[$idx] -ne $val) { $randomErrors++ }
+                    }
+                } catch { $randomErrors++ }
+            }
+
+            $availMB = Invoke-Safe { [math]::Round((Get-Counter '\Memory\Available MBytes' -ErrorAction Stop).CounterSamples[0].CookedValue, 2) } $null
+            $workSetMB = [math]::Round((Get-Process -Id $PID).WorkingSet64 / 1MB, 2)
+            $samples += @{ AvailableMB = $availMB; WorkingSetMB = $workSetMB; PatternErrors = $patternErrors; RandomErrors = $randomErrors }
+            Start-Sleep -Seconds 5
+        }
+    } catch {
+        Write-DiagLog "RAM isolation error: $($_.Exception.Message)" "WARN"
+    } finally {
+        $allocated.Clear()
+        [GC]::Collect()
+        [GC]::WaitForPendingFinalizers()
+    }
+
+    $passed = ($allocFailures -eq 0 -and $patternErrors -eq 0 -and $randomErrors -eq 0)
+    $result = if ($passed) { "PASS" } else { "FAIL" }
+
+    Write-DiagLog "RAM isolation round: $result (PatternErrors=$patternErrors, RandomErrors=$randomErrors, AllocFail=$allocFailures)"
+    return @{
+        TestType = $TestType; StickLabel = $StickLabel; SlotLabel = $SlotLabel
+        Result = $result; Passed = $passed; DurationMinutes = $DurationMinutes
+        PatternErrors = $patternErrors; RandomErrors = $randomErrors
+        AllocationFailures = $allocFailures; Samples = $samples
+        PeakWorkingSetMB = if ($samples.Count -gt 0) { ($samples | ForEach-Object { $_.WorkingSetMB } | Measure-Object -Maximum).Maximum } else { 0 }
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # SECURITY SCORING
 # ─────────────────────────────────────────────────────────────────────────────
 function Calculate-Score {

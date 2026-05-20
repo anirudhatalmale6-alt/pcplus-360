@@ -437,6 +437,12 @@ $xaml = @"
                         <Border Grid.Row="4" Grid.Column="0" Background="White" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#d8e8f0" BorderThickness="1">
                             <CheckBox x:Name="chkNirSoft" Content=" NirSoft Suite" FontSize="11" Foreground="#1a2b3c" VerticalContentAlignment="Center"/>
                         </Border>
+                        <Border Grid.Row="4" Grid.Column="1" Background="White" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#d8e8f0" BorderThickness="1">
+                            <CheckBox x:Name="chkSSDLife" Content=" SSD Life Report" FontSize="11" Foreground="#1a2b3c" VerticalContentAlignment="Center"/>
+                        </Border>
+                        <Border Grid.Row="4" Grid.Column="2" Background="White" CornerRadius="4" Padding="6,4" Margin="1" BorderBrush="#d8e8f0" BorderThickness="1">
+                            <CheckBox x:Name="chkGPU" Content=" GPU Stress Test" FontSize="11" Foreground="#1a2b3c" VerticalContentAlignment="Center"/>
+                        </Border>
                     </Grid>
 
                     <!-- Run Bar -->
@@ -516,6 +522,8 @@ $xaml = @"
     $chkPassRecovery = $window.FindName("chkPassRecovery")
     $chkWinDeep = $window.FindName("chkWinDeep")
     $chkNirSoft = $window.FindName("chkNirSoft")
+    $chkSSDLife = $window.FindName("chkSSDLife")
+    $chkGPU = $window.FindName("chkGPU")
 
     $tools = Get-ToolStatus
 
@@ -604,18 +612,20 @@ $xaml = @"
 
     # Checkbox count update
     $updateCount = {
-        $allChecks = @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkDebloat,$chkRAMIso,$chkPassRecovery,$chkWinDeep,$chkNirSoft)
+        $allChecks = @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkDebloat,$chkRAMIso,$chkPassRecovery,$chkWinDeep,$chkNirSoft,$chkSSDLife,$chkGPU)
         $count = ($allChecks | Where-Object { $_.IsChecked }).Count
         $lblSelectedCount.Text = "$count tests selected"
         if ($count -gt 0) {
-            $inlineCnt = @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys).Where({$_.IsChecked}).Count
+            $inlineCnt = @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkSSDLife,$chkGPU).Where({$_.IsChecked}).Count
             $extCnt = @($chkDebloat,$chkRAMIso,$chkPassRecovery,$chkWinDeep,$chkNirSoft).Where({$_.IsChecked}).Count
             $mins = ($inlineCnt * 2) + ($extCnt * 5)
+            if ($chkGPU.IsChecked) { $mins += 1 }
+            if ($chkWinDeep.IsChecked) { $mins += 10 }
             if ($mins -lt 1) { $mins = 1 }
             $lblEstTime.Text = "Estimated: ~$mins min"
         } else { $lblEstTime.Text = "Select tests to begin" }
     }
-    foreach ($chk in @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkDebloat,$chkRAMIso,$chkPassRecovery,$chkWinDeep,$chkNirSoft)) {
+    foreach ($chk in @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkDebloat,$chkRAMIso,$chkPassRecovery,$chkWinDeep,$chkNirSoft,$chkSSDLife,$chkGPU)) {
         $chk.Add_Checked($updateCount)
         $chk.Add_Unchecked($updateCount)
     }
@@ -704,7 +714,7 @@ $xaml = @"
         try {
             $p = Get-Params; if (-not $p) { return }
             $anyChecked = $false
-            foreach ($c in @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkDebloat,$chkRAMIso,$chkPassRecovery,$chkWinDeep,$chkNirSoft)) {
+            foreach ($c in @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkDebloat,$chkRAMIso,$chkPassRecovery,$chkWinDeep,$chkNirSoft,$chkSSDLife,$chkGPU)) {
                 if ($c.IsChecked) { $anyChecked = $true; break }
             }
             if (-not $anyChecked) {
@@ -719,7 +729,7 @@ $xaml = @"
             $Global:DiagResults.SystemInfo = Get-FullSystemInfo
             Update-SystemInfo
 
-            $inlineTests = @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys)
+            $inlineTests = @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkSSDLife,$chkGPU,$chkWinDeep)
             $totalInline = ($inlineTests | Where-Object { $_.IsChecked }).Count
             if ($totalInline -eq 0) { $totalInline = 1 }
             $stepsDone = 0
@@ -778,6 +788,28 @@ $xaml = @"
                 $wk = if ($lk.WindowsKeys.Count -gt 0) { $lk.WindowsKeys[0].Key } else { "Not found" }
                 Set-Status "Windows Key: $wk | WiFi: $($lk.WiFiPasswords.Count) networks" ([int](10 + ($stepsDone / $totalInline) * 80))
             }
+            if ($chkSSDLife.IsChecked) {
+                $stepsDone++
+                Set-Status "Analyzing SSD/HDD life and health..." ([int](10 + ($stepsDone / $totalInline) * 80))
+                $Global:DiagResults.SSDLife = Get-SSDLifeReport
+                $driveCount = $Global:DiagResults.SSDLife.Drives.Count
+                $healthy = $Global:DiagResults.SSDLife.OverallHealthy
+                Set-Status "SSD Life: $driveCount drive(s) - $(if($healthy){'All Healthy'}else{'Issues Found'})" ([int](10 + ($stepsDone / $totalInline) * 80))
+            }
+            if ($chkGPU.IsChecked) {
+                $stepsDone++
+                Set-Status "Running GPU stress test (60 sec)..." ([int](10 + ($stepsDone / $totalInline) * 80))
+                $Global:DiagResults.GPUStress = Start-GPUStressTest -DurationSeconds 60
+                $r = $Global:DiagResults.GPUStress
+                Set-Status "GPU: $(if($r.Passed){'PASS'}else{'FAIL'}) - $($r.GPUName), $($r.Iterations) iterations" ([int](10 + ($stepsDone / $totalInline) * 80))
+            }
+            if ($chkWinDeep.IsChecked) {
+                $stepsDone++
+                Set-Status "Running Deep Windows test (SFC, DISM, services, file system)..." ([int](10 + ($stepsDone / $totalInline) * 80))
+                $Global:DiagResults.WindowsDeep = Invoke-DeepWindowsTest
+                $wd = $Global:DiagResults.WindowsDeep
+                Set-Status "Windows Deep: Score=$($wd.Score)/100 ($($wd.Grade))" ([int](10 + ($stepsDone / $totalInline) * 80))
+            }
 
             # External scripts launch in separate windows
             if ($chkDebloat.IsChecked) {
@@ -786,19 +818,15 @@ $xaml = @"
                 else { Set-Status "PCPlus-Debloat.ps1 not found" 0 }
             }
             if ($chkRAMIso.IsChecked) {
-                $s = Join-Path $Global:ScriptDir "PCPlus-RAMIsolation.ps1"
+                $s = Join-Path $Global:ScriptDir "PCPlus360-Advanced-RAM-Isolation-Test.ps1"
+                if (-not (Test-Path $s)) { $s = Join-Path $Global:ScriptDir "PCPlus-RAMIsolation.ps1" }
                 if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
-                else { Set-Status "PCPlus-RAMIsolation.ps1 not found" 0 }
+                else { Set-Status "RAM Isolation script not found" 0 }
             }
             if ($chkPassRecovery.IsChecked) {
                 $s = Join-Path $Global:ScriptDir "PCPlus-PasswordRecovery.ps1"
                 if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-STA -NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
                 else { Set-Status "PCPlus-PasswordRecovery.ps1 not found" 0 }
-            }
-            if ($chkWinDeep.IsChecked) {
-                $s = Join-Path $Global:ScriptDir "PCPlus-WindowsDeepTest.ps1"
-                if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
-                else { Set-Status "PCPlus-WindowsDeepTest.ps1 not found" 0 }
             }
             if ($chkNirSoft.IsChecked) {
                 $s = Join-Path $Global:ScriptDir "PCPlus-NirSoftSuite.ps1"
