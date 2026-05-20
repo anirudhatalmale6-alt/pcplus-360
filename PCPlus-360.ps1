@@ -2738,7 +2738,7 @@ $xaml = @"
                         <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="60"/><RowDefinition Height="60"/><RowDefinition Height="60"/>
+                        <RowDefinition Height="60"/><RowDefinition Height="60"/><RowDefinition Height="60"/><RowDefinition Height="60"/>
                     </Grid.RowDefinitions>
                     <Button x:Name="btnCPU" Content="CPU Stress Test" Grid.Row="0" Grid.Column="0" Margin="2" Background="#1a3a52" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
                     <Button x:Name="btnRAM" Content="RAM Test" Grid.Row="0" Grid.Column="1" Margin="2" Background="#1a3a52" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
@@ -2749,6 +2749,8 @@ $xaml = @"
                     <Button x:Name="btnSecurity" Content="Security Audit" Grid.Row="2" Grid.Column="0" Margin="2" Background="#1a3a52" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
                     <Button x:Name="btnKeys" Content="License Key Recovery" Grid.Row="2" Grid.Column="1" Margin="2" Background="#1a3a52" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
                     <Button x:Name="btnDebloat" Content="Windows Debloat" Grid.Row="2" Grid.Column="2" Margin="2" Background="#8B0000" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
+                    <Button x:Name="btnRAMIso" Content="RAM Isolation Test" Grid.Row="3" Grid.Column="0" Margin="2" Background="#0b5394" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
+                    <Button x:Name="btnPassRecovery" Content="Password Recovery" Grid.Row="3" Grid.Column="1" Margin="2" Background="#0b5394" Foreground="White" BorderThickness="0" FontSize="12" Cursor="Hand"/>
                 </Grid>
 
                 <!-- PORTABLE TOOLS -->
@@ -2922,6 +2924,24 @@ $xaml = @"
             Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$debloatScript`"" -Verb RunAs
         } else {
             [System.Windows.MessageBox]::Show($window, "PCPlus-Debloat.ps1 not found in $Global:ScriptDir", "Not Found", "OK", "Warning")
+        }
+    })
+
+    $window.FindName("btnRAMIso").Add_Click({
+        $ramIsoScript = Join-Path $Global:ScriptDir "PCPlus-RAMIsolation.ps1"
+        if (Test-Path $ramIsoScript) {
+            Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$ramIsoScript`"" -Verb RunAs
+        } else {
+            [System.Windows.MessageBox]::Show($window, "PCPlus-RAMIsolation.ps1 not found in $Global:ScriptDir", "Not Found", "OK", "Warning")
+        }
+    })
+
+    $window.FindName("btnPassRecovery").Add_Click({
+        $passScript = Join-Path $Global:ScriptDir "PCPlus-PasswordRecovery.ps1"
+        if (Test-Path $passScript) {
+            Start-Process powershell.exe -ArgumentList "-STA -NoProfile -ExecutionPolicy Bypass -File `"$passScript`"" -Verb RunAs
+        } else {
+            [System.Windows.MessageBox]::Show($window, "PCPlus-PasswordRecovery.ps1 not found in $Global:ScriptDir", "Not Found", "OK", "Warning")
         }
     })
 
