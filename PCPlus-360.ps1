@@ -84,7 +84,7 @@ $Global:LogLines = [System.Collections.ArrayList]::new()
 $COMPANY      = "PC Plus Computing"
 $PHONE        = "604-760-1662 | 236-500-2700"
 $WEBSITE      = "pcpluscomputing.com"
-$VERSION      = "2.9.0"
+$VERSION      = "2.10.0"
 
 if (-not (Test-Path $Global:ReportsDir)) { New-Item -Path $Global:ReportsDir -ItemType Directory -Force | Out-Null }
 if (-not (Test-Path $Global:ToolsDir)) { New-Item -Path $Global:ToolsDir -ItemType Directory -Force | Out-Null }
@@ -530,11 +530,30 @@ $xaml = @"
             </ScrollViewer>
 
             <!-- Status Bar -->
-            <Border Grid.Row="1" Background="White" BorderBrush="#d8e8f0" BorderThickness="0,1,0,0" Padding="16,8">
+            <Border Grid.Row="1" Background="#f0f6fa" BorderBrush="#d8e8f0" BorderThickness="0,1,0,0" Padding="16,10">
                 <Grid>
-                    <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
-                    <TextBlock x:Name="txtStatus" Grid.Row="0" Text="Ready. Enter customer info and select a diagnostic mode." FontSize="10.5" Foreground="#5a7080" Margin="0,0,0,4"/>
-                    <ProgressBar x:Name="progressBar" Grid.Row="1" Height="5" Background="#e0e8ec" Foreground="#2596be" Value="0" BorderThickness="0"/>
+                    <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                    <Grid Grid.Row="0" Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <TextBlock x:Name="txtStatus" Grid.Column="0" Text="Ready. Enter customer info and select a diagnostic mode." FontSize="12" FontWeight="SemiBold" Foreground="#1a2b3c"/>
+                        <TextBlock x:Name="txtPct" Grid.Column="1" Text="" FontSize="12" FontWeight="Bold" Foreground="#2596be"/>
+                    </Grid>
+                    <ProgressBar x:Name="progressBar" Grid.Row="1" Height="14" Background="#d8e8f0" Foreground="#2596be" Value="0" BorderThickness="0">
+                        <ProgressBar.Resources>
+                            <Style TargetType="ProgressBar">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ProgressBar">
+                                            <Grid>
+                                                <Border Background="{TemplateBinding Background}" CornerRadius="7"/>
+                                                <Border x:Name="PART_Indicator" HorizontalAlignment="Left" Background="{TemplateBinding Foreground}" CornerRadius="7"/>
+                                            </Grid>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ProgressBar.Resources>
+                    </ProgressBar>
                 </Grid>
             </Border>
         </Grid>
@@ -614,9 +633,14 @@ $xaml = @"
 
     $tools = Get-ToolStatus
 
+    $txtPct = $window.FindName("txtPct")
+
     function Set-Status { param([string]$Msg, [int]$Pct = -1)
         $txtStatus.Text = $Msg
-        if ($Pct -ge 0) { $progressBar.Value = $Pct }
+        if ($Pct -ge 0) {
+            $progressBar.Value = $Pct
+            if ($txtPct) { $txtPct.Text = "$Pct%" }
+        }
         $window.Title = "PC Plus 360 - $Msg"
         Write-DebugLog "STATUS: $Msg ($Pct%)"
         $frame = New-Object System.Windows.Threading.DispatcherFrame
