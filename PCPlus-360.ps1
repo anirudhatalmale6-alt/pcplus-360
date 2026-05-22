@@ -78,12 +78,13 @@ Write-DebugLog "ScriptDir: $Global:ScriptDir"
 $Global:ToolsDir = Join-Path $Global:ScriptDir "tools"
 $Global:ReportsDir = Join-Path $Global:ScriptDir "reports"
 $Global:DiagResults = @{}
+$Global:SelectedScanMode = $null
 $Global:LogLines = [System.Collections.ArrayList]::new()
 
 $COMPANY      = "PC Plus Computing"
 $PHONE        = "604-760-1662 | 236-500-2700"
 $WEBSITE      = "pcpluscomputing.com"
-$VERSION      = "2.8.0"
+$VERSION      = "2.9.0"
 
 if (-not (Test-Path $Global:ReportsDir)) { New-Item -Path $Global:ReportsDir -ItemType Directory -Force | Out-Null }
 if (-not (Test-Path $Global:ToolsDir)) { New-Item -Path $Global:ToolsDir -ItemType Directory -Force | Out-Null }
@@ -508,7 +509,7 @@ $xaml = @"
                                 <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <Button x:Name="btnRunSelected" Style="{StaticResource FlatBtn}" Background="#2596be" Padding="18,9">
-                                <TextBlock Text="RUN SELECTED TESTS" FontSize="12" FontWeight="Bold" Foreground="White"/>
+                                <TextBlock x:Name="lblRunBtn" Text="RUN SELECTED TESTS" FontSize="12" FontWeight="Bold" Foreground="White"/>
                             </Button>
                             <Button x:Name="btnAbort" Grid.Column="1" Style="{StaticResource FlatBtn}" Background="#dc2626" Padding="14,9" Margin="6,0,0,0" Visibility="Collapsed">
                                 <TextBlock Text="STOP" FontSize="12" FontWeight="Bold" Foreground="White"/>
@@ -592,6 +593,24 @@ $xaml = @"
     $chkSpeedTest = $window.FindName("chkSpeedTest")
     $chkThermal = $window.FindName("chkThermal")
     $chkLCDDisplay = $window.FindName("chkLCDDisplay")
+
+    $allTestCheckboxes = @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkDebloat,$chkRAMIso,$chkPassRecovery,$chkWinDeep,$chkNirSoft,$chkSSDLife,$chkGPU,$chkWearTear,$chkSpeedTest,$chkThermal,$chkLCDDisplay)
+    foreach ($cb in $allTestCheckboxes) {
+        if ($cb) {
+            $cb.Add_Checked({ Clear-ScanModeSelection; Update-CheckboxCount })
+            $cb.Add_Unchecked({ Update-CheckboxCount })
+        }
+    }
+    function Update-CheckboxCount {
+        $count = ($allTestCheckboxes | Where-Object { $_ -and $_.IsChecked }).Count
+        if ($count -gt 0 -and -not $Global:SelectedScanMode) {
+            $lblSelectedCount.Text = "$count tests selected"
+            $lblEstTime.Text = "Click RUN to start"
+        } elseif (-not $Global:SelectedScanMode) {
+            $lblSelectedCount.Text = "0 tests selected"
+            $lblEstTime.Text = "Select a scan mode or individual tests"
+        }
+    }
 
     $tools = Get-ToolStatus
 
@@ -905,21 +924,85 @@ $xaml = @"
         return $false
     }
 
-    # Quick Scan header button triggers Quick Test
+    $scanModeButtons = @{
+        Quick    = $window.FindName("btnQuick")
+        Standard = $window.FindName("btnStandard")
+        Deep     = $window.FindName("btnFull")
+        MRI      = $window.FindName("btnMRI")
+    }
+    $scanModeEstimates = @{ Quick = "5 - 10 min"; Standard = "20 - 30 min"; Deep = "60 - 90 min"; MRI = "90 - 120 min" }
+
+    function Select-ScanMode($mode) {
+        $Global:SelectedScanMode = $mode
+        foreach ($key in @("Quick","Standard","Deep","MRI")) {
+            $btn = $scanModeButtons[$key]
+            if ($key -eq $mode) {
+                if ($key -eq "MRI") {
+                    $btn.Background = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#0d4b71")
+                    $btn.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#3bbde0")
+                    $btn.BorderThickness = [System.Windows.Thickness]::new(3)
+                } else {
+                    $btn.Background = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#e8f4fa")
+                    $btn.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#2596be")
+                    $btn.BorderThickness = [System.Windows.Thickness]::new(3)
+                }
+            } else {
+                if ($key -eq "MRI") {
+                    $btn.Background = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#0a3a56")
+                    $btn.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#2596be")
+                    $btn.BorderThickness = [System.Windows.Thickness]::new(2)
+                } else {
+                    $btn.Background = [System.Windows.Media.Brushes]::White
+                    $btn.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#d8e8f0")
+                    $btn.BorderThickness = [System.Windows.Thickness]::new(2)
+                }
+            }
+        }
+        $lblSelectedCount.Text = "$mode Test selected"
+        $lblEstTime.Text = "Estimated: $($scanModeEstimates[$mode])"
+        $lblRunBtn = $window.FindName("lblRunBtn")
+        if ($lblRunBtn) { $lblRunBtn.Text = "RUN $($mode.ToUpper()) TEST" }
+    }
+
+    function Clear-ScanModeSelection {
+        if (-not $Global:SelectedScanMode) { return }
+        $Global:SelectedScanMode = $null
+        foreach ($key in @("Quick","Standard","Deep","MRI")) {
+            $btn = $scanModeButtons[$key]
+            if ($key -eq "MRI") {
+                $btn.Background = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#0a3a56")
+                $btn.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#2596be")
+                $btn.BorderThickness = [System.Windows.Thickness]::new(2)
+            } else {
+                $btn.Background = [System.Windows.Media.Brushes]::White
+                $btn.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFrom("#d8e8f0")
+                $btn.BorderThickness = [System.Windows.Thickness]::new(2)
+            }
+        }
+        $lblRunBtn = $window.FindName("lblRunBtn")
+        if ($lblRunBtn) { $lblRunBtn.Text = "RUN SELECTED TESTS" }
+    }
+
+    # Quick Scan header button selects Quick mode and runs
     $window.FindName("btnQuickScan").Add_Click({
-        $window.FindName("btnQuick").RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Primitives.ButtonBase]::ClickEvent))
+        Select-ScanMode "Quick"
+        Invoke-ScanMode "Quick"
     })
 
     # ── RUN SELECTED TESTS ──
     $window.FindName("btnRunSelected").Add_Click({
         try {
+            if ($Global:SelectedScanMode) {
+                Invoke-ScanMode $Global:SelectedScanMode
+                return
+            }
             $p = Get-Params; if (-not $p) { return }
             $anyChecked = $false
             foreach ($c in @($chkCPU,$chkRAM,$chkDisk,$chkSMART,$chkBattery,$chkNetwork,$chkSecurity,$chkKeys,$chkDebloat,$chkRAMIso,$chkPassRecovery,$chkWinDeep,$chkNirSoft,$chkSSDLife,$chkGPU,$chkWearTear,$chkSpeedTest,$chkThermal)) {
                 if ($c.IsChecked) { $anyChecked = $true; break }
             }
             if (-not $anyChecked) {
-                [System.Windows.MessageBox]::Show($window, "Please check at least one test to run.", "No Tests Selected", "OK", "Warning")
+                [System.Windows.MessageBox]::Show($window, "Select a scan mode above OR check individual tests below.", "Nothing Selected", "OK", "Warning")
                 return
             }
             Set-ScanButtons $false
@@ -1084,8 +1167,13 @@ $xaml = @"
         } finally { Set-ScanButtons $true; $lblReadyStatus.Text = "Ready" }
     })
 
-    # ── QUICK TEST (5-10 min) ──
-    $window.FindName("btnQuick").Add_Click({
+    # ── SCAN MODE SELECTION (click to select, RUN button to execute) ──
+    $window.FindName("btnQuick").Add_Click({ Select-ScanMode "Quick" })
+    $window.FindName("btnStandard").Add_Click({ Select-ScanMode "Standard" })
+    $window.FindName("btnFull").Add_Click({ Select-ScanMode "Deep" })
+    $window.FindName("btnMRI").Add_Click({ Select-ScanMode "MRI" })
+
+    function Invoke-QuickTest {
         try {
             $p = Get-Params; if (-not $p) { return }
             Set-ScanButtons $false
@@ -1137,10 +1225,9 @@ $xaml = @"
             Set-Status "ERROR: $($_.Exception.Message)" 0
             [System.Windows.MessageBox]::Show($window, "Error during Quick Test:`n`n$($_.Exception.Message)", "Error", "OK", "Error")
         } finally { Set-ScanButtons $true; $lblReadyStatus.Text = "Ready" }
-    })
+    }
 
-    # ── STANDARD TEST (20-30 min) ──
-    $window.FindName("btnStandard").Add_Click({
+    function Invoke-StandardTest {
         try {
             $p = Get-Params; if (-not $p) { return }
             Set-ScanButtons $false
@@ -1213,10 +1300,9 @@ $xaml = @"
             Set-Status "ERROR: $($_.Exception.Message)" 0
             [System.Windows.MessageBox]::Show($window, "Error during Standard Test:`n`n$($_.Exception.Message)", "Error", "OK", "Error")
         } finally { Set-ScanButtons $true; $lblReadyStatus.Text = "Ready" }
-    })
+    }
 
-    # ── DEEP TEST (60-90 min) ──
-    $window.FindName("btnFull").Add_Click({
+    function Invoke-DeepTest {
         try {
             $p = Get-Params; if (-not $p) { return }
             Set-ScanButtons $false
@@ -1300,10 +1386,9 @@ $xaml = @"
             Set-Status "ERROR: $($_.Exception.Message)" 0
             [System.Windows.MessageBox]::Show($window, "Error during Deep Test:`n`n$($_.Exception.Message)", "Error", "OK", "Error")
         } finally { Set-ScanButtons $true; $lblReadyStatus.Text = "Ready" }
-    })
+    }
 
-    # ── FULL MRI (90-120 min) ──
-    $window.FindName("btnMRI").Add_Click({
+    function Invoke-MRITest {
         try {
             $p = Get-Params; if (-not $p) { return }
             $confirm = [System.Windows.MessageBox]::Show($window, "Full System MRI runs EVERY diagnostic:`n- All hardware info and inventory`n- CPU, RAM, GPU, Disk stress tests`n- SSD life and SMART analysis`n- Deep Windows integrity (SFC, DISM, CHKDSK)`n- Security audit + activation check`n- Thermal monitoring + DPC latency`n- Memory leak detection`n- All event logs and crash history`n- Network + speed test`n- Display, drivers, fragmentation check`n`nThis takes 90-120 minutes. Continue?", "Full System MRI", "YesNo", "Question")
@@ -1434,7 +1519,16 @@ $xaml = @"
             Set-Status "ERROR: $($_.Exception.Message)" 0
             [System.Windows.MessageBox]::Show($window, "Error during MRI:`n`n$($_.Exception.Message)", "Error", "OK", "Error")
         } finally { Set-ScanButtons $true; $lblReadyStatus.Text = "Ready" }
-    })
+    }
+
+    function Invoke-ScanMode($mode) {
+        switch ($mode) {
+            "Quick"    { Invoke-QuickTest }
+            "Standard" { Invoke-StandardTest }
+            "Deep"     { Invoke-DeepTest }
+            "MRI"      { Invoke-MRITest }
+        }
+    }
 
     # ── REPORT GENERATION ──
     $generateReports = {
