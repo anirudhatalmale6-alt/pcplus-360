@@ -83,7 +83,7 @@ $Global:LogLines = [System.Collections.ArrayList]::new()
 $COMPANY      = "PC Plus Computing"
 $PHONE        = "604-760-1662 | 236-500-2700"
 $WEBSITE      = "pcpluscomputing.com"
-$VERSION      = "2.7.0"
+$VERSION      = "2.8.0"
 
 if (-not (Test-Path $Global:ReportsDir)) { New-Item -Path $Global:ReportsDir -ItemType Directory -Force | Out-Null }
 if (-not (Test-Path $Global:ToolsDir)) { New-Item -Path $Global:ToolsDir -ItemType Directory -Force | Out-Null }
@@ -1093,26 +1093,37 @@ $xaml = @"
             $Global:DiagResults.ScanMode = "Quick"
             Set-Status "Quick Test: Collecting system info..." 5
             $Global:DiagResults.SystemInfo = Get-FullSystemInfo
+            if (Test-AbortRequested) { return }
             Set-Status "Quick Test: Security scan..." 20
             $Global:DiagResults.Security = Get-FullSecurityInfo
+            if (Test-AbortRequested) { return }
             Set-Status "Quick Test: Network info..." 35
             $Global:DiagResults.Network = Get-NetworkDiagnostics
+            if (Test-AbortRequested) { return }
             Set-Status "Quick Test: Software inventory..." 50
             $Global:DiagResults.Software = Get-SoftwareInventory
+            if (Test-AbortRequested) { return }
             Set-Status "Quick Test: Checking updates..." 60
             $Global:DiagResults.Patches = Get-MissingPatchesList
+            if (Test-AbortRequested) { return }
             Set-Status "Quick Test: Performance snapshot..." 70
             $Global:DiagResults.Performance = Get-PerformanceSnapshot
+            if (Test-AbortRequested) { return }
             Set-Status "Quick Test: License keys..." 78
             $Global:DiagResults.LicenseKeys = Get-LicenseKeys
+            if (Test-AbortRequested) { return }
             Set-Status "Quick Test: Crash history..." 85
             $Global:DiagResults.Stability = Get-CrashStabilityHistory
+            if (Test-AbortRequested) { return }
             Set-Status "Quick Test: Battery info..." 86
             $Global:DiagResults.BatteryDetail = Get-DetailedBatteryInfo
+            if (Test-AbortRequested) { return }
             Set-Status "Quick Test: Boot performance..." 90
             $Global:DiagResults.BootPerf = Get-BootPerformance
+            if (Test-AbortRequested) { return }
             Set-Status "Quick Test: Windows 11 readiness..." 93
             $Global:DiagResults.Win11Ready = Get-Windows11Readiness
+            if (Test-AbortRequested) { return }
             Set-Status "Quick Test: Calculating scores..." 97
             $Global:DiagResults.Scoring = Calculate-Score $Global:DiagResults.Security $Global:DiagResults.Patches
             $Global:DiagResults.StressResults = @{}
@@ -1137,30 +1148,43 @@ $xaml = @"
             $Global:DiagResults.ScanMode = "Standard"
             Set-Status "Standard Test: Collecting system info..." 2
             $Global:DiagResults.SystemInfo = Get-FullSystemInfo
+            if (Test-AbortRequested) { return }
             Set-Status "Standard Test: Security scan..." 8
             $Global:DiagResults.Security = Get-FullSecurityInfo
+            if (Test-AbortRequested) { return }
             Set-Status "Standard Test: Network analysis..." 14
             $Global:DiagResults.Network = Get-NetworkDiagnostics
+            if (Test-AbortRequested) { return }
             Set-Status "Standard Test: Network speed test..." 18
             $Global:DiagResults.SpeedTest = Get-NetworkSpeedTest
+            if (Test-AbortRequested) { return }
             Set-Status "Standard Test: Software inventory..." 24
             $Global:DiagResults.Software = Get-SoftwareInventory
+            if (Test-AbortRequested) { return }
             Set-Status "Standard Test: Checking updates..." 28
             $Global:DiagResults.Patches = Get-MissingPatchesList
+            if (Test-AbortRequested) { return }
             Set-Status "Standard Test: Performance snapshot..." 32
             $Global:DiagResults.Performance = Get-PerformanceSnapshot
+            if (Test-AbortRequested) { return }
             Set-Status "Standard Test: License keys..." 36
             $Global:DiagResults.LicenseKeys = Get-LicenseKeys
+            if (Test-AbortRequested) { return }
             Set-Status "Standard Test: Crash history..." 40
             $Global:DiagResults.Stability = Get-CrashStabilityHistory
+            if (Test-AbortRequested) { return }
             Set-Status "Standard Test: Battery report..." 44
             $Global:DiagResults.BatteryDetail = Get-DetailedBatteryInfo
+            if (Test-AbortRequested) { return }
             Set-Status "Standard Test: Power stability..." 47
             $Global:DiagResults.PowerInfo = Get-PowerStabilityInfo
+            if (Test-AbortRequested) { return }
             Set-Status "Standard Test: Gaming readiness..." 49
             $Global:DiagResults.Gaming = Get-GamingReadiness
+            if (Test-AbortRequested) { return }
             Set-Status "Standard Test: Boot performance..." 51
             $Global:DiagResults.BootPerf = Get-BootPerformance
+            if (Test-AbortRequested) { return }
             Set-Status "Standard Test: Windows 11 readiness..." 53
             $Global:DiagResults.Win11Ready = Get-Windows11Readiness
             if (Test-AbortRequested) { return }
@@ -1200,30 +1224,43 @@ $xaml = @"
             $Global:DiagResults.ScanMode = "Deep"
             Set-Status "Deep Test: Collecting system info..." 2
             $Global:DiagResults.SystemInfo = Get-FullSystemInfo
+            if (Test-AbortRequested) { return }
             Set-Status "Deep Test: Security scan..." 5
             $Global:DiagResults.Security = Get-FullSecurityInfo
+            if (Test-AbortRequested) { return }
             Set-Status "Deep Test: Network analysis..." 8
             $Global:DiagResults.Network = Get-NetworkDiagnostics
+            if (Test-AbortRequested) { return }
             Set-Status "Deep Test: Network speed test..." 11
             $Global:DiagResults.SpeedTest = Get-NetworkSpeedTest
+            if (Test-AbortRequested) { return }
             Set-Status "Deep Test: Software inventory..." 14
             $Global:DiagResults.Software = Get-SoftwareInventory
+            if (Test-AbortRequested) { return }
             Set-Status "Deep Test: Checking updates..." 17
             $Global:DiagResults.Patches = Get-MissingPatchesList
+            if (Test-AbortRequested) { return }
             Set-Status "Deep Test: Performance snapshot..." 20
             $Global:DiagResults.Performance = Get-PerformanceSnapshot
+            if (Test-AbortRequested) { return }
             Set-Status "Deep Test: License keys..." 22
             $Global:DiagResults.LicenseKeys = Get-LicenseKeys
+            if (Test-AbortRequested) { return }
             Set-Status "Deep Test: Crash history..." 25
             $Global:DiagResults.Stability = Get-CrashStabilityHistory
+            if (Test-AbortRequested) { return }
             Set-Status "Deep Test: Battery report..." 28
             $Global:DiagResults.BatteryDetail = Get-DetailedBatteryInfo
+            if (Test-AbortRequested) { return }
             Set-Status "Deep Test: Power stability..." 30
             $Global:DiagResults.PowerInfo = Get-PowerStabilityInfo
+            if (Test-AbortRequested) { return }
             Set-Status "Deep Test: Gaming readiness..." 32
             $Global:DiagResults.Gaming = Get-GamingReadiness
+            if (Test-AbortRequested) { return }
             Set-Status "Deep Test: Boot performance..." 34
             $Global:DiagResults.BootPerf = Get-BootPerformance
+            if (Test-AbortRequested) { return }
             Set-Status "Deep Test: Windows 11 readiness..." 35
             $Global:DiagResults.Win11Ready = Get-Windows11Readiness
             if (Test-AbortRequested) { return }
@@ -1278,51 +1315,71 @@ $xaml = @"
             Set-Status "MRI Phase 1: System inventory..." 2
             $Global:DiagResults.SystemInfo = Get-FullSystemInfo
             Update-SystemInfo
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 1: Security audit..." 5
             $Global:DiagResults.Security = Get-FullSecurityInfo
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 1: Network diagnostics..." 8
             $Global:DiagResults.Network = Get-NetworkDiagnostics
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 1: Software inventory..." 10
             $Global:DiagResults.Software = Get-SoftwareInventory
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 1: Updates check..." 12
             $Global:DiagResults.Patches = Get-MissingPatchesList
             $Global:DiagResults.Scoring = Calculate-Score $Global:DiagResults.Security $Global:DiagResults.Patches
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 1: License keys..." 14
             $Global:DiagResults.LicenseKeys = Get-LicenseKeys
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 1: Performance snapshot..." 16
             $Global:DiagResults.Performance = Get-PerformanceSnapshot
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 1: Crash & stability history..." 18
             $Global:DiagResults.Stability = Get-CrashStabilityHistory
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 1: Battery report..." 20
             $Global:DiagResults.BatteryDetail = Get-DetailedBatteryInfo
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 1: Power stability..." 21
             $Global:DiagResults.PowerInfo = Get-PowerStabilityInfo
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 1: Gaming readiness..." 22
             $Global:DiagResults.Gaming = Get-GamingReadiness
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 1: Boot performance..." 23
             $Global:DiagResults.BootPerf = Get-BootPerformance
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 1: Windows 11 readiness..." 24
             $Global:DiagResults.Win11Ready = Get-Windows11Readiness
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 1: Fan info..." 25
             $Global:DiagResults.FanInfo = Get-FanInfo
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 1: Display info..." 26
             $Global:DiagResults.DisplayInfo = Get-DisplayInfo
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 1: Windows activation..." 27
             $Global:DiagResults.Activation = Get-WindowsActivation
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 1: Memory leak check..." 28
             $Global:DiagResults.MemoryLeaks = Test-MemoryLeaks
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 1: Thermal snapshot..." 29
             $Global:DiagResults.Thermal = Get-ThermalSnapshot
+            if (Test-AbortRequested) { return }
 
             Set-Status "MRI Phase 2: SSD/HDD life report..." 30
             $Global:DiagResults.SSDLife = Get-SSDLifeReport
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 2: Disk fragmentation..." 32
             $Global:DiagResults.Fragmentation = Get-DiskFragmentation
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 2: CrystalDiskInfo SMART scan..." 33
             $Global:DiagResults.CrystalDiskInfo = Invoke-CrystalDiskInfoScan
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 2: Wear & Tear lifecycle analysis..." 34
             $Global:DiagResults.WearTear = Invoke-WearAndTearReport
-
             if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 3: CPU stress test (2 min)..." 36
             $Global:DiagResults.CPUStress = Start-CPUStressTest -DurationSeconds 120
