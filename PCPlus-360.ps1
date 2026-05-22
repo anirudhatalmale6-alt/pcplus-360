@@ -83,7 +83,7 @@ $Global:LogLines = [System.Collections.ArrayList]::new()
 $COMPANY      = "PC Plus Computing"
 $PHONE        = "604-760-1662 | 236-500-2700"
 $WEBSITE      = "pcpluscomputing.com"
-$VERSION      = "2.5.0"
+$VERSION      = "2.7.0"
 
 if (-not (Test-Path $Global:ReportsDir)) { New-Item -Path $Global:ReportsDir -ItemType Directory -Force | Out-Null }
 if (-not (Test-Path $Global:ToolsDir)) { New-Item -Path $Global:ToolsDir -ItemType Directory -Force | Out-Null }
@@ -315,7 +315,7 @@ $xaml = @"
                                 <TextBox x:Name="txtCustomer" FontSize="12" Padding="6,4" Background="#f6f9fb" Foreground="#1a2b3c" BorderBrush="#d8e8f0"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1" Margin="3,0,3,0">
-                                <TextBlock Text="PHONE" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa" Margin="0,0,0,2"/>
+                                <TextBlock Text="PHONE *" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa" Margin="0,0,0,2"/>
                                 <TextBox x:Name="txtPhone" FontSize="12" Padding="6,4" Background="#f6f9fb" Foreground="#1a2b3c" BorderBrush="#d8e8f0"/>
                             </StackPanel>
                             <StackPanel Grid.Column="2" Margin="6,0,0,0">
@@ -326,7 +326,11 @@ $xaml = @"
                                 <TextBlock Text="CONTACT NAME" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa" Margin="0,0,0,2"/>
                                 <TextBox x:Name="txtContact" FontSize="12" Padding="6,4" Background="#f6f9fb" Foreground="#1a2b3c" BorderBrush="#d8e8f0"/>
                             </StackPanel>
-                            <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="3,6,0,0">
+                            <StackPanel Grid.Row="1" Grid.Column="1" Margin="3,6,3,0">
+                                <TextBlock Text="DEVICE NAME (auto)" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa" Margin="0,0,0,2"/>
+                                <TextBox x:Name="txtDeviceName" FontSize="12" Padding="6,4" Background="#eef4f8" Foreground="#1a2b3c" BorderBrush="#d8e8f0" IsReadOnly="True"/>
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="2" Margin="3,6,0,0">
                                 <TextBlock Text="TECHNICIAN" FontSize="8.5" FontWeight="SemiBold" Foreground="#8a9baa" Margin="0,0,0,2"/>
                                 <TextBox x:Name="txtTech" Text="Paul" FontSize="12" Padding="6,4" Background="#f6f9fb" Foreground="#1a2b3c" BorderBrush="#d8e8f0"/>
                             </StackPanel>
@@ -501,16 +505,19 @@ $xaml = @"
                     <Border Background="White" CornerRadius="7" Padding="12" Margin="0,0,0,8" BorderBrush="#d8e8f0" BorderThickness="1">
                         <Grid>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <Button x:Name="btnRunSelected" Style="{StaticResource FlatBtn}" Background="#2596be" Padding="18,9">
                                 <TextBlock Text="RUN SELECTED TESTS" FontSize="12" FontWeight="Bold" Foreground="White"/>
                             </Button>
-                            <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
+                            <Button x:Name="btnAbort" Grid.Column="1" Style="{StaticResource FlatBtn}" Background="#dc2626" Padding="14,9" Margin="6,0,0,0" Visibility="Collapsed">
+                                <TextBlock Text="STOP" FontSize="12" FontWeight="Bold" Foreground="White"/>
+                            </Button>
+                            <StackPanel Grid.Column="2" Margin="12,0,0,0" VerticalAlignment="Center">
                                 <TextBlock x:Name="lblSelectedCount" Text="0 tests selected" FontSize="11.5" FontWeight="SemiBold" Foreground="#1a2b3c"/>
                                 <TextBlock x:Name="lblEstTime" Text="Select tests to begin" FontSize="9.5" Foreground="#8a9baa"/>
                             </StackPanel>
-                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                            <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
                                 <Border Background="#dcfce7" CornerRadius="10" Padding="8,3" Margin="0,0,8,0">
                                     <TextBlock x:Name="lblReadyStatus" Text="Ready" FontSize="10.5" FontWeight="SemiBold" Foreground="#22c55e"/>
                                 </Border>
@@ -546,8 +553,11 @@ $xaml = @"
     $txtContact = $window.FindName("txtContact")
     $txtTech = $window.FindName("txtTech")
     $txtNotes = $window.FindName("txtNotes")
+    $txtDeviceName = $window.FindName("txtDeviceName")
     $txtStatus = $window.FindName("txtStatus")
     $progressBar = $window.FindName("progressBar")
+    $btnAbort = $window.FindName("btnAbort")
+    $Global:AbortRequested = $false
     $lblComputer = $window.FindName("lblComputer")
     $lblOS = $window.FindName("lblOS")
     $lblCPU = $window.FindName("lblCPU")
@@ -601,11 +611,17 @@ $xaml = @"
     function Get-Params {
         if ([string]::IsNullOrWhiteSpace($txtCustomer.Text)) {
             Write-DebugLog "Validation failed: Customer Name is empty"
-            [System.Windows.MessageBox]::Show($window, "Please enter a Customer Name in the first field.", "Customer Name Required", "OK", "Warning")
+            [System.Windows.MessageBox]::Show($window, "Please enter a Customer Name before running tests.", "Customer Name Required", "OK", "Warning")
             $txtCustomer.Focus()
             return $null
         }
-        Write-DebugLog "Params OK: Customer=$($txtCustomer.Text.Trim())"
+        if ([string]::IsNullOrWhiteSpace($txtPhone.Text)) {
+            Write-DebugLog "Validation failed: Phone is empty"
+            [System.Windows.MessageBox]::Show($window, "Please enter a Phone Number before running tests.", "Phone Number Required", "OK", "Warning")
+            $txtPhone.Focus()
+            return $null
+        }
+        Write-DebugLog "Params OK: Customer=$($txtCustomer.Text.Trim()), Phone=$($txtPhone.Text.Trim())"
         return @{ CustomerName = $txtCustomer.Text.Trim(); CustomerPhone = $txtPhone.Text.Trim(); CustomerEmail = $txtEmail.Text.Trim(); ContactName = $txtContact.Text.Trim(); TechName = $txtTech.Text.Trim(); TechNotes = $txtNotes.Text.Trim(); OutputFolder = $Global:ReportsDir }
     }
 
@@ -843,6 +859,7 @@ $xaml = @"
             $os = Get-CimInstance Win32_OperatingSystem
             $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
             $lblComputer.Text = $cs.Name
+            $txtDeviceName.Text = $cs.Name
             $lblOS.Text = ($os.Caption -replace 'Microsoft ','')
             $cpuName = ($cpu.Name -replace '\(R\)','' -replace '\(TM\)','' -replace 'CPU ','').Trim()
             if ($cpuName.Length -gt 20) { $cpuName = $cpuName.Substring(0,20) }
@@ -863,6 +880,29 @@ $xaml = @"
             $b = $window.FindName($bn)
             if ($b) { $b.IsEnabled = $enabled }
         }
+        if ($enabled) {
+            $btnAbort.Visibility = "Collapsed"
+            $Global:AbortRequested = $false
+        } else {
+            $btnAbort.Visibility = "Visible"
+        }
+    }
+
+    $btnAbort.Add_Click({
+        $Global:AbortRequested = $true
+        $btnAbort.IsEnabled = $false
+        $txtStatus.Text = "Stopping... will halt after current test finishes."
+        Write-DebugLog "ABORT requested by user"
+    })
+
+    function Test-AbortRequested {
+        if ($Global:AbortRequested) {
+            Set-Status "Test aborted by user." 0
+            $lblReadyStatus.Text = "Aborted"
+            Set-ScanButtons $true
+            return $true
+        }
+        return $false
     }
 
     # Quick Scan header button triggers Quick Test
@@ -896,6 +936,7 @@ $xaml = @"
             $stepsDone = 0
 
             if ($chkCPU.IsChecked) {
+                if (Test-AbortRequested) { return }
                 $stepsDone++
                 Set-Status "Running CPU stress test (60 sec)..." ([int](10 + ($stepsDone / $totalInline) * 80))
                 $Global:DiagResults.CPUStress = Start-CPUStressTest -DurationSeconds 60
@@ -903,6 +944,7 @@ $xaml = @"
                 Set-Status "CPU: $(if($r.Passed){'PASS'}else{'FAIL'}) - $($r.Iterations) iterations" ([int](10 + ($stepsDone / $totalInline) * 80))
             }
             if ($chkRAM.IsChecked) {
+                if (Test-AbortRequested) { return }
                 $stepsDone++
                 Set-Status "Running RAM test (60 sec)..." ([int](10 + ($stepsDone / $totalInline) * 80))
                 $Global:DiagResults.RAMStress = Start-RAMStressTest -DurationSeconds 60
@@ -910,6 +952,7 @@ $xaml = @"
                 Set-Status "RAM: $(if($r.Passed){'PASS'}else{'FAIL'}) - $($r.TotalMBTested) MB tested" ([int](10 + ($stepsDone / $totalInline) * 80))
             }
             if ($chkDisk.IsChecked) {
+                if (Test-AbortRequested) { return }
                 $stepsDone++
                 Set-Status "Running disk benchmark (256MB)..." ([int](10 + ($stepsDone / $totalInline) * 80))
                 $Global:DiagResults.DiskBench = Start-DiskBenchmark -FileSizeMB 256
@@ -917,17 +960,20 @@ $xaml = @"
                 Set-Status "Disk: W=$($r.SeqWriteMBps) R=$($r.SeqReadMBps) MB/s" ([int](10 + ($stepsDone / $totalInline) * 80))
             }
             if ($chkSMART.IsChecked) {
+                if (Test-AbortRequested) { return }
                 $stepsDone++
                 Set-Status "Reading SMART data..." ([int](10 + ($stepsDone / $totalInline) * 80))
                 $smart = Invoke-Safe { Get-PhysicalDisk | ForEach-Object { $r=Get-StorageReliabilityCounter -PhysicalDisk $_ -ErrorAction SilentlyContinue; "$($_.FriendlyName): $($_.HealthStatus)" } } "Error"
                 Set-Status "SMART: $($smart -join ' | ')" ([int](10 + ($stepsDone / $totalInline) * 80))
             }
             if ($chkBattery.IsChecked) {
+                if (Test-AbortRequested) { return }
                 $stepsDone++
                 Set-Status "Checking battery..." ([int](10 + ($stepsDone / $totalInline) * 80))
                 $Global:DiagResults.BatteryDetail = Get-DetailedBatteryInfo
             }
             if ($chkNetwork.IsChecked) {
+                if (Test-AbortRequested) { return }
                 $stepsDone++
                 Set-Status "Testing network..." ([int](10 + ($stepsDone / $totalInline) * 80))
                 $Global:DiagResults.Network = Get-NetworkDiagnostics
@@ -935,6 +981,7 @@ $xaml = @"
                 Set-Status "Network: DNS $(if($net.DNSTest.Success){'OK'}else{'FAIL'}), Internet $(if($net.InternetTest.Success){'OK'}else{'FAIL'})" ([int](10 + ($stepsDone / $totalInline) * 80))
             }
             if ($chkSecurity.IsChecked) {
+                if (Test-AbortRequested) { return }
                 $stepsDone++
                 Set-Status "Running security audit..." ([int](10 + ($stepsDone / $totalInline) * 80))
                 $Global:DiagResults.Security = Get-FullSecurityInfo
@@ -942,6 +989,7 @@ $xaml = @"
                 $Global:DiagResults.Scoring = Calculate-Score $Global:DiagResults.Security $Global:DiagResults.Patches
             }
             if ($chkKeys.IsChecked) {
+                if (Test-AbortRequested) { return }
                 $stepsDone++
                 Set-Status "Recovering license keys..." ([int](10 + ($stepsDone / $totalInline) * 80))
                 $Global:DiagResults.LicenseKeys = Get-LicenseKeys
@@ -950,6 +998,7 @@ $xaml = @"
                 Set-Status "Windows Key: $wk | WiFi: $($lk.WiFiPasswords.Count) networks" ([int](10 + ($stepsDone / $totalInline) * 80))
             }
             if ($chkSSDLife.IsChecked) {
+                if (Test-AbortRequested) { return }
                 $stepsDone++
                 Set-Status "Analyzing SSD/HDD life and health..." ([int](10 + ($stepsDone / $totalInline) * 80))
                 $Global:DiagResults.SSDLife = Get-SSDLifeReport
@@ -958,6 +1007,7 @@ $xaml = @"
                 Set-Status "SSD Life: $driveCount drive(s) - $(if($healthy){'All Healthy'}else{'Issues Found'})" ([int](10 + ($stepsDone / $totalInline) * 80))
             }
             if ($chkGPU.IsChecked) {
+                if (Test-AbortRequested) { return }
                 $stepsDone++
                 Set-Status "Running GPU stress test (60 sec)..." ([int](10 + ($stepsDone / $totalInline) * 80))
                 $Global:DiagResults.GPUStress = Start-GPUStressTest -DurationSeconds 60
@@ -965,6 +1015,7 @@ $xaml = @"
                 Set-Status "GPU: $(if($r.Passed){'PASS'}else{'FAIL'}) - $($r.GPUName), $($r.Iterations) iterations" ([int](10 + ($stepsDone / $totalInline) * 80))
             }
             if ($chkWinDeep.IsChecked) {
+                if (Test-AbortRequested) { return }
                 $stepsDone++
                 Set-Status "Running Deep Windows test (SFC, DISM, services, file system)..." ([int](10 + ($stepsDone / $totalInline) * 80))
                 $Global:DiagResults.WindowsDeep = Invoke-DeepWindowsTest
@@ -972,6 +1023,7 @@ $xaml = @"
                 Set-Status "Windows Deep: Score=$($wd.Score)/100 ($($wd.Grade))" ([int](10 + ($stepsDone / $totalInline) * 80))
             }
             if ($chkWearTear.IsChecked) {
+                if (Test-AbortRequested) { return }
                 $stepsDone++
                 Set-Status "Running Wear & Tear lifecycle analysis..." ([int](10 + ($stepsDone / $totalInline) * 80))
                 $Global:DiagResults.WearTear = Invoke-WearAndTearReport
@@ -979,6 +1031,7 @@ $xaml = @"
                 Set-Status "Wear & Tear: Score=$($wt.Score)/100 ($($wt.Grade)) - $($wt.RiskLevel) risk" ([int](10 + ($stepsDone / $totalInline) * 80))
             }
             if ($chkSpeedTest.IsChecked) {
+                if (Test-AbortRequested) { return }
                 $stepsDone++
                 Set-Status "Running internet speed test..." ([int](10 + ($stepsDone / $totalInline) * 80))
                 $Global:DiagResults.SpeedTest = Get-NetworkSpeedTest
@@ -987,6 +1040,7 @@ $xaml = @"
                 Set-Status "Speed: Down=$($st.DownloadMbps) Up=$($st.UploadMbps) Mbps, Ping=$($st.PingMs)ms" ([int](10 + ($stepsDone / $totalInline) * 80))
             }
             if ($chkThermal.IsChecked) {
+                if (Test-AbortRequested) { return }
                 $stepsDone++
                 Set-Status "Checking thermal status and DPC latency..." ([int](10 + ($stepsDone / $totalInline) * 80))
                 $Global:DiagResults.Thermal = Get-ThermalSnapshot
@@ -1109,14 +1163,19 @@ $xaml = @"
             $Global:DiagResults.BootPerf = Get-BootPerformance
             Set-Status "Standard Test: Windows 11 readiness..." 53
             $Global:DiagResults.Win11Ready = Get-Windows11Readiness
+            if (Test-AbortRequested) { return }
             Set-Status "Standard Test: CPU stress (5 min)..." 55
             $Global:DiagResults.CPUStress = Start-CPUStressTest -DurationSeconds 300
+            if (Test-AbortRequested) { return }
             Set-Status "Standard Test: GPU stress (2 min)..." 70
             $Global:DiagResults.GPUStress = Start-GPUStressTest -DurationSeconds 120
+            if (Test-AbortRequested) { return }
             Set-Status "Standard Test: RAM test (5 min)..." 78
             $Global:DiagResults.RAMStress = Start-RAMStressTest -DurationSeconds 300
+            if (Test-AbortRequested) { return }
             Set-Status "Standard Test: Disk benchmark (512MB)..." 90
             $Global:DiagResults.DiskBench = Start-DiskBenchmark -FileSizeMB 512
+            if (Test-AbortRequested) { return }
             Set-Status "Standard Test: Calculating scores..." 96
             $Global:DiagResults.Scoring = Calculate-Score $Global:DiagResults.Security $Global:DiagResults.Patches
             $Global:DiagResults.StressResults = @{ CPU = $Global:DiagResults.CPUStress; RAM = $Global:DiagResults.RAMStress; Disk = $Global:DiagResults.DiskBench; GPU = $Global:DiagResults.GPUStress }
@@ -1167,14 +1226,19 @@ $xaml = @"
             $Global:DiagResults.BootPerf = Get-BootPerformance
             Set-Status "Deep Test: Windows 11 readiness..." 35
             $Global:DiagResults.Win11Ready = Get-Windows11Readiness
+            if (Test-AbortRequested) { return }
             Set-Status "Deep Test: CPU stress (15 min)..." 37
             $Global:DiagResults.CPUStress = Start-CPUStressTest -DurationSeconds 900
+            if (Test-AbortRequested) { return }
             Set-Status "Deep Test: GPU stress (5 min)..." 56
             $Global:DiagResults.GPUStress = Start-GPUStressTest -DurationSeconds 300
+            if (Test-AbortRequested) { return }
             Set-Status "Deep Test: RAM test (15 min)..." 66
             $Global:DiagResults.RAMStress = Start-RAMStressTest -DurationSeconds 900
+            if (Test-AbortRequested) { return }
             Set-Status "Deep Test: Disk benchmark (1GB)..." 86
             $Global:DiagResults.DiskBench = Start-DiskBenchmark -FileSizeMB 1024
+            if (Test-AbortRequested) { return }
             Set-Status "Deep Test: Calculating scores..." 92
             $Global:DiagResults.Scoring = Calculate-Score $Global:DiagResults.Security $Global:DiagResults.Patches
             $Global:DiagResults.StressResults = @{ CPU = $Global:DiagResults.CPUStress; RAM = $Global:DiagResults.RAMStress; Disk = $Global:DiagResults.DiskBench; GPU = $Global:DiagResults.GPUStress }
@@ -1259,18 +1323,24 @@ $xaml = @"
             Set-Status "MRI Phase 2: Wear & Tear lifecycle analysis..." 34
             $Global:DiagResults.WearTear = Invoke-WearAndTearReport
 
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 3: CPU stress test (2 min)..." 36
             $Global:DiagResults.CPUStress = Start-CPUStressTest -DurationSeconds 120
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 3: RAM stress test (2 min)..." 50
             $Global:DiagResults.RAMStress = Start-RAMStressTest -DurationSeconds 120
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 3: Disk benchmark (512 MB)..." 64
             $Global:DiagResults.DiskBench = Start-DiskBenchmark -FileSizeMB 512
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 3: GPU stress test (90 sec)..." 70
             $Global:DiagResults.GPUStress = Start-GPUStressTest -DurationSeconds 90
             $Global:DiagResults.StressResults = @{ CPU=$Global:DiagResults.CPUStress; RAM=$Global:DiagResults.RAMStress; Disk=$Global:DiagResults.DiskBench; GPU=$Global:DiagResults.GPUStress }
 
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 4: Deep Windows integrity (SFC, DISM, services)..." 78
             $Global:DiagResults.WindowsDeep = Invoke-DeepWindowsTest
+            if (Test-AbortRequested) { return }
             Set-Status "MRI Phase 4: DPC latency check..." 90
             $Global:DiagResults.DPCLatency = Test-DPCLatency
 
