@@ -219,7 +219,7 @@ $xaml = @"
 
                 <Border DockPanel.Dock="Bottom" Padding="14,8" BorderBrush="#0d4b71" BorderThickness="0,1,0,0">
                     <StackPanel>
-                        <TextBlock x:Name="lblVersion" Text="v2.6.0" FontSize="10" Foreground="#2596be" FontFamily="Consolas"/>
+                        <TextBlock x:Name="lblVersion" Text="v2.10.0" FontSize="10" Foreground="#2596be" FontFamily="Consolas"/>
                         <TextBlock Text="604-760-1662 | 236-500-2700" FontSize="8.5" Foreground="#4a7a8a" Margin="0,2,0,0"/>
                         <TextBlock Text="pcpluscomputing.com" FontSize="8.5" Foreground="#3a6a7a"/>
                         <Button x:Name="btnCheckUpdate" Cursor="Hand" Background="Transparent" BorderThickness="0" HorizontalAlignment="Left" Margin="0,4,0,0" Padding="0">
@@ -578,6 +578,7 @@ $xaml = @"
     $progressBar = $window.FindName("progressBar")
     $btnAbort = $window.FindName("btnAbort")
     $Global:AbortRequested = $false
+    $window.FindName("lblVersion").Text = "v$VERSION"
     $lblComputer = $window.FindName("lblComputer")
     $lblOS = $window.FindName("lblOS")
     $lblCPU = $window.FindName("lblCPU")

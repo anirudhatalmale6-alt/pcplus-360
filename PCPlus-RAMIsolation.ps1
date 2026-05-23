@@ -200,7 +200,13 @@ function Invoke-MemoryStressTest {
             foreach ($pattern in $patterns) {
                 foreach ($block in $allocated) {
                     try {
-                        [Array]::Fill($block, [byte]$pattern)
+                        $fillByte = [byte]$pattern
+                        $chunk = [byte[]]::new(4096)
+                        for ($i = 0; $i -lt 4096; $i++) { $chunk[$i] = $fillByte }
+                        for ($i = 0; $i -lt $block.Length; $i += 4096) {
+                            $len = [math]::Min(4096, $block.Length - $i)
+                            [Buffer]::BlockCopy($chunk, 0, $block, $i, $len)
+                        }
 
                         # Sample check every 4KB instead of reading every byte to keep test practical in PowerShell.
                         for ($offset = 0; $offset -lt $block.Length; $offset += 4096) {

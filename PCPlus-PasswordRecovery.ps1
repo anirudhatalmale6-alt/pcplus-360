@@ -48,7 +48,9 @@ function Get-Sqlite3Path {
 }
 
 # ── AES-GCM decryption for Chrome 80+ passwords ──
-Add-Type -TypeDefinition @"
+$hasAesGcm = $false
+try {
+    Add-Type -TypeDefinition @"
 using System;
 using System.IO;
 using System.Security.Cryptography;
@@ -56,7 +58,6 @@ using System.Text;
 
 public class ChromeDecryptor {
     public static byte[] DecryptMasterKey(byte[] encryptedKey) {
-        // Remove DPAPI prefix (5 bytes: "DPAPI")
         byte[] keyBytes = new byte[encryptedKey.Length - 5];
         Array.Copy(encryptedKey, 5, keyBytes, 0, keyBytes.Length);
         return ProtectedData.Unprotect(keyBytes, null, DataProtectionScope.CurrentUser);
@@ -64,13 +65,11 @@ public class ChromeDecryptor {
 
     public static string DecryptPassword(byte[] encryptedData, byte[] masterKey) {
         try {
-            // Check for v10/v11 prefix (Chrome 80+)
             if (encryptedData.Length > 15 &&
                 encryptedData[0] == (byte)'v' &&
                 (encryptedData[1] == (byte)'1') &&
                 (encryptedData[2] == (byte)'0' || encryptedData[2] == (byte)'1')) {
 
-                // v10/v11: 3-byte version + 12-byte nonce + ciphertext + 16-byte tag
                 byte[] nonce = new byte[12];
                 Array.Copy(encryptedData, 3, nonce, 0, 12);
 
@@ -90,7 +89,6 @@ public class ChromeDecryptor {
                 return Encoding.UTF8.GetString(plaintext);
             }
             else {
-                // Old DPAPI-only encryption
                 byte[] decrypted = ProtectedData.Unprotect(encryptedData, null, DataProtectionScope.CurrentUser);
                 return Encoding.UTF8.GetString(decrypted);
             }
@@ -104,12 +102,15 @@ public class ChromeDecryptor {
         }
     }
 }
-"@ -ReferencedAssemblies @("System.Security.Cryptography.Primitives","System.Security.Cryptography.Cng","System.Security.Cryptography.ProtectedData","System.Memory") -ErrorAction SilentlyContinue
-
-# Fallback for older .NET without AesGcm
-$hasAesGcm = $true
-try { [ChromeDecryptor] | Out-Null } catch {
+"@ -ReferencedAssemblies @("System.Security.Cryptography.Primitives","System.Security.Cryptography.Cng","System.Security.Cryptography.ProtectedData","System.Memory") -ErrorAction Stop
+    $hasAesGcm = $true
+} catch {
     $hasAesGcm = $false
+}
+
+try { [ChromeDecryptor] | Out-Null } catch { $hasAesGcm = $false }
+
+if (-not $hasAesGcm) {
     Add-Type -TypeDefinition @"
 using System;
 using System.Security.Cryptography;
@@ -440,7 +441,7 @@ function Show-RecoveryUI {
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" HorizontalAlignment="Center" Margin="0,0,0,15">
-            <TextBlock Text="PC PLUS COMPUTING" FontSize="20" FontWeight="Bold" Foreground="#2596be" HorizontalAlignment="Center" LetterSpacing="3"/>
+            <TextBlock Text="P C   P L U S   C O M P U T I N G" FontSize="18" FontWeight="Bold" Foreground="#2596be" HorizontalAlignment="Center"/>
             <TextBlock Text="Password Recovery Tool" FontSize="13" Foreground="#94a3b8" HorizontalAlignment="Center" Margin="0,4,0,0"/>
         </StackPanel>
 

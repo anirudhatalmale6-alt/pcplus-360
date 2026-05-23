@@ -2351,7 +2351,13 @@ function Invoke-RAMIsolationRound {
             foreach ($p in $patterns) {
                 foreach ($block in $allocated) {
                     try {
-                        [Array]::Fill($block, [byte]$p)
+                        $fillByte = [byte]$p
+                        $chunk = [byte[]]::new(4096)
+                        for ($i = 0; $i -lt 4096; $i++) { $chunk[$i] = $fillByte }
+                        for ($i = 0; $i -lt $block.Length; $i += 4096) {
+                            $len = [math]::Min(4096, $block.Length - $i)
+                            [Buffer]::BlockCopy($chunk, 0, $block, $i, $len)
+                        }
                         for ($offset = 0; $offset -lt $block.Length; $offset += 4096) {
                             if ($block[$offset] -ne [byte]$p) { $patternErrors++ }
                         }
