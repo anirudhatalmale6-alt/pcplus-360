@@ -835,7 +835,7 @@ if (-not (Test-Path $NirSoftDir)) {
     Write-Host "  DriverView.exe, WinCrashReport.exe, WifiInfoView.exe," -ForegroundColor White
     Write-Host "  WirelessNetView.exe, FullEventLogView.exe, OpenedFilesView.exe," -ForegroundColor White
     Write-Host "  ProduKey.exe, DNSDataView.exe" -ForegroundColor White
-    pause
+    Read-Host "Press Enter to exit"
     exit
 }
 
