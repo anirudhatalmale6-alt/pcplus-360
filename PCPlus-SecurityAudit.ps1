@@ -971,7 +971,7 @@ function Get-HardwareDiagnostics {
     # Disk SMART details
     $results.DiskSMART = Invoke-SafeCheck {
         $smartData = @()
-        Get-PhysicalDisk | ForEach-Object {
+        Get-PhysicalDisk | Where-Object { "$($_.BusType)" -notin @("USB","SD","Unknown","Unspecified") } | ForEach-Object {
             $reliability = Get-StorageReliabilityCounter -PhysicalDisk $_ -ErrorAction SilentlyContinue
             $smartData += @{
                 Model           = $_.FriendlyName

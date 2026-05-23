@@ -66,12 +66,16 @@ $hwResults.System = @{
 $hwResults.PhysicalDisks = Invoke-Safe {
     $pd = @()
     Get-PhysicalDisk | ForEach-Object {
-        $rel = Get-StorageReliabilityCounter -PhysicalDisk $_ -ErrorAction SilentlyContinue
+        $bt = "$($_.BusType)"
+        $rel = $null
+        if ($bt -notin @("USB","SD","Unknown","Unspecified")) {
+            $rel = Get-StorageReliabilityCounter -PhysicalDisk $_ -ErrorAction SilentlyContinue
+        }
         $pd += @{
             Model     = $_.FriendlyName
             SizeGB    = [math]::Round($_.Size / 1GB, 0)
             MediaType = "$($_.MediaType)"
-            BusType   = "$($_.BusType)"
+            BusType   = $bt
             Health    = "$($_.HealthStatus)"
             Temp      = if ($rel -and $rel.Temperature) { "$($rel.Temperature)C" } else { "N/A" }
             PowerOn   = if ($rel) { $rel.PowerOnHours } else { "N/A" }

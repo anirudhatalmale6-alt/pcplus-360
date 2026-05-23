@@ -82,9 +82,13 @@ function Get-FullSystemInfo {
     $smartData = Invoke-Safe {
         $sd = @()
         Get-PhysicalDisk | ForEach-Object {
-            $rel = Get-StorageReliabilityCounter -PhysicalDisk $_ -ErrorAction SilentlyContinue
+            $busType = "$($_.BusType)"
+            $rel = $null
+            if ($busType -notin @("USB","SD","Unknown","Unspecified")) {
+                $rel = Get-StorageReliabilityCounter -PhysicalDisk $_ -ErrorAction SilentlyContinue
+            }
             $sd += @{
-                Model = $_.FriendlyName; MediaType = "$($_.MediaType)"; BusType = "$($_.BusType)"
+                Model = $_.FriendlyName; MediaType = "$($_.MediaType)"; BusType = $busType
                 Health = "$($_.HealthStatus)"; SizeGB = [math]::Round($_.Size / 1GB, 0)
                 FirmwareVersion = $_.FirmwareVersion
                 PowerOnHours = if ($rel) { $rel.PowerOnHours } else { "N/A" }
@@ -1794,7 +1798,7 @@ function Get-SSDLifeReport {
     foreach ($d in $diskDrives) {
         $matched = $physicalDisks | Where-Object { $_.FriendlyName -like "*$($d.Model)*" } | Select-Object -First 1
         $reliability = $null
-        if ($matched) {
+        if ($matched -and "$($matched.BusType)" -notin @("USB","SD","Unknown","Unspecified")) {
             $reliability = Invoke-Safe { Get-StorageReliabilityCounter -PhysicalDisk $matched -ErrorAction Stop } $null
         }
 
@@ -2575,7 +2579,7 @@ function Invoke-WearAndTearReport {
         foreach ($d in $diskDrives) {
             $matched = $physicalDisks | Where-Object { $_.FriendlyName -like "*$($d.Model)*" } | Select-Object -First 1
             $rel = $null
-            try { if ($matched) { $rel = Get-StorageReliabilityCounter -PhysicalDisk $matched -ErrorAction SilentlyContinue } } catch {}
+            try { if ($matched -and "$($matched.BusType)" -notin @("USB","SD","Unknown","Unspecified")) { $rel = Get-StorageReliabilityCounter -PhysicalDisk $matched -ErrorAction SilentlyContinue } } catch {}
 
             # Try smartctl for deeper SMART data
             $smartHealth = $null; $smartPOH = $null; $smartTemp = $null; $smartWear = $null

@@ -1071,7 +1071,7 @@ $xaml = @"
                 if (Test-AbortRequested) { return }
                 $stepsDone++
                 Set-Status "Reading SMART data..." ([int](10 + ($stepsDone / $totalInline) * 80))
-                $smart = Invoke-Safe { Get-PhysicalDisk | ForEach-Object { $r=Get-StorageReliabilityCounter -PhysicalDisk $_ -ErrorAction SilentlyContinue; "$($_.FriendlyName): $($_.HealthStatus)" } } "Error"
+                $smart = Invoke-Safe { Get-PhysicalDisk | Where-Object { "$($_.BusType)" -notin @("USB","SD","Unknown","Unspecified") } | ForEach-Object { $r=Get-StorageReliabilityCounter -PhysicalDisk $_ -ErrorAction SilentlyContinue; "$($_.FriendlyName): $($_.HealthStatus)" } } "Error"
                 Set-Status "SMART: $($smart -join ' | ')" ([int](10 + ($stepsDone / $totalInline) * 80))
             }
             if ($chkBattery.IsChecked) {

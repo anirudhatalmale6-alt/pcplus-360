@@ -202,7 +202,7 @@ function Get-PCPlusStorageWear {
     foreach ($d in $diskDrives) {
         $matched = $physicalDisks | Where-Object { $_.FriendlyName -like "*$($d.Model)*" } | Select-Object -First 1
         $rel = $null
-        try { if ($matched) { $rel = Get-StorageReliabilityCounter -PhysicalDisk $matched -ErrorAction SilentlyContinue } } catch {}
+        try { if ($matched -and "$($matched.BusType)" -notin @("USB","SD","Unknown","Unspecified")) { $rel = Get-StorageReliabilityCounter -PhysicalDisk $matched -ErrorAction SilentlyContinue } } catch {}
 
         $smartParsed = Parse-SmartText $null
         if ($smartctl) {
