@@ -7,7 +7,7 @@
     Runs from USB drive with no installation required.
 .NOTES
     Company:  PC Plus Computing
-    Version:  2.6.0
+    Version:  3.0.0
     Requires: PowerShell 5.1+, Windows 10/11, Administrator privileges
 #>
 
@@ -84,7 +84,7 @@ $Global:LogLines = [System.Collections.ArrayList]::new()
 $COMPANY      = "PC Plus Computing"
 $PHONE        = "604-760-1662 | 236-500-2700"
 $WEBSITE      = "pcpluscomputing.com"
-$VERSION      = "2.10.0"
+$VERSION      = "3.0.0"
 
 if (-not (Test-Path $Global:ReportsDir)) { New-Item -Path $Global:ReportsDir -ItemType Directory -Force | Out-Null }
 if (-not (Test-Path $Global:ToolsDir)) { New-Item -Path $Global:ToolsDir -ItemType Directory -Force | Out-Null }
@@ -219,7 +219,7 @@ $xaml = @"
 
                 <Border DockPanel.Dock="Bottom" Padding="14,8" BorderBrush="#0d4b71" BorderThickness="0,1,0,0">
                     <StackPanel>
-                        <TextBlock x:Name="lblVersion" Text="v2.10.0" FontSize="10" Foreground="#2596be" FontFamily="Consolas"/>
+                        <TextBlock x:Name="lblVersion" Text="v3.0.0" FontSize="10" Foreground="#2596be" FontFamily="Consolas"/>
                         <TextBlock Text="604-760-1662 | 236-500-2700" FontSize="8.5" Foreground="#4a7a8a" Margin="0,2,0,0"/>
                         <TextBlock Text="pcpluscomputing.com" FontSize="8.5" Foreground="#3a6a7a"/>
                         <Button x:Name="btnCheckUpdate" Cursor="Hand" Background="Transparent" BorderThickness="0" HorizontalAlignment="Left" Margin="0,4,0,0" Padding="0">
@@ -262,6 +262,17 @@ $xaml = @"
                         <Button x:Name="btnGPUZ" Style="{StaticResource SideNav}"><TextBlock Text="    GPU-Z" FontSize="10.5" Foreground="#6a8a98"/></Button>
                         <Button x:Name="btnHWMon" Style="{StaticResource SideNav}"><TextBlock Text="    HWMonitor" FontSize="10.5" Foreground="#6a8a98"/></Button>
                         <Button x:Name="btnBattView" Style="{StaticResource SideNav}"><TextBlock Text="    BatteryInfoView" FontSize="10.5" Foreground="#6a8a98"/></Button>
+
+                        <TextBlock Text="  SECURITY" FontSize="9" FontWeight="SemiBold" Foreground="#4a7a8a" Margin="0,12,0,4"/>
+                        <Button x:Name="btnQuickRisk" Style="{StaticResource SideNav}"><TextBlock Text="  Quick Risk Score" FontSize="11.5" Foreground="#ef4444" FontWeight="SemiBold"/></Button>
+                        <Button x:Name="btnBrowserAudit" Style="{StaticResource SideNav}"><TextBlock Text="  Browser Audit" FontSize="11.5" Foreground="#f59e0b"/></Button>
+                        <Button x:Name="btnStartupAudit" Style="{StaticResource SideNav}"><TextBlock Text="  Startup Threats" FontSize="11.5" Foreground="#f97316"/></Button>
+                        <Button x:Name="btnBitLocker" Style="{StaticResource SideNav}"><TextBlock Text="  BitLocker Audit" FontSize="11.5" Foreground="#06b6d4"/></Button>
+                        <Button x:Name="btnRDPAudit" Style="{StaticResource SideNav}"><TextBlock Text="  RDP Exposure" FontSize="11.5" Foreground="#dc2626"/></Button>
+                        <Button x:Name="btnScamAudit" Style="{StaticResource SideNav}"><TextBlock Text="  Scam Protection" FontSize="11.5" Foreground="#e879f9"/></Button>
+                        <Button x:Name="btnBackupCheck" Style="{StaticResource SideNav}"><TextBlock Text="  Backup Check" FontSize="11.5" Foreground="#22c55e"/></Button>
+                        <Button x:Name="btnUSBHistory" Style="{StaticResource SideNav}"><TextBlock Text="  USB History" FontSize="11.5" Foreground="#a78bfa"/></Button>
+                        <Button x:Name="btnNetSnapshot" Style="{StaticResource SideNav}"><TextBlock Text="  Network Snapshot" FontSize="11.5" Foreground="#3bbde0"/></Button>
 
                         <TextBlock Text="  DIAGNOSTICS" FontSize="9" FontWeight="SemiBold" Foreground="#4a7a8a" Margin="0,12,0,4"/>
                         <Button x:Name="btnNavWearTear" Style="{StaticResource SideNav}"><TextBlock Text="  Wear &amp; Tear Report" FontSize="11.5" Foreground="#e879f9"/></Button>
@@ -862,6 +873,28 @@ $xaml = @"
         if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
         else { [System.Windows.MessageBox]::Show($window, "PCPlus-RAMIsolation.ps1 not found in $Global:ScriptDir", "Not Found", "OK", "Warning") }
     })
+
+    # ── New Security Tool Launchers ──
+    $securityScripts = @{
+        "btnQuickRisk"    = "PCPlus-QuickRiskScore.ps1"
+        "btnBrowserAudit" = "PCPlus-BrowserRiskAudit.ps1"
+        "btnStartupAudit" = "PCPlus-StartupThreatAudit.ps1"
+        "btnBitLocker"    = "PCPlus-BitLockerAudit.ps1"
+        "btnRDPAudit"     = "PCPlus-RDPExposureAudit.ps1"
+        "btnScamAudit"    = "PCPlus-ScamProtectionAudit.ps1"
+        "btnBackupCheck"  = "PCPlus-BackupRealityCheck.ps1"
+        "btnUSBHistory"   = "PCPlus-USBDeviceHistory.ps1"
+        "btnNetSnapshot"  = "PCPlus-NetworkSnapshot.ps1"
+    }
+    foreach ($btnName in $securityScripts.Keys) {
+        $scriptName = $securityScripts[$btnName]
+        $window.FindName($btnName).Add_Click(([ScriptBlock]::Create("
+            `$s = Join-Path `$Global:ScriptDir '$scriptName'
+            if (Test-Path `$s) { Start-Process powershell.exe -ArgumentList `"-NoProfile -ExecutionPolicy Bypass -File ```"`$s```"`" -Verb RunAs }
+            else { [System.Windows.MessageBox]::Show(`$window, '$scriptName not found in toolkit folder.`nMake sure it is in the same directory as PCPlus-360.ps1', 'Not Found', 'OK', 'Warning') }
+        ")))
+    }
+
     $window.FindName("btnNavWearTear").Add_Click({
         $p = Get-Params; if (-not $p) { return }
         Set-ScanButtons $false

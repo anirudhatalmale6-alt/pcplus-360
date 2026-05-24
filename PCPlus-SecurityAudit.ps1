@@ -9,7 +9,7 @@
     Company:  PC Plus Computing
     Website:  pcpluscomputing.com
     Phone:    604-760-1662
-    Version:  2.6.0
+    Version:  3.0.0
     Requires: PowerShell 5.1+, Windows 10/11, Administrator privileges
 #>
 
@@ -598,6 +598,75 @@ function Get-SecurityStatus {
     $results.AccountHygiene.PasswordAgePolicy = Invoke-SafeCheck {
         $na = net accounts 2>&1 | Out-String
         if ($na -match "Maximum password age \(days\):\s+Unlimited") { $false } else { $true }
+    } $false
+
+    # ── MFA & Authentication Readiness ──
+    $results.MFAReadiness = @{}
+    $results.MFAReadiness.WindowsHelloEnabled = Invoke-SafeCheck {
+        $ngcPath = "HKLM:\SOFTWARE\Microsoft\PolicyManager\default\Settings\AllowSignInOptions"
+        $helloPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WinBio"
+        $ngcConfigured = Test-Path "$env:SystemRoot\ServiceProfiles\LocalService\AppData\Local\Microsoft\Ngc\*"
+        $biometricEnabled = (Get-Service "WbioSrvc" -ErrorAction SilentlyContinue).Status -eq "Running"
+        $ngcConfigured -or $biometricEnabled
+    } $false
+    $results.MFAReadiness.CredentialManagerEntries = Invoke-SafeCheck {
+        $creds = cmdkey /list 2>&1
+        $webCreds = ($creds | Where-Object { $_ -match "Type:\s+Generic|Type:\s+Domain" } | Measure-Object).Count
+        $mfaCreds = ($creds | Where-Object { $_ -match "microsoftonline|login\.microsoft|MicrosoftAccount" } | Measure-Object).Count
+        @{ TotalStored = $webCreds; CloudAuthEntries = $mfaCreds; HasCloudAuth = $mfaCreds -gt 0 }
+    } @{ TotalStored = 0; CloudAuthEntries = 0; HasCloudAuth = $false }
+    $results.MFAReadiness.SecurityKeySupport = Invoke-SafeCheck {
+        $fido = Get-PnpDevice -Class "HIDClass" -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match "FIDO|YubiKey|Security Key|Titan" }
+        ($fido | Measure-Object).Count -gt 0
+    } $false
+    $results.MFAReadiness.PINComplexity = Invoke-SafeCheck {
+        $pinPath = "HKLM:\SOFTWARE\Policies\Microsoft\PassportForWork\PINComplexity"
+        $minLen = (Get-ItemProperty $pinPath -Name "MinimumPINLength" -ErrorAction SilentlyContinue).MinimumPINLength
+        $null -ne $minLen -and $minLen -ge 6
+    } $false
+    $results.MFAReadiness.BiometricDevices = Invoke-SafeCheck {
+        $bio = Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object { $_.Class -eq "Biometric" -and $_.Status -eq "OK" }
+        @{ Count = ($bio | Measure-Object).Count; Devices = ($bio | ForEach-Object { $_.FriendlyName }) -join ", " }
+    } @{ Count = 0; Devices = "" }
+    $results.MFAReadiness.ScreenLockTimeout = Invoke-SafeCheck {
+        $timeout = (Get-ItemProperty "HKCU:\Control Panel\Desktop" -Name "ScreenSaveTimeOut" -ErrorAction SilentlyContinue).ScreenSaveTimeOut
+        $screenSaverOn = (Get-ItemProperty "HKCU:\Control Panel\Desktop" -Name "ScreenSaveActive" -ErrorAction SilentlyContinue).ScreenSaveActive
+        $isSecure = (Get-ItemProperty "HKCU:\Control Panel\Desktop" -Name "ScreenSaverIsSecure" -ErrorAction SilentlyContinue).ScreenSaverIsSecure
+        $locked = $screenSaverOn -eq "1" -and $isSecure -eq "1"
+        $timeoutMin = if ($timeout) { [math]::Round([int]$timeout / 60, 0) } else { 0 }
+        @{ Locked = $locked; TimeoutMinutes = $timeoutMin }
+    } @{ Locked = $false; TimeoutMinutes = 0 }
+
+    # ── Phishing Readiness ──
+    $results.PhishingReadiness = @{}
+    $results.PhishingReadiness.SmartScreenForPhishing = Invoke-SafeCheck {
+        $enhancedPhishing = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer" -Name "SmartScreenEnabled" -ErrorAction SilentlyContinue).SmartScreenEnabled
+        $enhancedPhishing -ne "Off"
+    } $true
+    $results.PhishingReadiness.SafeLinksAvailable = Invoke-SafeCheck {
+        $outlookPath = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\OUTLOOK.EXE" -ErrorAction SilentlyContinue
+        $hasOutlook = $null -ne $outlookPath
+        $safeLinksPolicy = (Get-ItemProperty "HKCU:\SOFTWARE\Microsoft\Office\16.0\Common\ExperimentConfigs\Ecs" -ErrorAction SilentlyContinue)
+        @{ OutlookInstalled = $hasOutlook }
+    } @{ OutlookInstalled = $false }
+    $results.PhishingReadiness.MacroExecution = Invoke-SafeCheck {
+        $macroSetting = (Get-ItemProperty "HKCU:\SOFTWARE\Microsoft\Office\16.0\Word\Security" -Name "VBAWarnings" -ErrorAction SilentlyContinue).VBAWarnings
+        if ($null -eq $macroSetting) { $macroSetting = 0 }
+        @{ Level = $macroSetting; Description = switch ($macroSetting) { 1 { "All macros enabled (DANGEROUS)" } 2 { "Disable with notification (Default)" } 3 { "Disable except digitally signed" } 4 { "Disable all macros" } default { "Not configured (Default behavior)" } }; Secure = $macroSetting -ge 3 }
+    } @{ Level = 0; Description = "Not configured"; Secure = $false }
+    $results.PhishingReadiness.OLEBlockingEnabled = Invoke-SafeCheck {
+        $oleBlocked = (Get-ItemProperty "HKCU:\SOFTWARE\Microsoft\Office\16.0\Word\Security" -Name "PackagerPrompt" -ErrorAction SilentlyContinue).PackagerPrompt
+        $null -ne $oleBlocked -and $oleBlocked -ge 2
+    } $false
+    $results.PhishingReadiness.MarkOfTheWeb = Invoke-SafeCheck {
+        $zoneMapPath = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Attachments"
+        $saveZoneInfo = (Get-ItemProperty $zoneMapPath -Name "SaveZoneInformation" -ErrorAction SilentlyContinue).SaveZoneInformation
+        $null -eq $saveZoneInfo -or $saveZoneInfo -ne 1
+    } $true
+    $results.PhishingReadiness.ExternalEmailWarning = Invoke-SafeCheck {
+        $outlookRule = (Get-ItemProperty "HKCU:\SOFTWARE\Microsoft\Office\16.0\Outlook\Options\Mail" -Name "JunkMailImportLists" -ErrorAction SilentlyContinue)
+        $transportRules = Get-ChildItem "HKLM:\SOFTWARE\Policies\Microsoft\Office\16.0\Outlook" -ErrorAction SilentlyContinue
+        $null -ne $transportRules -and $transportRules.Count -gt 0
     } $false
 
     # ── Ransomware Protection ──
@@ -1212,12 +1281,12 @@ function Calculate-SecurityScore {
     # Antivirus active (+10)
     $avActive = ($Security.Defender.RealTimeProtection -eq $true) -or ($Security.ThirdPartyAV.Count -gt 0)
     if ($avActive) { $score += 10 }
-    $breakdown += @{ Check = "Antivirus Active"; Points = 10; Passed = $avActive }
+    $breakdown += @{ Check = "Antivirus Active"; Points = 10; Passed = $avActive; MITRE = "T1562.001 - Disable Security Tools" }
 
     # Firewall all profiles (+10)
     $fwAll = ($Security.Firewall.Domain -eq $true) -and ($Security.Firewall.Private -eq $true) -and ($Security.Firewall.Public -eq $true)
     if ($fwAll) { $score += 10 }
-    $breakdown += @{ Check = "Firewall All Profiles"; Points = 10; Passed = $fwAll }
+    $breakdown += @{ Check = "Firewall All Profiles"; Points = 10; Passed = $fwAll; MITRE = "T1562.004 - Disable Firewall" }
 
     # BitLocker on C: (+7)
     $blC = $false
@@ -1225,68 +1294,68 @@ function Calculate-SecurityScore {
         $blC = $Security.BitLocker["C:"].Status -eq "On"
     }
     if ($blC) { $score += 7 }
-    $breakdown += @{ Check = "BitLocker on C:"; Points = 7; Passed = $blC }
+    $breakdown += @{ Check = "BitLocker on C:"; Points = 7; Passed = $blC; MITRE = "T1486 - Data Encrypted for Impact" }
 
     # No critical patches missing (+7)
     $criticalMissing = ($MissingPatches | Where-Object { $_.Severity -eq "Critical" }).Count
     $wuCurrent = $criticalMissing -eq 0
     if ($wuCurrent) { $score += 7 }
-    $breakdown += @{ Check = "No Critical Patches Missing"; Points = 7; Passed = $wuCurrent }
+    $breakdown += @{ Check = "No Critical Patches Missing"; Points = 7; Passed = $wuCurrent; MITRE = "T1190 - Exploit Public-Facing Application" }
 
     # UAC enabled (+4)
     $uacOk = $Security.UAC.Enabled -eq $true
     if ($uacOk) { $score += 4 }
-    $breakdown += @{ Check = "UAC Enabled"; Points = 4; Passed = $uacOk }
+    $breakdown += @{ Check = "UAC Enabled"; Points = 4; Passed = $uacOk; MITRE = "T1548.002 - Bypass UAC" }
 
     # Secure Boot (+4)
     $sbOk = $Security.SecureBoot -eq $true
     if ($sbOk) { $score += 4 }
-    $breakdown += @{ Check = "Secure Boot"; Points = 4; Passed = $sbOk }
+    $breakdown += @{ Check = "Secure Boot"; Points = 4; Passed = $sbOk; MITRE = "T1542 - Pre-OS Boot" }
 
     # TPM Present (+4)
     $tpmOk = $Security.TPM.Present -eq $true
     if ($tpmOk) { $score += 4 }
-    $breakdown += @{ Check = "TPM Present"; Points = 4; Passed = $tpmOk }
+    $breakdown += @{ Check = "TPM Present"; Points = 4; Passed = $tpmOk; MITRE = "T1552 - Unsecured Credentials" }
 
     # Password policy (+3)
     $pwOk = $Security.PasswordPolicy.MinLength -ge 8 -or $Security.PasswordPolicy.Complexity -eq $true
     if ($pwOk) { $score += 3 }
-    $breakdown += @{ Check = "Password Policy"; Points = 3; Passed = $pwOk }
+    $breakdown += @{ Check = "Password Policy"; Points = 3; Passed = $pwOk; MITRE = "T1110 - Brute Force" }
 
     # Guest disabled (+2)
     $guestOk = $Security.GuestDisabled -eq $true
     if ($guestOk) { $score += 2 }
-    $breakdown += @{ Check = "Guest Disabled"; Points = 2; Passed = $guestOk }
+    $breakdown += @{ Check = "Guest Disabled"; Points = 2; Passed = $guestOk; MITRE = "T1078.001 - Default Accounts" }
 
     # No auto-login (+2)
     $noAutoLogin = $Security.AutoLoginDisabled -eq $true
     if ($noAutoLogin) { $score += 2 }
-    $breakdown += @{ Check = "No Auto-Login"; Points = 2; Passed = $noAutoLogin }
+    $breakdown += @{ Check = "No Auto-Login"; Points = 2; Passed = $noAutoLogin; MITRE = "T1078 - Valid Accounts" }
 
     # RDP secure (+4)
     $rdpOk = ($Security.RDP.Enabled -eq $false) -or ($Security.RDP.NLA -eq $true)
     if ($rdpOk) { $score += 4 }
-    $breakdown += @{ Check = "RDP Secure"; Points = 4; Passed = $rdpOk }
+    $breakdown += @{ Check = "RDP Secure"; Points = 4; Passed = $rdpOk; MITRE = "T1021.001 - Remote Desktop Protocol" }
 
     # SMBv1 disabled (+4)
     $smbOk = $Security.SMBv1Disabled -eq $true
     if ($smbOk) { $score += 4 }
-    $breakdown += @{ Check = "SMBv1 Disabled"; Points = 4; Passed = $smbOk }
+    $breakdown += @{ Check = "SMBv1 Disabled"; Points = 4; Passed = $smbOk; MITRE = "T1210 - Exploitation of Remote Services" }
 
     # Admin accounts <= 2 (+3)
     $adminOk = $Security.LocalAdmins.Count -le 2
     if ($adminOk) { $score += 3 }
-    $breakdown += @{ Check = "Admin Accounts <=2"; Points = 3; Passed = $adminOk }
+    $breakdown += @{ Check = "Admin Accounts <=2"; Points = 3; Passed = $adminOk; MITRE = "T1078.003 - Local Accounts" }
 
     # Real-time protection (+4)
     $rtpOk = $Security.Defender.RealTimeProtection -eq $true
     if ($rtpOk) { $score += 4 }
-    $breakdown += @{ Check = "Real-Time Protection"; Points = 4; Passed = $rtpOk }
+    $breakdown += @{ Check = "Real-Time Protection"; Points = 4; Passed = $rtpOk; MITRE = "T1562.001 - Disable Security Tools" }
 
     # AV definitions current (+3)
     $defOk = $Security.Defender.DefinitionsUpToDate -eq $true
     if ($defOk) { $score += 3 }
-    $breakdown += @{ Check = "AV Definitions Current"; Points = 3; Passed = $defOk }
+    $breakdown += @{ Check = "AV Definitions Current"; Points = 3; Passed = $defOk; MITRE = "T1588.001 - Malware" }
 
     # ── Privacy & Data Protection (6 pts) ──
 
@@ -1404,12 +1473,43 @@ function Calculate-SecurityScore {
     if ($taskOk) { $score += 2 }
     $breakdown += @{ Check = "No Suspicious Tasks"; Points = 2; Passed = $taskOk }
 
-    # Grade
+    # ── MFA & Authentication (6 pts) ──
+
+    $helloOk = $Security.MFAReadiness.WindowsHelloEnabled -eq $true
+    if ($helloOk) { $score += 2 }
+    $breakdown += @{ Check = "Windows Hello / Biometric"; Points = 2; Passed = $helloOk; MITRE = "T1078 - Valid Accounts" }
+
+    $lockOk = $Security.MFAReadiness.ScreenLockTimeout.Locked -eq $true
+    if ($lockOk) { $score += 2 }
+    $breakdown += @{ Check = "Screen Lock Enabled"; Points = 2; Passed = $lockOk; MITRE = "T1078.001 - Default Accounts" }
+
+    $cloudAuthOk = $Security.MFAReadiness.CredentialManagerEntries.HasCloudAuth -eq $true
+    if ($cloudAuthOk) { $score += 2 }
+    $breakdown += @{ Check = "Cloud Auth Configured"; Points = 2; Passed = $cloudAuthOk; MITRE = "T1556 - Modify Authentication" }
+
+    # ── Phishing Readiness (4 pts) ──
+
+    $macroOk = $Security.PhishingReadiness.MacroExecution.Secure -eq $true
+    if ($macroOk) { $score += 2 }
+    $breakdown += @{ Check = "Office Macros Restricted"; Points = 2; Passed = $macroOk; MITRE = "T1566.001 - Spearphishing Attachment" }
+
+    $motwOk = $Security.PhishingReadiness.MarkOfTheWeb -eq $true
+    if ($motwOk) { $score += 1 }
+    $breakdown += @{ Check = "Mark of the Web Active"; Points = 1; Passed = $motwOk; MITRE = "T1566.002 - Spearphishing Link" }
+
+    $oleOk = $Security.PhishingReadiness.OLEBlockingEnabled -eq $true
+    if ($oleOk) { $score += 1 }
+    $breakdown += @{ Check = "OLE Object Blocking"; Points = 1; Passed = $oleOk; MITRE = "T1559.002 - OLE" }
+
+    # Grade (now out of 110, normalize to 100)
+    $maxScore = 110
+    $normalizedScore = [math]::Min([math]::Round(($score / $maxScore) * 100, 0), 100)
+
     $grade = switch ($true) {
-        ($score -ge 90) { "A" }
-        ($score -ge 80) { "B" }
-        ($score -ge 70) { "C" }
-        ($score -ge 60) { "D" }
+        ($normalizedScore -ge 90) { "A" }
+        ($normalizedScore -ge 80) { "B" }
+        ($normalizedScore -ge 70) { "C" }
+        ($normalizedScore -ge 60) { "D" }
         default         { "F" }
     }
 
@@ -1422,7 +1522,9 @@ function Calculate-SecurityScore {
     }
 
     return @{
-        Score     = $score
+        Score     = $normalizedScore
+        RawScore  = $score
+        MaxScore  = $maxScore
         Grade     = $grade
         Color     = $gradeColor
         Breakdown = $breakdown
@@ -1487,10 +1589,19 @@ function Get-Recommendations {
                 "Controlled Folder Access"     { "Enable Controlled Folder Access in Windows Security > Ransomware Protection." }
                 "Recent Restore Point"         { "Create a System Restore point and enable automatic restore points." }
                 "No Suspicious Tasks"          { "Review scheduled tasks running from temp/AppData directories." }
+                # MFA & Authentication
+                "Windows Hello / Biometric"    { "Enable Windows Hello (PIN/fingerprint/face) in Settings > Accounts > Sign-in Options." }
+                "Screen Lock Enabled"          { "Enable screen saver with password protection (max 10 min timeout)." }
+                "Cloud Auth Configured"        { "Configure Microsoft 365 / Azure AD sign-in with MFA for cloud services." }
+                # Phishing Readiness
+                "Office Macros Restricted"     { "Set macro policy to 'Disable except digitally signed' via Group Policy or Trust Center." }
+                "Mark of the Web Active"       { "Keep Zone Information on downloaded files to show security warnings." }
+                "OLE Object Blocking"          { "Block OLE object activation in Office to prevent embedded malware." }
                 default                        { "Review and fix this configuration." }
             }
+            $mitre = if ($item.MITRE) { $item.MITRE } else { $null }
             $severity = if ($item.Points -ge 7) { "Critical" } elseif ($item.Points -ge 3) { "Warning" } else { "Advisory" }
-            $recs += @{ Check = $item.Check; Recommendation = $rec; Severity = $severity; Points = $item.Points }
+            $recs += @{ Check = $item.Check; Recommendation = $rec; Severity = $severity; Points = $item.Points; MITRE = $mitre }
         }
     }
     return ($recs | Sort-Object { switch ($_.Severity) { "Critical" { 0 } "Warning" { 1 } "Advisory" { 2 } } })
@@ -1546,7 +1657,8 @@ function Build-HTMLReport {
         $icon = if ($item.Passed) { "<span class='pass'>$iconPass</span>" } else { "<span class='fail'>$iconFail</span>" }
         $status = if ($item.Passed) { "PASS" } else { "FAIL" }
         $statusClass = if ($item.Passed) { "pass" } else { "fail" }
-        $breakdownRows += "<tr><td>$icon</td><td>$($item.Check)</td><td class='$statusClass'>$status</td><td>$($item.Points) pts</td></tr>`n"
+        $mitreCell = if ($item.MITRE) { "<td style='font-size:0.78em;color:#7c3aed;'>$($item.MITRE)</td>" } else { "<td></td>" }
+        $breakdownRows += "<tr><td>$icon</td><td>$($item.Check)</td><td class='$statusClass'>$status</td><td>$($item.Points) pts</td>$mitreCell</tr>`n"
     }
 
     # ── Recommendations rows ──
@@ -1554,7 +1666,8 @@ function Build-HTMLReport {
     foreach ($rec in $Recommendations) {
         $sevClass = switch ($rec.Severity) { "Critical" { "fail" } "Warning" { "warn" } default { "info" } }
         $sevIcon = switch ($rec.Severity) { "Critical" { "<span class='fail'>$iconFail</span>" } "Warning" { "<span class='warn'>$iconWarn</span>" } default { "<span class='warn'>$iconWarn</span>" } }
-        $recsHTML += "<tr><td>$sevIcon</td><td class='$sevClass'><strong>$($rec.Severity)</strong></td><td>$($rec.Check)</td><td>$($rec.Recommendation)</td></tr>`n"
+        $mitreTag = if ($rec.MITRE) { "<br/><small style='color:#7c3aed;'>MITRE: $($rec.MITRE)</small>" } else { "" }
+        $recsHTML += "<tr><td>$sevIcon</td><td class='$sevClass'><strong>$($rec.Severity)</strong></td><td>$($rec.Check)</td><td>$($rec.Recommendation)$mitreTag</td></tr>`n"
     }
 
     # ── System info table ──

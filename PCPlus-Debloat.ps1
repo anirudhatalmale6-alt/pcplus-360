@@ -9,7 +9,7 @@
     Company:  PC Plus Computing
     Website:  pcpluscomputing.com
     Phone:    604-760-1662
-    Version:  1.0.0
+    Version:  2.0.0
     Requires: PowerShell 5.1+, Windows 10/11, Administrator privileges
 #>
 
@@ -171,7 +171,7 @@ $KeepApps = @(
 function Show-MainForm {
     $form = New-Object System.Windows.Forms.Form
     $form.Text = "PC Plus Computing - Windows Debloat & Lockdown"
-    $form.Size = New-Object System.Drawing.Size(600, 620)
+    $form.Size = New-Object System.Drawing.Size(600, 660)
     $form.StartPosition = "CenterScreen"
     $form.FormBorderStyle = "FixedDialog"
     $form.MaximizeBox = $false
@@ -195,13 +195,47 @@ function Show-MainForm {
 
     $y = 65
 
+    # ── Business-Safe Profile Buttons ──
+    $profileLbl = New-Object System.Windows.Forms.Label
+    $profileLbl.Text = "Quick Profiles:"
+    $profileLbl.Location = New-Object System.Drawing.Point(20, $y)
+    $profileLbl.Size = New-Object System.Drawing.Size(85, 22)
+    $profileLbl.ForeColor = [System.Drawing.Color]::DimGray
+    $profileLbl.Font = New-Object System.Drawing.Font("Segoe UI", 8.5)
+    $form.Controls.Add($profileLbl)
+
+    $profiles = @(
+        @{ Name = "Office PC"; Keys = @("RemoveBloatware","DisableTelemetry","DisableCortana","DisableWidgets","DisableGameBar","CleanStartMenu","DisableSearchWeb","CleanTaskbar","DisableAutoInstall","DisableAds") }
+        @{ Name = "Retail/Kiosk"; Keys = @("RemoveBloatware","DisableTelemetry","DisableCortana","DisableWidgets","DisableGameBar","DisableOneDrive","CleanStartMenu","DisableSearchWeb","CleanTaskbar","DisableAutoInstall","DisableAds","OptimizeServices","BlockInstalls","DisableStore","PowerSettings") }
+        @{ Name = "Home User"; Keys = @("RemoveBloatware","DisableTelemetry","DisableWidgets","DisableGameBar","CleanStartMenu","DisableAutoInstall","DisableAds") }
+    )
+    $profileX = 105
+    foreach ($prof in $profiles) {
+        $btn = New-Object System.Windows.Forms.Button
+        $btn.Text = $prof.Name
+        $btn.Location = New-Object System.Drawing.Point($profileX, $y)
+        $btn.Size = New-Object System.Drawing.Size(90, 22)
+        $btn.FlatStyle = "Flat"
+        $btn.FlatAppearance.BorderSize = 1
+        $btn.Font = New-Object System.Drawing.Font("Segoe UI", 8)
+        $btn.Tag = $prof.Keys
+        $btn.Add_Click({
+            $keys = $this.Tag
+            foreach ($cb in $checkboxes.Values) { $cb.Checked = $false }
+            foreach ($k in $keys) { if ($checkboxes.ContainsKey($k)) { $checkboxes[$k].Checked = $true } }
+        }.GetNewClosure())
+        $form.Controls.Add($btn)
+        $profileX += 95
+    }
+    $y += 28
+
     $warningLbl = New-Object System.Windows.Forms.Label
     $warningLbl.Text = "Select which cleanup actions to perform. Check items and click Run."
     $warningLbl.Location = New-Object System.Drawing.Point(20, $y)
     $warningLbl.Size = New-Object System.Drawing.Size(550, 20)
     $warningLbl.ForeColor = [System.Drawing.Color]::Gray
     $form.Controls.Add($warningLbl)
-    $y += 30
+    $y += 24
 
     $checkboxes = @{}
 
@@ -243,21 +277,30 @@ function Show-MainForm {
     $selectAllBtn = New-Object System.Windows.Forms.Button
     $selectAllBtn.Text = "Select All"
     $selectAllBtn.Location = New-Object System.Drawing.Point(30, $y)
-    $selectAllBtn.Size = New-Object System.Drawing.Size(100, 30)
+    $selectAllBtn.Size = New-Object System.Drawing.Size(85, 28)
     $selectAllBtn.Add_Click({ foreach ($cb in $checkboxes.Values) { $cb.Checked = $true } })
     $form.Controls.Add($selectAllBtn)
 
     $selectNoneBtn = New-Object System.Windows.Forms.Button
     $selectNoneBtn.Text = "Deselect All"
-    $selectNoneBtn.Location = New-Object System.Drawing.Point(140, $y)
-    $selectNoneBtn.Size = New-Object System.Drawing.Size(100, 30)
+    $selectNoneBtn.Location = New-Object System.Drawing.Point(120, $y)
+    $selectNoneBtn.Size = New-Object System.Drawing.Size(85, 28)
     $selectNoneBtn.Add_Click({ foreach ($cb in $checkboxes.Values) { $cb.Checked = $false } })
     $form.Controls.Add($selectNoneBtn)
 
+    # Preview Mode checkbox
+    $chkPreview = New-Object System.Windows.Forms.CheckBox
+    $chkPreview.Text = "Preview Only (no changes)"
+    $chkPreview.Location = New-Object System.Drawing.Point(215, $y)
+    $chkPreview.Size = New-Object System.Drawing.Size(180, 28)
+    $chkPreview.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#f39c12")
+    $chkPreview.Font = New-Object System.Drawing.Font("Segoe UI", 8.5, [System.Drawing.FontStyle]::Bold)
+    $form.Controls.Add($chkPreview)
+
     $runBtn = New-Object System.Windows.Forms.Button
     $runBtn.Text = "Run Debloat"
-    $runBtn.Location = New-Object System.Drawing.Point(360, $y)
-    $runBtn.Size = New-Object System.Drawing.Size(180, 36)
+    $runBtn.Location = New-Object System.Drawing.Point(400, $y)
+    $runBtn.Size = New-Object System.Drawing.Size(150, 34)
     $runBtn.BackColor = [System.Drawing.ColorTranslator]::FromHtml($COLOR_ACCENT)
     $runBtn.ForeColor = [System.Drawing.Color]::White
     $runBtn.FlatStyle = "Flat"
@@ -268,6 +311,7 @@ function Show-MainForm {
         foreach ($kv in $checkboxes.GetEnumerator()) {
             $selected[$kv.Key] = $kv.Value.Checked
         }
+        $selected["_PreviewMode"] = $chkPreview.Checked
         $form.Tag = $selected
         $form.DialogResult = "OK"
         $form.Close()
@@ -594,11 +638,27 @@ function Clean-StartMenuLayout {
 $selections = Show-MainForm
 if ($null -eq $selections) { exit }
 
+$previewMode = $selections["_PreviewMode"] -eq $true
+$selections.Remove("_PreviewMode")
+
 Write-Log "========================================="
-Write-Log "PC Plus Debloat Tool v1.0.0 starting"
+Write-Log "PC Plus Debloat Tool v2.0.0 starting"
 Write-Log "Computer: $env:COMPUTERNAME"
 Write-Log "OS: $((Get-CimInstance Win32_OperatingSystem).Caption)"
+Write-Log "Mode: $(if ($previewMode) { 'PREVIEW (no changes)' } else { 'LIVE' })"
 Write-Log "========================================="
+
+# ── Create Restore Point (before making changes) ──
+if (-not $previewMode) {
+    try {
+        Write-Log "Creating system restore point..."
+        Enable-ComputerRestore -Drive "C:\" -ErrorAction SilentlyContinue
+        Checkpoint-Computer -Description "PC Plus Debloat - $(Get-Date -Format 'yyyy-MM-dd HH:mm')" -RestorePointType "MODIFY_SETTINGS" -ErrorAction Stop
+        Write-Log "Restore point created successfully."
+    } catch {
+        Write-Log "Could not create restore point: $($_.Exception.Message)" "WARN"
+    }
+}
 
 $progressForm = New-Object System.Windows.Forms.Form
 $progressForm.Text = "PC Plus - Debloating..."
@@ -681,41 +741,57 @@ $taskMap = @{
     "PowerSettings"      = @{ Fn = { Optimize-PowerSettings }; Label = "Optimizing power..." }
 }
 
-foreach ($key in $taskMap.Keys) {
-    if ($selections[$key] -eq $true) {
-        $step++
-        $pct = [math]::Round(($step / $totalSteps) * 100)
-        Update-DebloatProgress $taskMap[$key].Label $pct
-        try {
-            & $taskMap[$key].Fn
-        } catch {
-            Write-Log "Error in ${key}: $($_.Exception.Message)" "ERROR"
+if ($previewMode) {
+    # Preview mode - just list what would be done
+    $previewList = ""
+    foreach ($key in $taskMap.Keys) {
+        if ($selections[$key] -eq $true) {
+            $previewList += "  - $($taskMap[$key].Label)`n"
+            Write-Log "[PREVIEW] Would run: $($taskMap[$key].Label)"
         }
     }
-}
+    $progressForm.Close()
+    $progressForm.Dispose()
+    $previewMsg = "PREVIEW MODE - No changes were made.`n`nThe following actions would be performed:`n`n$previewList`nTo apply these changes, uncheck 'Preview Only' and run again."
+    [System.Windows.Forms.MessageBox]::Show($previewMsg, "PC Plus Computing - Preview", "OK", "Information")
+} else {
+    foreach ($key in $taskMap.Keys) {
+        if ($selections[$key] -eq $true) {
+            $step++
+            $pct = [math]::Round(($step / $totalSteps) * 100)
+            Update-DebloatProgress $taskMap[$key].Label $pct
+            try {
+                & $taskMap[$key].Fn
+            } catch {
+                Write-Log "Error in ${key}: $($_.Exception.Message)" "ERROR"
+            }
+        }
+    }
 
-Update-DebloatProgress "Complete!" 100
-Start-Sleep -Milliseconds 500
-$progressForm.Close()
-$progressForm.Dispose()
+    Update-DebloatProgress "Complete!" 100
+    Start-Sleep -Milliseconds 500
+    $progressForm.Close()
+    $progressForm.Dispose()
 
-Write-Log "========================================="
-Write-Log "Debloat complete."
-Write-Log "========================================="
+    Write-Log "========================================="
+    Write-Log "Debloat complete."
+    Write-Log "========================================="
 
-$doneMsg = "Windows Debloat Complete!`n`n"
-$doneMsg += "Actions performed: $step`n"
-$doneMsg += "Log file: $LogFile`n`n"
-$doneMsg += "A restart is recommended for all changes to take effect."
+    $doneMsg = "Windows Debloat Complete!`n`n"
+    $doneMsg += "Actions performed: $step`n"
+    $doneMsg += "Log file: $LogFile`n`n"
+    $doneMsg += "A system restore point was created before changes.`n"
+    $doneMsg += "A restart is recommended for all changes to take effect."
 
-$result = [System.Windows.Forms.MessageBox]::Show(
-    $doneMsg,
-    "PC Plus Computing - Debloat Complete",
-    [System.Windows.Forms.MessageBoxButtons]::YesNo,
-    [System.Windows.Forms.MessageBoxIcon]::Information
-)
+    $result = [System.Windows.Forms.MessageBox]::Show(
+        $doneMsg,
+        "PC Plus Computing - Debloat Complete",
+        [System.Windows.Forms.MessageBoxButtons]::YesNo,
+        [System.Windows.Forms.MessageBoxIcon]::Information
+    )
 
-if ($result -eq "Yes") {
-    Write-Log "User chose to restart."
-    Restart-Computer -Force
+    if ($result -eq "Yes") {
+        Write-Log "User chose to restart."
+        Restart-Computer -Force
+    }
 }
