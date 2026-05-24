@@ -108,185 +108,185 @@ function Get-FileVersionFromExe {
 $DefaultManifest = @(
     @{
         id          = "sysinternals"
-        name        = "Sysinternals Suite"
-        description = "Microsoft Sysinternals Suite - Process Explorer, Autoruns, TCPView, ProcMon, etc."
+        name        = "Microsoft Sysinternals Suite"
+        description = "Full Sysinternals Suite - Process Explorer, ProcMon, PsExec, BGInfo, Disk2vhd, and 70+ tools."
         category    = "System Diagnostics"
         downloadUrl = "https://download.sysinternals.com/files/SysinternalsSuite.zip"
         fileName    = "SysinternalsSuite.zip"
         executable  = "procexp64.exe"
         version     = "2024.1"
-        sha256      = "PLACEHOLDER_SHA256_SYSINTERNALS"
+        sha256      = ""
         isZip       = $true
         extractTo   = "Sysinternals"
     },
     @{
         id          = "crystaldiskinfo"
-        name        = "CrystalDiskInfo"
-        description = "Disk health monitoring utility - shows SMART data, temperature, and health status."
+        name        = "CrystalDiskInfo Portable"
+        description = "Disk health monitoring - SMART data, temperature, health status, SSD wear leveling."
         category    = "Disk Diagnostics"
         downloadUrl = "https://sourceforge.net/projects/crystaldiskinfo/files/latest/download"
         fileName    = "CrystalDiskInfo.zip"
         executable  = "DiskInfo64.exe"
         version     = "9.3.2"
-        sha256      = "PLACEHOLDER_SHA256_CRYSTALDISKINFO"
+        sha256      = ""
         isZip       = $true
         extractTo   = "CrystalDiskInfo"
     },
     @{
         id          = "librehardwaremonitor"
         name        = "LibreHardwareMonitor"
-        description = "Open-source hardware monitoring - CPU/GPU temps, fan speeds, voltages, and clocks."
+        description = "Open-source hardware monitoring - CPU/GPU temps, fan speeds, voltages, clocks, power draw."
         category    = "Hardware Monitoring"
         downloadUrl = "https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases/latest"
         fileName    = "LibreHardwareMonitor.zip"
         executable  = "LibreHardwareMonitor.exe"
         version     = "0.9.3"
-        sha256      = "PLACEHOLDER_SHA256_LIBREHARDWAREMONITOR"
+        sha256      = ""
         isZip       = $true
         extractTo   = "LibreHardwareMonitor"
     },
     @{
+        id          = "nmap"
+        name        = "Nmap Portable"
+        description = "Network scanner and security auditing tool - port scanning, OS detection, service enumeration."
+        category    = "Network Security"
+        downloadUrl = "https://nmap.org/dist/nmap-7.95-win32.zip"
+        fileName    = "nmap-portable.zip"
+        executable  = "nmap.exe"
+        version     = "7.95"
+        sha256      = ""
+        isZip       = $true
+        extractTo   = "Nmap"
+    },
+    @{
+        id          = "wireshark"
+        name        = "Wireshark Portable"
+        description = "Network protocol analyzer - deep packet inspection, traffic capture, protocol decode."
+        category    = "Network Security"
+        downloadUrl = "https://www.wireshark.org/download.html"
+        fileName    = "WiresharkPortable64.exe"
+        executable  = "Wireshark.exe"
+        version     = "4.4.2"
+        sha256      = ""
+        isZip       = $false
+        extractTo   = "Wireshark"
+    },
+    @{
         id          = "adwcleaner"
-        name        = "AdwCleaner"
-        description = "Malwarebytes AdwCleaner - removes adware, PUPs, browser hijackers, and unwanted toolbars."
+        name        = "Malwarebytes AdwCleaner"
+        description = "Removes adware, PUPs, browser hijackers, unwanted toolbars, and pre-installed bloatware."
         category    = "Malware Removal"
         downloadUrl = "https://adwcleaner.malwarebytes.com/adwcleaner?channel=release"
         fileName    = "adwcleaner.exe"
         executable  = "adwcleaner.exe"
         version     = "8.4.2"
-        sha256      = "PLACEHOLDER_SHA256_ADWCLEANER"
+        sha256      = ""
         isZip       = $false
         extractTo   = "AdwCleaner"
     },
     @{
         id          = "autoruns"
         name        = "Autoruns"
-        description = "Shows everything configured to run at startup - services, drivers, scheduled tasks, etc."
+        description = "Shows all auto-start programs - startup entries, services, drivers, scheduled tasks, Winlogon."
         category    = "System Diagnostics"
         downloadUrl = "https://download.sysinternals.com/files/Autoruns.zip"
         fileName    = "Autoruns.zip"
         executable  = "Autoruns64.exe"
         version     = "14.11"
-        sha256      = "PLACEHOLDER_SHA256_AUTORUNS"
+        sha256      = ""
         isZip       = $true
         extractTo   = "Autoruns"
     },
     @{
-        id          = "hwinfo"
-        name        = "HWiNFO"
-        description = "Comprehensive hardware analysis and monitoring with detailed sensor readings."
-        category    = "Hardware Monitoring"
-        downloadUrl = "https://www.hwinfo.com/files/hwi_portable.zip"
-        fileName    = "hwi_portable.zip"
-        executable  = "HWiNFO64.exe"
-        version     = "8.16"
-        sha256      = "PLACEHOLDER_SHA256_HWINFO"
+        id          = "tcpview"
+        name        = "TCPView"
+        description = "Real-time TCP/UDP endpoint viewer - shows all active connections, listening ports, owning process."
+        category    = "Network Security"
+        downloadUrl = "https://download.sysinternals.com/files/TCPView.zip"
+        fileName    = "TCPView.zip"
+        executable  = "tcpview64.exe"
+        version     = "4.19"
+        sha256      = ""
         isZip       = $true
-        extractTo   = "HWiNFO"
+        extractTo   = "TCPView"
     },
     @{
-        id          = "treesizefree"
-        name        = "TreeSize Free"
-        description = "Disk space analyzer - shows which folders and files use the most space."
+        id          = "smartmontools"
+        name        = "smartmontools"
+        description = "Command-line SMART monitoring and analysis - smartctl for HDD/SSD health diagnostics."
         category    = "Disk Diagnostics"
-        downloadUrl = "https://www.jam-software.com/treesize_free/TreeSizeFreePortable.zip"
-        fileName    = "TreeSizeFreePortable.zip"
-        executable  = "TreeSizeFree.exe"
-        version     = "4.7.3"
-        sha256      = "PLACEHOLDER_SHA256_TREESIZE"
+        downloadUrl = "https://sourceforge.net/projects/smartmontools/files/latest/download"
+        fileName    = "smartmontools-win.zip"
+        executable  = "smartctl.exe"
+        version     = "7.4"
+        sha256      = ""
         isZip       = $true
-        extractTo   = "TreeSizeFree"
+        extractTo   = "smartmontools"
     },
     @{
-        id          = "recuva"
-        name        = "Recuva"
-        description = "File recovery tool - recovers accidentally deleted files from hard drives and USB sticks."
-        category    = "Data Recovery"
-        downloadUrl = "https://www.ccleaner.com/recuva/download/portable"
-        fileName    = "rcsetup_portable.zip"
-        executable  = "recuva64.exe"
-        version     = "1.53"
-        sha256      = "PLACEHOLDER_SHA256_RECUVA"
+        id          = "occt"
+        name        = "OCCT Portable"
+        description = "Stability and stress testing - CPU, GPU, memory, power supply testing with thermal monitoring."
+        category    = "Stress Testing"
+        downloadUrl = "https://www.ocbase.com/download"
+        fileName    = "OCCT.zip"
+        executable  = "OCCT.exe"
+        version     = "12.1"
+        sha256      = ""
         isZip       = $true
-        extractTo   = "Recuva"
+        extractTo   = "OCCT"
     },
     @{
-        id          = "cpuz"
-        name        = "CPU-Z"
-        description = "Detailed CPU, motherboard, RAM, and chipset information."
-        category    = "Hardware Info"
-        downloadUrl = "https://www.cpuid.com/downloads/cpu-z/cpu-z_portable_en.zip"
-        fileName    = "cpu-z_portable.zip"
-        executable  = "cpuz_x64.exe"
-        version     = "2.11"
-        sha256      = "PLACEHOLDER_SHA256_CPUZ"
+        id          = "yara"
+        name        = "YARA"
+        description = "Pattern matching tool for malware researchers - identify and classify malware samples by rules."
+        category    = "Threat Detection"
+        downloadUrl = "https://github.com/VirusTotal/yara/releases/latest"
+        fileName    = "yara-master-win64.zip"
+        executable  = "yara64.exe"
+        version     = "4.5.2"
+        sha256      = ""
         isZip       = $true
-        extractTo   = "CPU-Z"
+        extractTo   = "YARA"
     },
     @{
-        id          = "gpuz"
-        name        = "GPU-Z"
-        description = "GPU information and diagnostics - shows GPU specs, clocks, temperature, and load."
-        category    = "Hardware Info"
-        downloadUrl = "https://www.techpowerup.com/download/techpowerup-gpu-z/"
-        fileName    = "GPU-Z.exe"
-        executable  = "GPU-Z.exe"
-        version     = "2.61"
-        sha256      = "PLACEHOLDER_SHA256_GPUZ"
+        id          = "sigma"
+        name        = "Sigma Rules"
+        description = "Generic signature format for SIEM/log detection - threat detection rules for Windows event logs."
+        category    = "Threat Detection"
+        downloadUrl = "https://github.com/SigmaHQ/sigma/archive/refs/heads/master.zip"
+        fileName    = "sigma-master.zip"
+        executable  = ""
+        version     = "latest"
+        sha256      = ""
+        isZip       = $true
+        extractTo   = "SigmaRules"
+    },
+    @{
+        id          = "sysmon"
+        name        = "Sysmon"
+        description = "System Monitor - advanced Windows event logging for process creation, network, file changes."
+        category    = "Threat Detection"
+        downloadUrl = "https://download.sysinternals.com/files/Sysmon.zip"
+        fileName    = "Sysmon.zip"
+        executable  = "Sysmon64.exe"
+        version     = "15.15"
+        sha256      = ""
+        isZip       = $true
+        extractTo   = "Sysmon"
+    },
+    @{
+        id          = "velociraptor"
+        name        = "Velociraptor Lite"
+        description = "Endpoint visibility and forensic tool - collect artifacts, hunt threats, incident response."
+        category    = "Threat Detection"
+        downloadUrl = "https://github.com/Velocidex/velociraptor/releases/latest"
+        fileName    = "velociraptor-v0.73-windows-amd64.exe"
+        executable  = "velociraptor.exe"
+        version     = "0.73"
+        sha256      = ""
         isZip       = $false
-        extractTo   = "GPU-Z"
-    },
-    @{
-        id          = "speccy"
-        name        = "Speccy"
-        description = "System information utility - shows detailed specs for CPU, RAM, GPU, storage, and more."
-        category    = "Hardware Info"
-        downloadUrl = "https://www.ccleaner.com/speccy/download/portable"
-        fileName    = "spsetup_portable.zip"
-        executable  = "Speccy64.exe"
-        version     = "1.33"
-        sha256      = "PLACEHOLDER_SHA256_SPECCY"
-        isZip       = $true
-        extractTo   = "Speccy"
-    },
-    @{
-        id          = "wiztree"
-        name        = "WizTree"
-        description = "Ultra-fast disk space analyzer using MFT - shows largest files and folders instantly."
-        category    = "Disk Diagnostics"
-        downloadUrl = "https://www.diskanalyzer.com/files/wiztree_portable.zip"
-        fileName    = "wiztree_portable.zip"
-        executable  = "WizTree64.exe"
-        version     = "4.20"
-        sha256      = "PLACEHOLDER_SHA256_WIZTREE"
-        isZip       = $true
-        extractTo   = "WizTree"
-    },
-    @{
-        id          = "bluescreenview"
-        name        = "BlueScreenView"
-        description = "NirSoft - analyzes BSOD minidump files to identify the driver/module that caused the crash."
-        category    = "Crash Analysis"
-        downloadUrl = "https://www.nirsoft.net/utils/bluescreenview-x64.zip"
-        fileName    = "bluescreenview-x64.zip"
-        executable  = "BlueScreenView.exe"
-        version     = "1.55"
-        sha256      = "PLACEHOLDER_SHA256_BLUESCREENVIEW"
-        isZip       = $true
-        extractTo   = "BlueScreenView"
-    },
-    @{
-        id          = "shellexview"
-        name        = "ShellExView"
-        description = "NirSoft - displays shell extensions installed on the system, allows enable/disable."
-        category    = "System Diagnostics"
-        downloadUrl = "https://www.nirsoft.net/utils/shellexview-x64.zip"
-        fileName    = "shellexview-x64.zip"
-        executable  = "ShellExView.exe"
-        version     = "2.01"
-        sha256      = "PLACEHOLDER_SHA256_SHELLEXVIEW"
-        isZip       = $true
-        extractTo   = "ShellExView"
+        extractTo   = "Velociraptor"
     }
 )
 
@@ -345,6 +345,17 @@ function Save-Manifest {
 function Initialize-Manifest {
     $loaded = Load-Manifest
     if ($loaded -and $loaded.Count -gt 0) {
+        # Merge in any new default tools that aren't in the saved manifest
+        $existingIds = @{}
+        foreach ($t in $loaded) { $existingIds[$t.id] = $true }
+        $added = 0
+        foreach ($t in $DefaultManifest) {
+            if (-not $existingIds.ContainsKey($t.id)) {
+                [void]$loaded.Add($t)
+                $added++
+            }
+        }
+        if ($added -gt 0) { Save-Manifest $loaded }
         return $loaded
     }
     # Create from default
@@ -363,28 +374,37 @@ function Get-ToolStatus {
     param([hashtable]$Tool)
 
     $toolDir   = Join-Path $ToolsDir $Tool.extractTo
-    $exePath   = Join-Path $toolDir $Tool.executable
-    $installed = Test-Path $exePath
+    $installed = $false
     $localVer  = ""
     $sizeMB    = 0
-    $foundPath = $exePath
+    $foundPath = ""
 
-    if (-not $installed) {
-        # Search in Tools root folder (user may have dropped EXEs directly there)
-        $rootExe = Join-Path $ToolsDir $Tool.executable
-        if (Test-Path $rootExe) {
-            $installed = $true
-            $foundPath = $rootExe
+    # Tools without an executable (e.g. rule collections like Sigma)
+    if (-not $Tool.executable -or $Tool.executable -eq "") {
+        $installed = Test-Path $toolDir
+        $foundPath = $toolDir
+    } else {
+        $exePath = Join-Path $toolDir $Tool.executable
+        $foundPath = $exePath
+        $installed = Test-Path $exePath
+
+        if (-not $installed) {
+            # Search in Tools root folder (user may have dropped EXEs directly there)
+            $rootExe = Join-Path $ToolsDir $Tool.executable
+            if (Test-Path $rootExe) {
+                $installed = $true
+                $foundPath = $rootExe
+            }
         }
-    }
 
-    if (-not $installed) {
-        # Recursive search anywhere under Tools folder
-        $found = Get-ChildItem -Path $ToolsDir -Filter $Tool.executable -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($found) {
-            $installed = $true
-            $foundPath = $found.FullName
-            $toolDir = $found.DirectoryName
+        if (-not $installed) {
+            # Recursive search anywhere under Tools folder
+            $found = Get-ChildItem -Path $ToolsDir -Filter $Tool.executable -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) {
+                $installed = $true
+                $foundPath = $found.FullName
+                $toolDir = $found.DirectoryName
+            }
         }
     }
 
