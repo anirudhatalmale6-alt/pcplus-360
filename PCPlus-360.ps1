@@ -897,11 +897,16 @@ $xaml = @"
     }
     foreach ($btnName in $securityScripts.Keys) {
         $scriptName = $securityScripts[$btnName]
-        $window.FindName($btnName).Add_Click(([ScriptBlock]::Create("
-            `$s = Join-Path `$Global:ScriptDir '$scriptName'
-            if (Test-Path `$s) { Start-Process powershell.exe -ArgumentList `"-NoProfile -ExecutionPolicy Bypass -File ```"`$s```"`" -Verb RunAs }
-            else { [System.Windows.MessageBox]::Show(`$window, '$scriptName not found in toolkit folder.`nMake sure it is in the same directory as PCPlus-360.ps1', 'Not Found', 'OK', 'Warning') }
-        ")))
+        $btn = $window.FindName($btnName)
+        if ($btn) {
+            $btn.Add_Click(([ScriptBlock]::Create("
+                `$s = Join-Path `$Global:ScriptDir '$scriptName'
+                if (Test-Path `$s) { Start-Process powershell.exe -ArgumentList `"-NoProfile -ExecutionPolicy Bypass -File ```"`$s```"`" -Verb RunAs }
+                else { [System.Windows.MessageBox]::Show(`$window, '$scriptName not found in toolkit folder.`nMake sure it is in the same directory as PCPlus-360.ps1', 'Not Found', 'OK', 'Warning') }
+            ")))
+        } else {
+            Write-DebugLog "Button $btnName not found in XAML - skipping handler"
+        }
     }
 
     # ── New Roadmap Tool Launchers ──
@@ -915,11 +920,16 @@ $xaml = @"
     }
     foreach ($btnName in $roadmapScripts.Keys) {
         $scriptName = $roadmapScripts[$btnName]
-        $window.FindName($btnName).Add_Click(([ScriptBlock]::Create("
-            `$s = Join-Path `$Global:ScriptDir '$scriptName'
-            if (Test-Path `$s) { Start-Process powershell.exe -ArgumentList `"-NoProfile -ExecutionPolicy Bypass -File ```"`$s```"`" -Verb RunAs }
-            else { [System.Windows.MessageBox]::Show(`$window, '$scriptName not found in toolkit folder.`nMake sure it is in the same directory as PCPlus-360.ps1', 'Not Found', 'OK', 'Warning') }
-        ")))
+        $btn = $window.FindName($btnName)
+        if ($btn) {
+            $btn.Add_Click(([ScriptBlock]::Create("
+                `$s = Join-Path `$Global:ScriptDir '$scriptName'
+                if (Test-Path `$s) { Start-Process powershell.exe -ArgumentList `"-NoProfile -ExecutionPolicy Bypass -File ```"`$s```"`" -Verb RunAs }
+                else { [System.Windows.MessageBox]::Show(`$window, '$scriptName not found in toolkit folder.`nMake sure it is in the same directory as PCPlus-360.ps1', 'Not Found', 'OK', 'Warning') }
+            ")))
+        } else {
+            Write-DebugLog "Button $btnName not found in XAML - skipping handler"
+        }
     }
 
     $window.FindName("btnNavWearTear").Add_Click({
@@ -1715,14 +1725,16 @@ $xaml = @"
         }
     }
 
-    $window.FindName("btnHWReport").Add_Click({ & $generateReports $true $false })
-    $window.FindName("btnSecReport").Add_Click({ & $generateReports $false $true })
-    $window.FindName("btnBothReports").Add_Click({ & $generateReports $true $true })
+    $window.FindName("btnHWReport").Add_Click({ $Global:ReportMode = "Tech"; & $generateReports $true $false })
+    $window.FindName("btnSecReport").Add_Click({ $Global:ReportMode = "Tech"; & $generateReports $false $true })
+    $window.FindName("btnBothReports").Add_Click({ $Global:ReportMode = "Tech"; & $generateReports $true $true })
 
     $window.FindName("btnCustomerSummary").Add_Click({
         $p = Get-Params; if (-not $p) { return }
         if (-not $Global:DiagResults.SystemInfo) { [System.Windows.MessageBox]::Show($window, "Run a diagnostic first.", "No Data", "OK", "Warning"); return }
-        Set-Status "Generating Customer Summary..." 30
+
+        # Generate customer-safe summary (1-2 pages)
+        Set-Status "Generating Customer Summary..." 20
         $summaryHTML = Build-CustomerSummary -Params $p -SystemInfo $Global:DiagResults.SystemInfo -Security $Global:DiagResults.Security -Patches $Global:DiagResults.Patches -Scoring $Global:DiagResults.Scoring -StressResults $Global:DiagResults.StressResults -Stability $Global:DiagResults.Stability -BatteryDetail $Global:DiagResults.BatteryDetail -Network $Global:DiagResults.Network -SpeedTest $Global:DiagResults.SpeedTest -ScanMode $Global:DiagResults.ScanMode
         $safeName = $p.CustomerName -replace '[\\/:*?"<>|]','_'
         $safeDev = $Global:DiagResults.SystemInfo.ComputerName -replace '[\\/:*?"<>|]','_'
@@ -1730,12 +1742,24 @@ $xaml = @"
         $summaryHTMLPath = Join-Path $p.OutputFolder "$safeName - $safeDev - Health Summary $ds.html"
         $summaryPDFPath = Join-Path $p.OutputFolder "$safeName - $safeDev - Health Summary $ds.pdf"
         [IO.File]::WriteAllText($summaryHTMLPath, $summaryHTML, [Text.Encoding]::UTF8)
-        Set-Status "Converting to PDF..." 70
+        Set-Status "Converting to PDF..." 40
         $pdfOK = Convert-ToPDF $summaryHTMLPath $summaryPDFPath
         Invoke-Safe { Invoke-AutoUploadReport -ReportPath $(if($pdfOK){$summaryPDFPath}else{$summaryHTMLPath}) -CustomerName $p.CustomerName -ComputerName $Global:DiagResults.SystemInfo.ComputerName -TechName $p.TechName -ScanMode "Customer Summary" }
-        Set-Status "Customer Summary: $(if($pdfOK){'PDF saved'}else{'HTML saved'}) to reports folder" 100
+
+        # Also generate customer-safe full reports (no passwords, keys, WiFi, serials masked)
+        Set-Status "Generating Customer-Safe Hardware Report..." 60
+        $Global:ReportMode = "Customer"
+        $hwHTML = Build-HardwareReport $p $Global:DiagResults.SystemInfo $Global:DiagResults.Network $Global:DiagResults.Software $Global:DiagResults.Performance $Global:DiagResults.StressResults $Global:DiagResults.LicenseKeys $Global:DiagResults.Stability $Global:DiagResults.BatteryDetail $Global:DiagResults.PowerInfo $Global:DiagResults.SpeedTest $Global:DiagResults.Gaming $Global:DiagResults.HistoryComparison $Global:DiagResults.ScanMode $Global:DiagResults.BootPerf $Global:DiagResults.Win11Ready
+        $custHWPath = Join-Path $p.OutputFolder "$safeName - $safeDev - Customer Report $ds.html"
+        $custHWPDF = Join-Path $p.OutputFolder "$safeName - $safeDev - Customer Report $ds.pdf"
+        [IO.File]::WriteAllText($custHWPath, $hwHTML, [Text.Encoding]::UTF8)
+        Set-Status "Converting to PDF..." 80
+        Convert-ToPDF $custHWPath $custHWPDF | Out-Null
+        $Global:ReportMode = "Tech"
+
+        Set-Status "Customer reports saved to reports folder" 100
         Start-Process explorer.exe -ArgumentList $p.OutputFolder
-        [System.Windows.MessageBox]::Show($window, "Customer Health Summary saved!`n`nThis is a customer-friendly 1-2 page report with donut charts and plain English - ready to hand to the customer.", "Summary Ready", "OK", "Information")
+        [System.Windows.MessageBox]::Show($window, "Customer reports saved!`n`n1. Health Summary (1-2 pages) - quick overview with charts`n2. Customer Report (full) - detailed but NO passwords, license keys, or WiFi credentials`n`nBoth are safe to hand to the customer.", "Reports Ready", "OK", "Information")
     })
 
     # ── GAMING PC REPORT ──

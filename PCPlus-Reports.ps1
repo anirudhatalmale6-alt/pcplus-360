@@ -4,6 +4,20 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ─────────────────────────────────────────────────────────────────────────────
+# REPORT MODE: "Tech" (full details) or "Customer" (sanitized, no passwords/keys)
+# ─────────────────────────────────────────────────────────────────────────────
+if (-not $Global:ReportMode) { $Global:ReportMode = "Tech" }
+
+function Mask-SensitiveValue {
+    param([string]$Value, [int]$ShowLast = 4)
+    if ([string]::IsNullOrEmpty($Value)) { return "" }
+    if ($Value.Length -le $ShowLast) { return ("*" * $Value.Length) }
+    return ("*" * ($Value.Length - $ShowLast)) + $Value.Substring($Value.Length - $ShowLast)
+}
+
+function Test-CustomerMode { return $Global:ReportMode -eq "Customer" }
+
+# ─────────────────────────────────────────────────────────────────────────────
 # HISTORICAL TRACKING
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -804,7 +818,7 @@ tr:hover td { background: #eaf7fc; }
 </style></head><body>
 
 <div class="print-footer">
-<span class="report-name">Hardware Diagnostic Report</span> &nbsp;|&nbsp; <strong>$COMPANY</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE
+<span class="report-name">$(if(Test-CustomerMode){"Customer Diagnostic Report"}else{"Hardware Diagnostic Report"})</span> &nbsp;|&nbsp; <strong>$COMPANY</strong> &nbsp;|&nbsp; $WEBSITE &nbsp;|&nbsp; $PHONE
 </div>
 
 <!-- ══════════════════════════ COVER PAGE ══════════════════════════ -->
@@ -1117,7 +1131,7 @@ $(if($trendRows){"<table><tr><th>Category</th><th>Previous</th><th>Current</th><
 <table><tr><th style="width:35%;">Property</th><th>Value</th></tr>
 <tr><td>Computer Name</td><td><strong>$($SystemInfo.ComputerName)</strong></td></tr>
 <tr><td>Manufacturer / Model</td><td>$($SystemInfo.Manufacturer) $($SystemInfo.Model)</td></tr>
-<tr><td>Serial Number</td><td style="font-family:Consolas,monospace;letter-spacing:0.5px;">$($SystemInfo.Serial)</td></tr>
+<tr><td>Serial Number</td><td style="font-family:Consolas,monospace;letter-spacing:0.5px;">$(if(Test-CustomerMode){Mask-SensitiveValue $SystemInfo.Serial}else{$SystemInfo.Serial})</td></tr>
 <tr><td>Operating System</td><td>$($SystemInfo.OSVersion) (Build $($SystemInfo.OSBuild))</td></tr>
 <tr><td>Architecture</td><td>$($SystemInfo.Architecture)</td></tr>
 <tr><td>CPU</td><td>$($SystemInfo.CPUModel)</td></tr>
@@ -1130,7 +1144,7 @@ $(if($trendRows){"<table><tr><th>Category</th><th>Previous</th><th>Current</th><
 <div class="sub-header">Motherboard &amp; BIOS</div>
 <table><tr><th style="width:35%;">Property</th><th>Value</th></tr>
 <tr><td>Motherboard</td><td>$($SystemInfo.Board.Manufacturer) $($SystemInfo.Board.Product)</td></tr>
-<tr><td>Board Serial</td><td style="font-family:Consolas,monospace;">$($SystemInfo.Board.Serial)</td></tr>
+<tr><td>Board Serial</td><td style="font-family:Consolas,monospace;">$(if(Test-CustomerMode){Mask-SensitiveValue $SystemInfo.Board.Serial}else{$SystemInfo.Board.Serial})</td></tr>
 <tr><td>BIOS Vendor</td><td>$($SystemInfo.BIOS.Vendor)</td></tr>
 <tr><td>BIOS Version</td><td>$($SystemInfo.BIOS.Version)</td></tr>
 <tr><td>BIOS Date</td><td>$($SystemInfo.BIOS.Date)</td></tr>
@@ -1225,6 +1239,7 @@ $(if($stressHTML){"
 "})
 
 <!-- ══════════════════════════ LICENSE KEYS & CREDENTIALS ══════════════════════════ -->
+$(if(-not (Test-CustomerMode)){@"
 <div class="page-break"></div>
 
 <div class="section-header"><span class="section-icon">&#128272;</span> License Keys &amp; Credentials</div>
@@ -1243,12 +1258,14 @@ $(if($adobeKeyRows){"<div class='sub-header'>Adobe Products</div><table><tr><th>
 
 <div class="sub-header">Saved WiFi Networks</div>
 <table><tr><th>Network (SSID)</th><th>Password</th><th>Security</th></tr>$wifiRows</table>
+"@})
 
 
 <!-- ══════════════════════════ TECHNICIAN NOTES ══════════════════════════ -->
 $techNotes
 
 <!-- ══════════════════════════ INSTALLED SOFTWARE ══════════════════════════ -->
+$(if(-not (Test-CustomerMode)){@"
 <div class="page-break"></div>
 
 <div class="section-header"><span class="section-icon">&#128230;</span> Installed Software ($($Software.Installed.Count))</div>
@@ -1256,6 +1273,13 @@ $techNotes
 
 <div class="sub-header">Startup Programs ($($Software.StartupPrograms.Count))</div>
 <table><tr><th>Name</th><th>Location</th></tr>$(($Software.StartupPrograms | ForEach-Object {"<tr><td>$($_.Name)</td><td style='font-size:8pt;word-break:break-all;'>$($_.Location)</td></tr>"}) -join "`n")</table>
+"@}else{@"
+<div class="page-break"></div>
+<div class="section-header"><span class="section-icon">&#128230;</span> Software Overview</div>
+<div style="padding:12px;background:#eff6ff;border-left:4px solid #2563eb;border-radius:4px;margin-bottom:14px;">
+<strong>$($Software.Installed.Count)</strong> programs installed &nbsp;|&nbsp; <strong>$($Software.StartupPrograms.Count)</strong> startup programs
+</div>
+"@})
 
 $(if($bannerSecBottomUri){"<div class='page-break'></div><div class='promo-banner' style='padding-top:30px;'><img src='$bannerSecBottomUri' alt='175-Point Security Inspection'/></div>"})
 
