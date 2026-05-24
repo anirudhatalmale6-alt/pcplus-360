@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Management;
 using System.Runtime.InteropServices;
 
 namespace PCPlus360Launcher.Models;
@@ -10,6 +11,7 @@ public class SystemInfo
     public string OsVersion { get; set; } = "";
     public string OsBuild { get; set; } = "";
     public string Architecture { get; set; } = "";
+    public string ProcessorName { get; set; } = "";
     public long TotalMemoryMb { get; set; }
     public long AvailableMemoryMb { get; set; }
     public int ProcessorCount { get; set; }
@@ -33,10 +35,36 @@ public class SystemInfo
                 UptimeHours = Math.Round(Environment.TickCount64 / 3_600_000.0, 1)
             };
 
-            // Memory via GC (basic) - for accurate values, scripts use WMI
-            var gcInfo = GC.GetGCMemoryInfo();
-            info.TotalMemoryMb = gcInfo.TotalAvailableMemoryBytes / (1024 * 1024);
-            info.AvailableMemoryMb = info.TotalMemoryMb - (Process.GetCurrentProcess().WorkingSet64 / (1024 * 1024));
+            // Processor name via WMI
+            try
+            {
+                using var searcher = new ManagementObjectSearcher("SELECT Name FROM Win32_Processor");
+                foreach (var obj in searcher.Get())
+                {
+                    info.ProcessorName = obj["Name"]?.ToString()?.Trim() ?? "";
+                    break;
+                }
+            }
+            catch { info.ProcessorName = $"{info.ProcessorCount} cores ({info.Architecture})"; }
+
+            // Memory via WMI for accuracy
+            try
+            {
+                using var searcher = new ManagementObjectSearcher("SELECT TotalPhysicalMemory FROM Win32_ComputerSystem");
+                foreach (var obj in searcher.Get())
+                {
+                    var totalBytes = Convert.ToInt64(obj["TotalPhysicalMemory"]);
+                    info.TotalMemoryMb = totalBytes / (1024 * 1024);
+                    break;
+                }
+                info.AvailableMemoryMb = info.TotalMemoryMb - (Process.GetCurrentProcess().WorkingSet64 / (1024 * 1024));
+            }
+            catch
+            {
+                var gcInfo = GC.GetGCMemoryInfo();
+                info.TotalMemoryMb = gcInfo.TotalAvailableMemoryBytes / (1024 * 1024);
+                info.AvailableMemoryMb = info.TotalMemoryMb - (Process.GetCurrentProcess().WorkingSet64 / (1024 * 1024));
+            }
 
             // Drive info
             foreach (var drive in DriveInfo.GetDrives())

@@ -52,7 +52,8 @@ window.chrome.webview.postMessage(JSON.stringify({
 
 | Action | Payload | Description |
 |--------|---------|-------------|
-| `runScript` | `{script, parameters?, requestId?}` | Execute a PowerShell script |
+| `launchScript` | `{script, parameters?}` | Open a script in its own visible window (with UAC) |
+| `runScript` | `{script, parameters?, requestId?}` | Execute a script silently and return JSON results |
 | `getSystemInfo` | `{}` | Get system information |
 | `createRestorePoint` | `{description?}` | Create a system restore point |
 | `getRestorePoints` | `{}` | List restore points |
@@ -61,6 +62,9 @@ window.chrome.webview.postMessage(JSON.stringify({
 | `minimize` | `{}` | Minimize window |
 | `maximize` | `{}` | Toggle maximize |
 | `close` | `{}` | Close application |
+
+Most sidebar/button clicks should use `launchScript` (scripts have their own WPF windows).
+Use `runScript` only for scripts that return JSON data to display in the dashboard.
 
 ### Receive from C# (in JavaScript)
 

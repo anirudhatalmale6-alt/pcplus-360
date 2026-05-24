@@ -122,6 +122,10 @@ public partial class MainWindow : Window
                     Close();
                     break;
 
+                case "launchScript":
+                    HandleLaunchScript(root);
+                    break;
+
                 case "runScript":
                     await HandleRunScript(root);
                     break;
@@ -154,6 +158,54 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             await SendToJs("error", new { message = ex.Message });
+        }
+    }
+
+    private void HandleLaunchScript(JsonElement root)
+    {
+        var script = root.GetProperty("script").GetString()!;
+
+        var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+        var candidates = new[]
+        {
+            Path.GetFullPath(Path.Combine(baseDir, "..", script)),
+            Path.GetFullPath(Path.Combine(baseDir, "..", "..", script)),
+            Path.GetFullPath(Path.Combine(baseDir, script)),
+        };
+        var scriptPath = candidates.FirstOrDefault(File.Exists);
+
+        if (scriptPath == null)
+        {
+            MessageBox.Show(
+                $"{script} not found in toolkit folder.\nMake sure it is in the same directory as PCPlus360-Dashboard.html",
+                "Script Not Found", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var args = $"-NoProfile -ExecutionPolicy Bypass -File \"{scriptPath}\"";
+
+        if (root.TryGetProperty("parameters", out var paramsEl))
+        {
+            foreach (var prop in paramsEl.EnumerateObject())
+            {
+                var escaped = (prop.Value.GetString() ?? "").Replace("\"", "`\"");
+                args += $" -{prop.Name} \"{escaped}\"";
+            }
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = args,
+                Verb = "runas",
+                UseShellExecute = true
+            });
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            // User cancelled UAC prompt - that's fine
         }
     }
 
@@ -234,7 +286,23 @@ public partial class MainWindow : Window
         try
         {
             var info = await SystemInfo.GatherAsync();
-            await SendToJs("systemInfo", info);
+            var primaryDrive = info.Drives.FirstOrDefault();
+            var storageText = primaryDrive != null
+                ? $"{primaryDrive.TotalSizeGb:F0} GB ({primaryDrive.FileSystem})"
+                : "Unknown";
+            var uptimeText = info.UptimeHours >= 24
+                ? $"{(int)(info.UptimeHours / 24)} Days, {(int)(info.UptimeHours % 24)} Hours"
+                : $"{info.UptimeHours:F1} Hours";
+
+            await SendToJs("systemInfo", new
+            {
+                deviceName = info.ComputerName,
+                os = info.OsVersion,
+                processor = !string.IsNullOrEmpty(info.ProcessorName) ? info.ProcessorName : $"{info.ProcessorCount} cores ({info.Architecture})",
+                memory = $"{info.TotalMemoryMb / 1024} GB",
+                storage = storageText,
+                uptime = uptimeText
+            });
         }
         catch (Exception ex)
         {

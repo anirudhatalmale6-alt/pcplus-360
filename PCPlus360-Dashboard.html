@@ -878,61 +878,69 @@ body::before {
     </div>
 
     <div class="sidebar-nav">
-      <div class="nav-item active">
+      <div class="nav-item active" data-script="">
         <div class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg></div>
         <span class="nav-label">Dashboard</span>
       </div>
-      <div class="nav-item">
+      <div class="nav-item" data-script="PCPlus-QuickRiskScore.ps1">
         <div class="nav-icon"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></div>
         <span class="nav-label">Quick Scan</span>
       </div>
-      <div class="nav-item">
+      <div class="nav-item" data-script="PCPlus-SecurityAudit.ps1">
         <div class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 2L3 7v5c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-9-5zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12.99H5V8.26l7-3.89v8.62z"/></svg></div>
         <span class="nav-label">Security Audit</span>
       </div>
-      <div class="nav-item">
+      <div class="nav-item" data-script="PCPlus-HardwareDiagnostic.ps1">
         <div class="nav-icon"><svg viewBox="0 0 24 24"><path d="M22 9V7h-2V5a2 2 0 00-2-2H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-2h2v-2h-2v-2h2v-2h-2V9h2zM18 19H4V5h14v14zM6 13h5v4H6v-4zm6-6h4v3h-4V7zM6 7h5v5H6V7zm6 4h4v6h-4v-6z"/></svg></div>
         <span class="nav-label">Hardware Health</span>
       </div>
-      <div class="nav-item">
+      <div class="nav-item" data-script="PCPlus-BackupRealityCheck.ps1">
         <div class="nav-icon"><svg viewBox="0 0 24 24"><path d="M19.35 10.04A7.49 7.49 0 0012 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 000 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg></div>
         <span class="nav-label">Backup & Recovery</span>
       </div>
-      <div class="nav-item">
+      <div class="nav-item" data-script="PCPlus-RansomwareReadiness.ps1">
         <div class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg></div>
         <span class="nav-label">Ransomware Readiness</span>
       </div>
-      <div class="nav-item">
+      <div class="nav-item" data-script="PCPlus-NetworkSnapshot.ps1">
         <div class="nav-icon"><svg viewBox="0 0 24 24"><path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3a4.237 4.237 0 00-6 0zm-4-4l2 2a7.074 7.074 0 0110 0l2-2C15.14 9.14 8.87 9.14 5 13z"/></svg></div>
         <span class="nav-label">Network Audit</span>
       </div>
 
       <div class="nav-divider"></div>
 
-      <div class="nav-item">
+      <div class="nav-item" data-script="PCPlus-RemediationLibrary.ps1">
         <div class="nav-icon"><svg viewBox="0 0 24 24"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/></svg></div>
         <span class="nav-label">Repair Center</span>
       </div>
-      <div class="nav-item" onclick="sendToHost({action:'runScript',script:'PCPlus-RemediationLibrary.ps1'})">
+      <div class="nav-item" data-script="PCPlus-RemediationLibrary.ps1">
         <div class="nav-icon"><svg viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM10 17l-3.5-3.5 1.41-1.41L10 14.17l4.59-4.59L16 11l-6 6z"/></svg></div>
         <span class="nav-label">Fix Center</span>
       </div>
-      <div class="nav-item">
+      <div class="nav-item" data-script="PCPlus-ReportCard.ps1">
         <div class="nav-icon"><svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg></div>
         <span class="nav-label">Reports</span>
       </div>
-      <div class="nav-item">
+      <div class="nav-item" data-script="PCPlus-PortableToolsManager.ps1">
         <div class="nav-icon"><svg viewBox="0 0 24 24"><path d="M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2z"/></svg></div>
         <span class="nav-label">Toolbox</span>
+      </div>
+      <div class="nav-item" data-script="PCPlus-CustomerConsent.ps1">
+        <div class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 000-1.42l-2.34-2.34a1.003 1.003 0 00-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z"/></svg></div>
+        <span class="nav-label">Customer Consent</span>
+      </div>
+      <div class="nav-item" data-script="PCPlus-DesktopBadge.ps1">
+        <div class="nav-icon"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="2" fill="none"/></svg></div>
+        <span class="nav-label">Desktop Badge</span>
       </div>
 
       <div class="nav-divider"></div>
 
-      <div class="nav-item">
+      <div class="nav-item" data-script="">
         <div class="nav-icon"><svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1115.6 12 3.611 3.611 0 0112 15.6z"/></svg></div>
         <span class="nav-label">Settings</span>
       </div>
-      <div class="nav-item">
+      <div class="nav-item" data-script="">
         <div class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg></div>
         <span class="nav-label">About</span>
       </div>
@@ -979,8 +987,8 @@ body::before {
             <circle class="score-fill" cx="65" cy="65" r="60"/>
           </svg>
           <div class="score-text">
-            <div class="score-number">87<span>/100</span></div>
-            <div class="score-grade">A-</div>
+            <div class="score-number" id="security-score">87<span>/100</span></div>
+            <div class="score-grade" id="security-grade">A-</div>
           </div>
         </div>
         <div class="score-label">Good Protection</div>
@@ -1208,32 +1216,32 @@ body::before {
       <div class="sys-info-row">
         <div class="si-icon"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="2" fill="none"/></svg></div>
         <span class="si-label">Device Name</span>
-        <span class="si-value" style="font-family:'JetBrains Mono',monospace;font-size:10px;">DESKTOP-7G5H2KJ</span>
+        <span class="si-value" id="sys-device-name" style="font-family:'JetBrains Mono',monospace;font-size:10px;">DESKTOP-7G5H2KJ</span>
       </div>
       <div class="sys-info-row">
         <div class="si-icon"><svg viewBox="0 0 24 24"><path d="M20 3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H4V5h16v14z" fill="currentColor"/></svg></div>
         <span class="si-label">Operating System</span>
-        <span class="si-value">Windows 11 Pro 23H2</span>
+        <span class="si-value" id="sys-os">Windows 11 Pro 23H2</span>
       </div>
       <div class="sys-info-row">
         <div class="si-icon"><svg viewBox="0 0 24 24"><path d="M22 9V7h-2V5a2 2 0 00-2-2H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-2h2v-2h-2v-2h2v-2h-2V9h2z" fill="currentColor"/></svg></div>
         <span class="si-label">Processor</span>
-        <span class="si-value">Intel Core i7-10700K</span>
+        <span class="si-value" id="sys-processor">Intel Core i7-10700K</span>
       </div>
       <div class="sys-info-row">
         <div class="si-icon"><svg viewBox="0 0 24 24"><path d="M2 20h20v-4H2v4zm2-3h2v2H4v-2zM2 4v4h20V4H2zm4 3H4V5h2v2zm-4 7h20v-4H2v4zm2-3h2v2H4v-2z" fill="currentColor"/></svg></div>
         <span class="si-label">Memory (RAM)</span>
-        <span class="si-value">32 GB</span>
+        <span class="si-value" id="sys-memory">32 GB</span>
       </div>
       <div class="sys-info-row">
         <div class="si-icon"><svg viewBox="0 0 24 24"><path d="M2 20h20v-4H2v4zm2-3h2v2H4v-2zM2 4v4h20V4H2zm4 3H4V5h2v2z" fill="currentColor"/></svg></div>
         <span class="si-label">Storage</span>
-        <span class="si-value">1.82 TB (SSD)</span>
+        <span class="si-value" id="sys-storage">1.82 TB (SSD)</span>
       </div>
       <div class="sys-info-row">
         <div class="si-icon"><svg viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z" fill="currentColor"/></svg></div>
         <span class="si-label">Uptime</span>
-        <span class="si-value">2 Days, 4 Hours</span>
+        <span class="si-value" id="sys-uptime">2 Days, 4 Hours</span>
       </div>
 
       <a class="sys-info-link">View Full System Details &rsaquo;</a>
@@ -1331,132 +1339,219 @@ body::before {
 <script>
 // WebView2 Bridge - connects HTML dashboard to C# WPF host
 (function() {
+  'use strict';
+
   var isWebView2 = !!(window.chrome && window.chrome.webview);
 
-  function sendToHost(action, data) {
-    var msg = JSON.stringify(Object.assign({action: action}, data || {}));
+  // ── Send message to C# host ──
+  function sendToHost(payload) {
+    var msg = JSON.stringify(payload);
     if (isWebView2) {
       window.chrome.webview.postMessage(msg);
     } else {
-      console.log('[Bridge]', msg);
+      console.log('[Bridge TX]', payload);
     }
   }
 
-  // Window controls
-  document.querySelector('.win-minimize').addEventListener('click', function() { sendToHost('minimize'); });
-  document.querySelector('.win-maximize').addEventListener('click', function() { sendToHost('maximize'); });
-  document.querySelector('.win-close').addEventListener('click', function() { sendToHost('close'); });
+  // ── Window controls ──
+  var winMin = document.querySelector('.win-minimize');
+  var winMax = document.querySelector('.win-maximize');
+  var winClose = document.querySelector('.win-close');
+  if (winMin) winMin.addEventListener('click', function() { sendToHost({action: 'minimize'}); });
+  if (winMax) winMax.addEventListener('click', function() { sendToHost({action: 'maximize'}); });
+  if (winClose) winClose.addEventListener('click', function() { sendToHost({action: 'close'}); });
 
-  // Quick Action buttons
-  var quickActions = {
-    'Run Quick Scan': 'PCPlus-QuickRiskScore.ps1',
-    'Full Security Audit': 'PCPlus-SecurityAudit.ps1',
-    'Hardware Diagnostics': 'PCPlus-HardwareDiagnostic.ps1',
-    'Ransomware Readiness': 'PCPlus-RansomwareReadiness.ps1',
-    'Backup & Recovery Audit': 'PCPlus-BackupRealityCheck.ps1'
-  };
-  document.querySelectorAll('.qa-btn').forEach(function(btn) {
-    var label = btn.querySelector('.qa-label');
-    if (label && quickActions[label.textContent]) {
-      btn.style.cursor = 'pointer';
-      btn.addEventListener('click', function() {
-        sendToHost('runScript', {script: quickActions[label.textContent]});
-        btn.style.opacity = '0.6';
-        setTimeout(function() { btn.style.opacity = '1'; }, 300);
-      });
+  // ── Loading state helper ──
+  function setNavLoading(navItem, loading) {
+    var label = navItem.querySelector('.nav-label');
+    if (!label) return;
+    if (loading) {
+      label.dataset.originalText = label.textContent;
+      label.textContent = 'Running...';
+      navItem.style.opacity = '0.7';
+      navItem.style.pointerEvents = 'none';
+    } else {
+      if (label.dataset.originalText) {
+        label.textContent = label.dataset.originalText;
+        delete label.dataset.originalText;
+      }
+      navItem.style.opacity = '';
+      navItem.style.pointerEvents = '';
     }
-  });
+  }
 
-  // Sidebar navigation
-  var sidebarScripts = {
-    'Dashboard': null,
-    'Quick Scan': 'PCPlus-QuickRiskScore.ps1',
-    'Security Audit': 'PCPlus-SecurityAudit.ps1',
-    'Hardware Health': 'PCPlus-HardwareDiagnostic.ps1',
-    'Backup & Recovery': 'PCPlus-BackupRealityCheck.ps1',
-    'Ransomware Readiness': 'PCPlus-RansomwareReadiness.ps1',
-    'Network Audit': 'PCPlus-NetworkSnapshot.ps1',
-    'Repair Center': 'PCPlus-WindowsDeepTest.ps1',
-    'Reports': 'PCPlus-ReportCard.ps1',
-    'Toolbox': 'PCPlus-PortableToolsManager.ps1',
-    'Settings': null,
-    'About': null
-  };
-  document.querySelectorAll('.sidebar-nav a').forEach(function(link) {
-    var text = link.textContent.trim();
-    if (sidebarScripts[text]) {
-      link.addEventListener('click', function(e) {
-        e.preventDefault();
-        sendToHost('runScript', {script: sidebarScripts[text]});
-      });
+  function setBtnLoading(btn, loading) {
+    if (loading) {
+      btn.dataset.originalText = btn.textContent;
+      btn.textContent = 'Running...';
+      btn.style.opacity = '0.6';
+      btn.style.pointerEvents = 'none';
+    } else {
+      if (btn.dataset.originalText) {
+        btn.textContent = btn.dataset.originalText;
+        delete btn.dataset.originalText;
+      }
+      btn.style.opacity = '';
+      btn.style.pointerEvents = '';
     }
-  });
+  }
 
-  // Action Center buttons
-  document.querySelectorAll('.action-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      var text = btn.textContent.trim();
-      var scriptMap = {
-        'Review Updates': 'PCPlus-WindowsDeepTest.ps1',
-        'Check Backups': 'PCPlus-BackupRealityCheck.ps1',
-        'Review Settings': 'PCPlus-RDPExposureAudit.ps1',
-        'Review Extensions': 'PCPlus-BrowserRiskAudit.ps1'
-      };
-      if (scriptMap[text]) {
-        sendToHost('runScript', {script: scriptMap[text]});
+  // ── Sidebar navigation (uses data-script attributes) ──
+  var navItems = document.querySelectorAll('.sidebar-nav .nav-item');
+  navItems.forEach(function(item) {
+    var script = item.getAttribute('data-script');
+    item.style.cursor = 'pointer';
+
+    item.addEventListener('click', function() {
+      // Update active state
+      navItems.forEach(function(n) { n.classList.remove('active'); });
+      item.classList.add('active');
+
+      // Launch script in its own window (scripts have their own UI)
+      if (script) {
+        sendToHost({action: 'launchScript', script: script});
       }
     });
   });
 
-  // Enter Repair Center button
-  var repairBtn = document.querySelector('.repair-btn');
-  if (repairBtn) {
-    repairBtn.addEventListener('click', function() {
-      sendToHost('runScript', {script: 'PCPlus-WindowsDeepTest.ps1'});
+  // ── Quick Action buttons (wired via .qa-label text) ──
+  var quickActions = {
+    'Run Quick Scan': {script: 'PCPlus-QuickRiskScore.ps1', mode: 'run'},
+    'Full Security Audit': {script: 'PCPlus-SecurityAudit.ps1', mode: 'launch'},
+    'Hardware Diagnostics': {script: 'PCPlus-HardwareDiagnostic.ps1', mode: 'launch'},
+    'Ransomware Readiness': {script: 'PCPlus-RansomwareReadiness.ps1', mode: 'launch'},
+    'Backup & Recovery Audit': {script: 'PCPlus-BackupRealityCheck.ps1', mode: 'launch'}
+  };
+  document.querySelectorAll('.qa-btn').forEach(function(btn) {
+    var label = btn.querySelector('.qa-label');
+    if (label && quickActions[label.textContent.trim()]) {
+      btn.style.cursor = 'pointer';
+      btn.addEventListener('click', function() {
+        var config = quickActions[label.textContent.trim()];
+        if (config.mode === 'run') {
+          sendToHost({action: 'runScript', script: config.script});
+          setBtnLoading(btn, true);
+          setTimeout(function() { setBtnLoading(btn, false); }, 60000);
+        } else {
+          sendToHost({action: 'launchScript', script: config.script});
+        }
+      });
+    }
+  });
+
+  // ── Action Center buttons (wired via .action-btn text) ──
+  var actionScriptMap = {
+    'Review Updates': 'PCPlus-WindowsDeepTest.ps1',
+    'Check Backups': 'PCPlus-BackupRealityCheck.ps1',
+    'Review Settings': 'PCPlus-RDPExposureAudit.ps1',
+    'Review Extensions': 'PCPlus-BrowserRiskAudit.ps1'
+  };
+  document.querySelectorAll('.action-btn').forEach(function(btn) {
+    btn.style.cursor = 'pointer';
+    btn.addEventListener('click', function() {
+      var text = btn.textContent.trim();
+      if (actionScriptMap[text]) {
+        sendToHost({action: 'launchScript', script: actionScriptMap[text]});
+      }
+    });
+  });
+
+  // ── Enter Repair Center button ──
+  var safeBtn = document.querySelector('.safe-btn');
+  if (safeBtn) {
+    safeBtn.style.cursor = 'pointer';
+    safeBtn.addEventListener('click', function() {
+      sendToHost({action: 'launchScript', script: 'PCPlus-RemediationLibrary.ps1'});
     });
   }
 
-  // System info link
-  var detailsLink = document.querySelector('.details-link');
-  if (detailsLink) {
-    detailsLink.addEventListener('click', function(e) {
+  // ── View Full System Details link ──
+  var sysInfoLink = document.querySelector('.sys-info-link');
+  if (sysInfoLink) {
+    sysInfoLink.style.cursor = 'pointer';
+    sysInfoLink.addEventListener('click', function(e) {
       e.preventDefault();
-      sendToHost('runScript', {script: 'PCPlus-Tests.ps1'});
+      sendToHost({action: 'launchScript', script: 'PCPlus-Tests.ps1'});
     });
   }
 
-  // Receive data from C# host
-  if (isWebView2) {
-    window.chrome.webview.addEventListener('message', function(e) {
-      var data = JSON.parse(e.data);
-      if (data.type === 'systemInfo') updateSystemInfo(data);
-      if (data.type === 'scanResult') updateScores(data);
-      if (data.type === 'statusUpdate') updateStatus(data);
+  // ── System info update (receives data from C# host) ──
+  function updateSystemInfo(data) {
+    var fields = {
+      'sys-device-name': data.deviceName,
+      'sys-os': data.os,
+      'sys-processor': data.processor,
+      'sys-memory': data.memory,
+      'sys-storage': data.storage,
+      'sys-uptime': data.uptime
+    };
+    Object.keys(fields).forEach(function(id) {
+      if (fields[id]) {
+        var el = document.getElementById(id);
+        if (el) el.textContent = fields[id];
+      }
     });
-    sendToHost('getSystemInfo');
   }
 
-  function updateSystemInfo(info) {
-    var fields = document.querySelectorAll('.info-val');
-    if (info.deviceName && fields[0]) fields[0].textContent = info.deviceName;
-    if (info.os && fields[1]) fields[1].textContent = info.os;
-    if (info.processor && fields[2]) fields[2].textContent = info.processor;
-    if (info.memory && fields[3]) fields[3].textContent = info.memory;
-    if (info.storage && fields[4]) fields[4].textContent = info.storage;
-    if (info.uptime && fields[5]) fields[5].textContent = info.uptime;
-  }
-
-  function updateScores(result) {
-    if (result.score !== undefined) {
-      var scoreEl = document.querySelector('.score-value');
-      if (scoreEl) scoreEl.textContent = result.score;
-      var gradeEl = document.querySelector('.score-grade');
-      if (gradeEl) gradeEl.textContent = result.grade || '';
+  // ── Score/Grade update ──
+  function updateScores(data) {
+    if (data.score !== undefined) {
+      var scoreEl = document.getElementById('security-score');
+      if (scoreEl) scoreEl.innerHTML = data.score + '<span>/100</span>';
+    }
+    if (data.grade !== undefined) {
+      var gradeEl = document.getElementById('security-grade');
+      if (gradeEl) gradeEl.textContent = data.grade;
     }
   }
 
-  function updateStatus(status) {
-    console.log('[Status]', status);
+  // ── Clear loading states when script completes ──
+  function handleScriptResult(data) {
+    // Reset all nav loading states
+    navItems.forEach(function(item) { setNavLoading(item, false); });
+    // Reset all button loading states
+    document.querySelectorAll('.qa-btn, .action-btn, .safe-btn').forEach(function(btn) {
+      setBtnLoading(btn, false);
+    });
+    // If result contains score data, update scores
+    if (data.score !== undefined) {
+      updateScores(data);
+    }
+    console.log('[Bridge] Script result:', data);
+  }
+
+  // ── Message listener (C# host dispatches via window events) ──
+  window.addEventListener('message', function(e) {
+    var payload;
+    try {
+      payload = (typeof e.data === 'string') ? JSON.parse(e.data) : e.data;
+    } catch (err) {
+      console.warn('[Bridge] Could not parse message:', e.data);
+      return;
+    }
+    if (!payload || !payload.type) return;
+
+    switch (payload.type) {
+      case 'systemInfo':
+        updateSystemInfo(payload.data || payload);
+        break;
+      case 'scanResult':
+        updateScores(payload.data || payload);
+        break;
+      case 'scriptResult':
+        handleScriptResult(payload.data || payload);
+        break;
+      case 'statusUpdate':
+        console.log('[Bridge] Status:', payload.data || payload);
+        break;
+      default:
+        console.log('[Bridge] Unknown message type:', payload.type);
+    }
+  });
+
+  // ── Request system info on load when in WebView2 ──
+  if (isWebView2) {
+    sendToHost({action: 'getSystemInfo'});
   }
 })();
 </script>

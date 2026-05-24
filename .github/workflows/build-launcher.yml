@@ -1,0 +1,46 @@
+name: Build Launcher
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Launcher/**'
+      - 'PCPlus360-Dashboard.html'
+      - '.github/workflows/build-launcher.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore packages
+        run: dotnet restore Launcher/PCPlus360Launcher.sln
+
+      - name: Publish single-file exe
+        run: |
+          dotnet publish Launcher/PCPlus360Launcher/PCPlus360Launcher.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -o publish
+
+      - name: Package toolkit
+        run: |
+          New-Item -ItemType Directory -Force -Path package/Launcher
+          Copy-Item publish/PCPlus360Launcher.exe package/Launcher/
+          Copy-Item PCPlus360-Dashboard.html package/
+          Compress-Archive -Path package/* -DestinationPath PCPlus360-Launcher.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PCPlus360-Launcher
+          path: PCPlus360-Launcher.zip
+          retention-days: 90
