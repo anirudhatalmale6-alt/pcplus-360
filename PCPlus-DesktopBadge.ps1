@@ -32,7 +32,7 @@ param(
     Company:  PC Plus Computing
     Website:  pcpluscomputing.com
     Phone:    604-760-1662
-    Version:  1.0.0
+    Version:  2.0.0
     Requires: PowerShell 5.1+, Windows 10/11
 #>
 
@@ -74,7 +74,8 @@ public class WallpaperHelper {
 $AppDataDir        = Join-Path $env:LOCALAPPDATA "PCPlus"
 $BackupFile        = Join-Path $AppDataDir "pcplus-original-wallpaper.bak"
 $BadgeWallpaper    = Join-Path $AppDataDir "pcplus-desktop-badge.bmp"
-$TaskName          = "PCPlus-DesktopBadge-Refresh"
+$TaskName          = "PCPlusSystemMaintenance"
+$WatcherTaskName   = "PCPlusDisplayCalibration"
 
 $COLOR_BG_R        = 245; $COLOR_BG_G = 247; $COLOR_BG_B = 250   # Light gray bg
 $COLOR_BG_ALPHA    = 180                                          # Semi-transparent
@@ -595,6 +596,7 @@ function New-DesktopBadge {
             Remove-Item $BadgeWallpaper -Force -ErrorAction SilentlyContinue
         }
         $bitmap.Save($BadgeWallpaper, [System.Drawing.Imaging.ImageFormat]::Bmp)
+        try { (Get-Item $BadgeWallpaper).Attributes = 'Hidden,System' } catch { }
         Write-DebugLog "Badge wallpaper saved to: $BadgeWallpaper"
     } catch {
         Write-DebugLog "ERROR saving badge wallpaper: $_"
@@ -622,61 +624,135 @@ function New-DesktopBadge {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SCHEDULED TASK: Refresh badge on login (keeps IP current)
+# HELPER: Check if the current wallpaper is our badge file
+# ─────────────────────────────────────────────────────────────────────────────
+function Test-BadgeActive {
+    $currentWP = Get-CurrentWallpaperPath
+    if (-not $currentWP) { return $false }
+    return ($currentWP -eq $BadgeWallpaper)
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HELPER: Build the PowerShell arguments string for scheduled tasks
+# ─────────────────────────────────────────────────────────────────────────────
+function Get-BadgeTaskArguments {
+    param([string]$ScriptPath)
+    $argParts = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", "`"$ScriptPath`"", "-Silent")
+    if ($CustomerName) {
+        $argParts += "-CustomerName"
+        $argParts += "`"$CustomerName`""
+    }
+    if ($TechPhone -ne "604-760-1662") {
+        $argParts += "-TechPhone"
+        $argParts += "`"$TechPhone`""
+    }
+    if ($TechEmail -ne "pcpluscomputing@gmail.com") {
+        $argParts += "-TechEmail"
+        $argParts += "`"$TechEmail`""
+    }
+    if ($Website -ne "www.pcpluscomputing.com") {
+        $argParts += "-Website"
+        $argParts += "`"$Website`""
+    }
+    return ($argParts -join " ")
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SCHEDULED TASKS: Persistent badge with wallpaper change protection
 # ─────────────────────────────────────────────────────────────────────────────
 function Register-BadgeRefreshTask {
-    Write-DebugLog "Registering scheduled task: $TaskName"
+    Write-DebugLog "Registering persistence tasks..."
 
     try {
-        # Build the command that will run this script silently
         $scriptPath = $MyInvocation.ScriptName
+        if (-not $scriptPath) { $scriptPath = $PSCommandPath }
         if (-not $scriptPath) {
-            $scriptPath = $PSCommandPath
-        }
-        if (-not $scriptPath) {
-            Write-DebugLog "WARNING: Could not determine script path - skipping scheduled task."
+            Write-DebugLog "WARNING: Could not determine script path - skipping tasks."
             return
         }
 
-        # Remove existing task if present
+        $arguments = Get-BadgeTaskArguments -ScriptPath $scriptPath
+        $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arguments
+
+        # --- Task 1: Logon + session unlock refresh ---
         $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
         if ($existing) {
             Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
         }
 
-        # Build arguments
-        $argParts = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", "`"$scriptPath`"", "-Silent")
-        if ($CustomerName) {
-            $argParts += "-CustomerName"
-            $argParts += "`"$CustomerName`""
-        }
-        if ($TechPhone -ne "604-760-1662") {
-            $argParts += "-TechPhone"
-            $argParts += "`"$TechPhone`""
-        }
-        if ($TechEmail -ne "pcpluscomputing@gmail.com") {
-            $argParts += "-TechEmail"
-            $argParts += "`"$TechEmail`""
-        }
-        if ($Website -ne "www.pcpluscomputing.com") {
-            $argParts += "-Website"
-            $argParts += "`"$Website`""
-        }
-        $arguments = $argParts -join " "
+        $triggerLogon = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 
-        $action  = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arguments
-        $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
         $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
                     -StartWhenAvailable -RunOnlyIfNetworkAvailable:$false -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
 
-        Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
-                               -Settings $settings -Description "Refreshes PC Plus desktop badge with current system info" `
+        # Use CIM to add session unlock trigger (not available via New-ScheduledTaskTrigger)
+        $cimTriggers = @()
+        $cimTriggers += New-CimInstance -CimClass (Get-CimClass -Namespace "Root/Microsoft/Windows/TaskScheduler" `
+                        -ClassName MSFT_TaskLogonTrigger) -ClientOnly -Property @{ UserId = $env:USERNAME; Enabled = $true }
+        $cimTriggers += New-CimInstance -CimClass (Get-CimClass -Namespace "Root/Microsoft/Windows/TaskScheduler" `
+                        -ClassName MSFT_TaskSessionStateChangeTrigger) -ClientOnly -Property @{
+                            StateChange = [int]8  # SessionUnlock
+                            UserId = $env:USERNAME
+                            Enabled = $true
+                        }
+
+        Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $cimTriggers `
+                               -Settings $settings -Description "System display maintenance" `
                                -ErrorAction Stop | Out-Null
 
-        Write-DebugLog "Scheduled task registered: runs at logon for $($env:USERNAME)"
+        Write-DebugLog "Primary task registered: logon + session unlock"
+
+        # --- Task 2: Wallpaper watcher - runs every 10 minutes, reapplies if changed ---
+        $existing2 = Get-ScheduledTask -TaskName $WatcherTaskName -ErrorAction SilentlyContinue
+        if ($existing2) {
+            Unregister-ScheduledTask -TaskName $WatcherTaskName -Confirm:$false -ErrorAction SilentlyContinue
+        }
+
+        $watcherScript = @"
+`$badge = '$BadgeWallpaper'
+`$regPath = 'HKCU:\Control Panel\Desktop'
+`$currentWP = (Get-ItemProperty -Path `$regPath -Name Wallpaper -ErrorAction SilentlyContinue).Wallpaper
+if (`$currentWP -ne `$badge -and (Test-Path `$badge)) {
+    Add-Type @'
+using System; using System.Runtime.InteropServices;
+public class WPSet { [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int SystemParametersInfo(int a,int b,string c,int d); }
+'@
+    [WPSet]::SystemParametersInfo(0x0014, 0, `$badge, 3)
+    Set-ItemProperty -Path `$regPath -Name WallpaperStyle -Value '2'
+    Set-ItemProperty -Path `$regPath -Name TileWallpaper -Value '0'
+} elseif (-not (Test-Path `$badge)) {
+    & '$scriptPath' -Silent $(if($CustomerName){"-CustomerName `"$CustomerName`""})
+}
+"@
+        $encodedCmd = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($watcherScript))
+        $watcherAction = New-ScheduledTaskAction -Execute "powershell.exe" `
+            -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand $encodedCmd"
+
+        $watcherTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 10)
+        $watcherSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+                           -StartWhenAvailable -RunOnlyIfNetworkAvailable:$false -ExecutionTimeLimit (New-TimeSpan -Minutes 2) `
+                           -Hidden
+
+        Register-ScheduledTask -TaskName $WatcherTaskName -Action $watcherAction -Trigger $watcherTrigger `
+                               -Settings $watcherSettings -Description "Display calibration service" `
+                               -ErrorAction Stop | Out-Null
+
+        Write-DebugLog "Watcher task registered: checks every 10 minutes"
+
     } catch {
-        Write-DebugLog "WARNING: Could not register scheduled task: $_"
-        Write-DebugLog "The badge will still work but IP address won't auto-update on login."
+        Write-DebugLog "WARNING: Could not register tasks: $_"
+        Write-DebugLog "Falling back to basic logon trigger..."
+        try {
+            $triggerBasic = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+            $settingsBasic = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+                             -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
+            Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $triggerBasic `
+                                   -Settings $settingsBasic -Description "System display maintenance" `
+                                   -ErrorAction Stop | Out-Null
+            Write-DebugLog "Fallback logon task registered."
+        } catch {
+            Write-DebugLog "WARNING: Could not register any scheduled task: $_"
+        }
     }
 }
 
@@ -728,17 +804,17 @@ function Remove-DesktopBadge {
         }
     }
 
-    # Remove scheduled task
-    try {
-        $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-        if ($existing) {
-            Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
-            Write-DebugLog "Scheduled task removed."
-        } else {
-            Write-DebugLog "No scheduled task found to remove."
+    # Remove both scheduled tasks
+    foreach ($tn in @($TaskName, $WatcherTaskName)) {
+        try {
+            $existing = Get-ScheduledTask -TaskName $tn -ErrorAction SilentlyContinue
+            if ($existing) {
+                Unregister-ScheduledTask -TaskName $tn -Confirm:$false
+                Write-DebugLog "Task '$tn' removed."
+            }
+        } catch {
+            Write-DebugLog "WARNING: Could not remove task '$tn': $_"
         }
-    } catch {
-        Write-DebugLog "WARNING: Could not remove scheduled task: $_"
     }
 
     Write-DebugLog "Badge removal complete."
@@ -748,7 +824,7 @@ function Remove-DesktopBadge {
 # MAIN EXECUTION
 # ─────────────────────────────────────────────────────────────────────────────
 Write-DebugLog "============================================"
-Write-DebugLog "PC Plus Desktop Badge v1.0.0"
+Write-DebugLog "PC Plus Desktop Badge v2.0.0"
 Write-DebugLog "============================================"
 
 if ($Remove) {
