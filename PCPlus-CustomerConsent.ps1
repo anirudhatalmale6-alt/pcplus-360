@@ -4,14 +4,15 @@
 .DESCRIPTION
     Professional customer consent and intake workflow for computer repair shops.
     Captures customer information, consent for diagnostic/repair work, digital
-    signature, and generates both HTML and JSON records. Creates a lock file
-    that subsequent tools check before running repairs.
+    handwritten signature via WPF InkCanvas, and generates both HTML and JSON
+    records with embedded signature image and SHA256 tamper-detection hash.
+    Creates a lock file that subsequent tools check before running repairs.
 .NOTES
     Company:  PC Plus Computing
     Phone:    604-760-1662 | 236-500-2700
     Website:  pcpluscomputing.com
-    Version:  1.0.0
-    Requires: PowerShell 5.1+, Windows 10/11
+    Version:  2.0.0
+    Requires: PowerShell 5.1+, .NET Framework 4.x, Windows 10/11
     Part of:  PC Plus 360 USB Diagnostic Toolkit
 .EXAMPLE
     PowerShell.exe -ExecutionPolicy Bypass -File .\PCPlus-CustomerConsent.ps1
@@ -26,6 +27,11 @@ $ErrorActionPreference = 'Continue'
 # ─────────────────────────────────────────────────────────────────────────────
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName PresentationCore
+Add-Type -AssemblyName PresentationFramework
+Add-Type -AssemblyName WindowsBase
+Add-Type -AssemblyName WindowsFormsIntegration
+Add-Type -AssemblyName System.Security
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -37,6 +43,7 @@ $COMPANY_WEBSITE = "pcpluscomputing.com"
 $COMPANY_PHONE1  = "604-760-1662"
 $COMPANY_PHONE2  = "236-500-2700"
 $COLOR_NAVY      = "#0a1628"
+$COLOR_CARD_BG   = "#111d2e"
 $COLOR_ACCENT    = "#2596be"
 $COLOR_GREEN     = "#27ae60"
 $COLOR_RED       = "#e74c3c"
@@ -366,12 +373,18 @@ function New-ConsentHtmlReport {
         <div class="signature-section">
             <div class="section-title">Digital Signature</div>
             <p style="color: #8899aa; font-size: 13px;">
-                By typing their full name below, the customer acknowledges and agrees to the
+                By signing below, the customer acknowledges and agrees to the
                 authorizations indicated above and understands that a system restore point will
                 be created prior to any modifications.
             </p>
             <div class="signature-box">
-                <div class="signature-name">$([System.Web.HttpUtility]::HtmlEncode($FormData.DigitalSignature))</div>
+                <div style="color: #8899aa; font-size: 11px; text-transform: uppercase; margin-bottom: 8px;">Handwritten Signature</div>
+                $(if ($FormData.SignatureBase64) {
+                    "<img src=`"data:image/png;base64,$($FormData.SignatureBase64)`" alt=`"Customer Signature`" style=`"max-width: 480px; height: auto; border: 1px solid #3a4a5a; border-radius: 4px; background: #ffffff;`" />"
+                } else {
+                    "<div class=`"signature-name`">$([System.Web.HttpUtility]::HtmlEncode($FormData.DigitalSignature))</div>"
+                })
+                <div style="color: #8899aa; font-size: 11px; margin-top: 10px;">Typed Name: <strong style="color: #e0e0e0;">$([System.Web.HttpUtility]::HtmlEncode($FormData.DigitalSignature))</strong></div>
                 <div class="signature-date">Signed electronically on $($FormData.DateTime)</div>
             </div>
             <div class="legal-text">
@@ -381,6 +394,16 @@ function New-ConsentHtmlReport {
                 issues caused by third-party software. A system restore point will be created before
                 any system modifications. The customer may revoke consent at any time by contacting
                 $COMPANY_NAME at $COMPANY_PHONE1 or $COMPANY_PHONE2.
+            </div>
+        </div>
+
+        <div class="section" style="background: #0a1020; border: 1px solid #1e2d45;">
+            <div class="section-title" style="font-size: 14px;">Document Integrity</div>
+            <div style="font-family: 'Consolas', 'Courier New', monospace; font-size: 11px; color: #6a8a5a; word-break: break-all;">
+                SHA-256: $($FormData.ContentHash)
+            </div>
+            <div style="color: #5a6a7a; font-size: 10px; margin-top: 5px;">
+                This hash can be used to verify that this consent form has not been altered after signing.
             </div>
         </div>
 
@@ -405,7 +428,7 @@ function Save-ConsentJson {
     )
     $jsonObj = [ordered]@{
         ToolName          = "CustomerConsent"
-        Version           = "1.0.0"
+        Version           = "2.0.0"
         WorkOrderNumber   = $FormData.WorkOrderNumber
         ComputerName      = $FormData.ComputerName
         DateTime          = $FormData.DateTime
@@ -424,7 +447,9 @@ function Save-ConsentJson {
             AccessSettings = $FormData.ConsentAccessSettings
         }
         DigitalSignature  = $FormData.DigitalSignature
+        SignatureImageFile = $FormData.SignatureImageFile
         TechnicianName    = $FormData.TechnicianName
+        ContentHash       = $FormData.ContentHash
         AllConsentsGranted = (
             $FormData.ConsentDiagnostic -and
             $FormData.ConsentRepair -and
@@ -453,6 +478,70 @@ function Test-PhoneFormat {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# INKCANVAS SIGNATURE HELPERS
+# ─────────────────────────────────────────────────────────────────────────────
+function Save-InkCanvasToPng {
+    param(
+        [System.Windows.Controls.InkCanvas]$InkCanvas,
+        [string]$FilePath
+    )
+    # Use the full canvas dimensions for a clean capture
+    $canvasWidth  = [int]$InkCanvas.ActualWidth
+    $canvasHeight = [int]$InkCanvas.ActualHeight
+    if ($canvasWidth  -lt 1) { $canvasWidth  = 500 }
+    if ($canvasHeight -lt 1) { $canvasHeight = 150 }
+
+    # Render InkCanvas to a RenderTargetBitmap
+    $dpiX = 96
+    $dpiY = 96
+    $rtb = New-Object System.Windows.Media.Imaging.RenderTargetBitmap(
+        $canvasWidth, $canvasHeight, $dpiX, $dpiY,
+        [System.Windows.Media.PixelFormats]::Pbgra32
+    )
+    # Force layout so ActualWidth/Height are valid
+    $InkCanvas.Measure(
+        (New-Object System.Windows.Size($canvasWidth, $canvasHeight))
+    )
+    $InkCanvas.Arrange(
+        (New-Object System.Windows.Rect(0, 0, $canvasWidth, $canvasHeight))
+    )
+    $rtb.Render($InkCanvas)
+
+    # Encode as PNG
+    $encoder = New-Object System.Windows.Media.Imaging.PngBitmapEncoder
+    $encoder.Frames.Add(
+        [System.Windows.Media.Imaging.BitmapFrame]::Create($rtb)
+    )
+    $stream = [System.IO.File]::Create($FilePath)
+    try {
+        $encoder.Save($stream)
+    } finally {
+        $stream.Close()
+        $stream.Dispose()
+    }
+}
+
+function Get-SignatureBase64 {
+    param([string]$PngPath)
+    if (-not (Test-Path $PngPath)) { return "" }
+    $bytes = [System.IO.File]::ReadAllBytes($PngPath)
+    return [System.Convert]::ToBase64String($bytes)
+}
+
+function Get-ContentSHA256 {
+    param([string]$Content)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($Content)
+    $hash  = $sha.ComputeHash($bytes)
+    $sha.Dispose()
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($b in $hash) {
+        [void]$sb.Append($b.ToString("x2"))
+    }
+    return $sb.ToString()
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # WINFORMS UI - MAIN INTAKE FORM
 # ─────────────────────────────────────────────────────────────────────────────
 function Show-ConsentForm {
@@ -464,7 +553,7 @@ function Show-ConsentForm {
     # --- Main Form ---
     $form = New-Object System.Windows.Forms.Form
     $form.Text = "$COMPANY_FULL - Customer Consent & Intake"
-    $form.Size = New-Object System.Drawing.Size(680, 820)
+    $form.Size = New-Object System.Drawing.Size(680, 920)
     $form.StartPosition = "CenterScreen"
     $form.FormBorderStyle = "FixedSingle"
     $form.MaximizeBox = $false
@@ -475,7 +564,7 @@ function Show-ConsentForm {
     # ── Scrollable Panel ──
     $panel = New-Object System.Windows.Forms.Panel
     $panel.Location = New-Object System.Drawing.Point(0, 0)
-    $panel.Size = New-Object System.Drawing.Size(664, 780)
+    $panel.Size = New-Object System.Drawing.Size(664, 880)
     $panel.AutoScroll = $true
     $panel.BackColor = [System.Drawing.ColorTranslator]::FromHtml($COLOR_NAVY)
     $form.Controls.Add($panel)
@@ -749,6 +838,90 @@ function Show-ConsentForm {
     $panel.Controls.Add($txtSignature)
     $yPos += 50
 
+    # ── InkCanvas Handwritten Signature Pad ──
+    $lblSignPad = New-Object System.Windows.Forms.Label
+    $lblSignPad.Text = "SIGN HERE"
+    $lblSignPad.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $lblSignPad.ForeColor = [System.Drawing.ColorTranslator]::FromHtml($COLOR_ACCENT)
+    $lblSignPad.AutoSize = $false
+    $lblSignPad.Size = New-Object System.Drawing.Size(500, 20)
+    $lblSignPad.Location = New-Object System.Drawing.Point(25, $yPos)
+    $lblSignPad.TextAlign = "BottomLeft"
+    $panel.Controls.Add($lblSignPad)
+
+    $lblSignHint = New-Object System.Windows.Forms.Label
+    $lblSignHint.Text = "Use your mouse, touchpad, or touchscreen to draw your signature"
+    $lblSignHint.Font = New-Object System.Drawing.Font("Segoe UI", 8)
+    $lblSignHint.ForeColor = [System.Drawing.Color]::FromArgb(120, 140, 160)
+    $lblSignHint.AutoSize = $true
+    $lblSignHint.Location = New-Object System.Drawing.Point(25, ($yPos + 18))
+    $panel.Controls.Add($lblSignHint)
+    $yPos += 40
+
+    # Create the WPF InkCanvas inside an ElementHost
+    $inkCanvas = New-Object System.Windows.Controls.InkCanvas
+    $inkCanvas.Background = [System.Windows.Media.Brushes]::White
+    $inkCanvas.Width  = 500
+    $inkCanvas.Height = 150
+    $inkCanvas.EditingMode = [System.Windows.Controls.InkCanvasEditingMode]::Ink
+
+    # Dark blue ink, medium thickness
+    $drawingAttrs = New-Object System.Windows.Ink.DrawingAttributes
+    $drawingAttrs.Color   = [System.Windows.Media.Color]::FromRgb(10, 30, 80)
+    $drawingAttrs.Width   = 2.5
+    $drawingAttrs.Height  = 2.5
+    $drawingAttrs.FitToCurve    = $true
+    $drawingAttrs.StylusTip     = [System.Windows.Ink.StylusTip]::Ellipse
+    $drawingAttrs.IgnorePressure = $false
+    $inkCanvas.DefaultDrawingAttributes = $drawingAttrs
+
+    # WPF Grid container with a dashed Rectangle border behind the InkCanvas
+    # (WPF Border doesn't support dashed lines, so we layer a styled Rectangle)
+    $wpfContainer = New-Object System.Windows.Controls.Grid
+    $wpfContainer.Width  = 504
+    $wpfContainer.Height = 154
+
+    # Dashed border rectangle
+    $dashRect = New-Object System.Windows.Shapes.Rectangle
+    $dashRect.Stroke          = New-Object System.Windows.Media.SolidColorBrush(
+        [System.Windows.Media.Color]::FromRgb(140, 150, 165)
+    )
+    $dashRect.StrokeThickness = 1.5
+    $dashRect.StrokeDashArray = New-Object System.Windows.Media.DoubleCollection
+    $dashRect.StrokeDashArray.Add(6.0)
+    $dashRect.StrokeDashArray.Add(3.0)
+    $dashRect.RadiusX = 6
+    $dashRect.RadiusY = 6
+    $dashRect.Fill    = [System.Windows.Media.Brushes]::White
+    [void]$wpfContainer.Children.Add($dashRect)
+
+    # Add InkCanvas on top with small margin so the dashes show
+    $inkCanvas.Margin = New-Object System.Windows.Thickness(2)
+    [void]$wpfContainer.Children.Add($inkCanvas)
+
+    # Host inside WinForms via ElementHost
+    $elementHost = New-Object System.Windows.Forms.Integration.ElementHost
+    $elementHost.Size     = New-Object System.Drawing.Size(508, 158)
+    $elementHost.Location = New-Object System.Drawing.Point(60, $yPos)
+    $elementHost.Child    = $wpfContainer
+    $elementHost.BackColor = [System.Drawing.ColorTranslator]::FromHtml($COLOR_NAVY)
+    $panel.Controls.Add($elementHost)
+    $yPos += 165
+
+    # ── Clear Signature Button ──
+    $btnClearSig = New-Object System.Windows.Forms.Button
+    $btnClearSig.Text = "Clear Signature"
+    $btnClearSig.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $btnClearSig.Size = New-Object System.Drawing.Size(130, 28)
+    $btnClearSig.Location = New-Object System.Drawing.Point(60, $yPos)
+    $btnClearSig.FlatStyle = "Flat"
+    $btnClearSig.BackColor = [System.Drawing.Color]::FromArgb(60, 70, 85)
+    $btnClearSig.ForeColor = [System.Drawing.Color]::White
+    $btnClearSig.Cursor = [System.Windows.Forms.Cursors]::Hand
+    $btnClearSig.Add_Click({ $inkCanvas.Strokes.Clear() })
+    $panel.Controls.Add($btnClearSig)
+    $yPos += 42
+
     # ── Separator ──
     $sep4 = New-Object System.Windows.Forms.Label
     $sep4.Text = ""
@@ -772,10 +945,10 @@ function Show-ConsentForm {
     $panel.Controls.Add($btnSubmit)
 
     $btnPrint = New-Object System.Windows.Forms.Button
-    $btnPrint.Text = "Print / Preview"
-    $btnPrint.Font = New-Object System.Drawing.Font("Segoe UI", 10)
-    $btnPrint.Size = New-Object System.Drawing.Size(140, 40)
-    $btnPrint.Location = New-Object System.Drawing.Point(240, $yPos)
+    $btnPrint.Text = "Preview"
+    $btnPrint.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $btnPrint.Size = New-Object System.Drawing.Size(85, 40)
+    $btnPrint.Location = New-Object System.Drawing.Point(235, $yPos)
     $btnPrint.FlatStyle = "Flat"
     $btnPrint.BackColor = [System.Drawing.ColorTranslator]::FromHtml($COLOR_ACCENT)
     $btnPrint.ForeColor = [System.Drawing.Color]::White
@@ -783,11 +956,23 @@ function Show-ConsentForm {
     $btnPrint.Cursor = [System.Windows.Forms.Cursors]::Hand
     $panel.Controls.Add($btnPrint)
 
+    $btnPrintConsent = New-Object System.Windows.Forms.Button
+    $btnPrintConsent.Text = "Print Consent Form"
+    $btnPrintConsent.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $btnPrintConsent.Size = New-Object System.Drawing.Size(140, 40)
+    $btnPrintConsent.Location = New-Object System.Drawing.Point(328, $yPos)
+    $btnPrintConsent.FlatStyle = "Flat"
+    $btnPrintConsent.BackColor = [System.Drawing.ColorTranslator]::FromHtml($COLOR_ORANGE)
+    $btnPrintConsent.ForeColor = [System.Drawing.Color]::White
+    $btnPrintConsent.Enabled = $false
+    $btnPrintConsent.Cursor = [System.Windows.Forms.Cursors]::Hand
+    $panel.Controls.Add($btnPrintConsent)
+
     $btnViewExisting = New-Object System.Windows.Forms.Button
-    $btnViewExisting.Text = "View Active Consent"
-    $btnViewExisting.Font = New-Object System.Drawing.Font("Segoe UI", 10)
-    $btnViewExisting.Size = New-Object System.Drawing.Size(150, 40)
-    $btnViewExisting.Location = New-Object System.Drawing.Point(395, $yPos)
+    $btnViewExisting.Text = "View Active"
+    $btnViewExisting.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $btnViewExisting.Size = New-Object System.Drawing.Size(100, 40)
+    $btnViewExisting.Location = New-Object System.Drawing.Point(476, $yPos)
     $btnViewExisting.FlatStyle = "Flat"
     $btnViewExisting.BackColor = [System.Drawing.Color]::FromArgb(60, 70, 85)
     $btnViewExisting.ForeColor = [System.Drawing.Color]::White
@@ -796,9 +981,9 @@ function Show-ConsentForm {
 
     $btnCancel = New-Object System.Windows.Forms.Button
     $btnCancel.Text = "Cancel"
-    $btnCancel.Font = New-Object System.Drawing.Font("Segoe UI", 10)
-    $btnCancel.Size = New-Object System.Drawing.Size(80, 40)
-    $btnCancel.Location = New-Object System.Drawing.Point(555, $yPos)
+    $btnCancel.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $btnCancel.Size = New-Object System.Drawing.Size(70, 40)
+    $btnCancel.Location = New-Object System.Drawing.Point(584, $yPos)
     $btnCancel.FlatStyle = "Flat"
     $btnCancel.BackColor = [System.Drawing.ColorTranslator]::FromHtml($COLOR_RED)
     $btnCancel.ForeColor = [System.Drawing.Color]::White
@@ -862,6 +1047,26 @@ Access:         $(if ($lockInfo.ConsentAccess) { 'Granted' } else { 'Not Granted
         }
     })
 
+    $btnPrintConsent.Add_Click({
+        if ($script:savedHtmlPath -and (Test-Path $script:savedHtmlPath)) {
+            # Open the HTML consent form in default browser for printing
+            Start-Process $script:savedHtmlPath
+            [System.Windows.Forms.MessageBox]::Show(
+                "The signed consent form has been opened in your default browser.`nUse Ctrl+P or File > Print to print.",
+                "Print Consent Form",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Information
+            )
+        } else {
+            [System.Windows.Forms.MessageBox]::Show(
+                "No consent form has been saved yet.`nPlease submit the form first.",
+                "Print Unavailable",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Warning
+            )
+        }
+    })
+
     $btnSubmit.Add_Click({
         # ── Validation ──
         $errors = [System.Collections.ArrayList]::new()
@@ -883,6 +1088,9 @@ Access:         $(if ($lockInfo.ConsentAccess) { 'Granted' } else { 'Not Granted
         }
         if ([string]::IsNullOrWhiteSpace($txtSignature.Text)) {
             [void]$errors.Add("Digital signature (type your full name) is required.")
+        }
+        if ($inkCanvas.Strokes.Count -eq 0) {
+            [void]$errors.Add("Handwritten signature is required. Please sign in the signature pad above.")
         }
         if (-not $chkDiag.Checked) {
             [void]$errors.Add("Diagnostic consent must be granted to proceed.")
@@ -915,12 +1123,42 @@ Access:         $(if ($lockInfo.ConsentAccess) { 'Granted' } else { 'Not Granted
             TechnicianName      = $txtTech.Text.Trim()
             DateTime            = $txtDateTime.Text
             ComputerName        = $env:COMPUTERNAME
+            SignatureBase64     = ""
+            SignatureImageFile  = ""
+            ContentHash         = ""
         }
 
         try {
             $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+            $safeName  = ($formData.CustomerName -replace '[^a-zA-Z0-9\-]', '_')
 
-            # Save HTML report
+            # Save signature image from InkCanvas
+            $sigFileName = "${safeName}-signature.png"
+            $sigPath     = Join-Path $ReportsDir $sigFileName
+            Save-InkCanvasToPng -InkCanvas $inkCanvas -FilePath $sigPath
+            $formData.SignatureBase64    = Get-SignatureBase64 -PngPath $sigPath
+            $formData.SignatureImageFile = $sigFileName
+
+            # Compute SHA256 hash of the consent content for tamper detection
+            $hashInput = @(
+                $formData.WorkOrderNumber
+                $formData.CustomerName
+                $formData.CustomerPhone
+                $formData.CustomerEmail
+                $formData.DeviceDescription
+                $formData.ConsentDiagnostic.ToString()
+                $formData.ConsentRepair.ToString()
+                $formData.ConsentBackup.ToString()
+                $formData.ConsentRestorePoint.ToString()
+                $formData.ConsentAccessSettings.ToString()
+                $formData.DigitalSignature
+                $formData.TechnicianName
+                $formData.DateTime
+                $formData.SignatureBase64
+            ) -join "|"
+            $formData.ContentHash = Get-ContentSHA256 -Content $hashInput
+
+            # Save HTML report (with embedded signature)
             $htmlFileName = "Consent-$workOrder-$timestamp.html"
             $htmlPath = Join-Path $ReportsDir $htmlFileName
             $html = New-ConsentHtmlReport -FormData $formData
@@ -943,23 +1181,30 @@ Access:         $(if ($lockInfo.ConsentAccess) { 'Granted' } else { 'Not Granted
 
             # Enable print button
             $btnPrint.Enabled = $true
+            $btnPrintConsent.Enabled = $true
 
             # Disable submit to prevent duplicate
             $btnSubmit.Enabled = $false
             $btnSubmit.BackColor = [System.Drawing.Color]::FromArgb(60, 70, 85)
             $btnSubmit.Text = "Submitted"
 
+            # Lock the signature pad
+            $inkCanvas.EditingMode = [System.Windows.Controls.InkCanvasEditingMode]::None
+            $btnClearSig.Enabled = $false
+
             $successMsg = @"
 Consent form submitted successfully!
 
-Work Order:  $workOrder
-HTML Report: $htmlFileName
-JSON Record: $jsonFileName
+Work Order:    $workOrder
+HTML Report:   $htmlFileName
+JSON Record:   $jsonFileName
+Signature:     $sigFileName
+SHA-256 Hash:  $($formData.ContentHash.Substring(0,16))...
 
 The consent lock file has been created.
 Other PC Plus 360 tools will now be authorized to perform repairs.
 
-Click 'Print / Preview' to open the form in your browser for printing.
+Click 'Print Consent Form' to open the signed form in your browser for printing.
 "@
             [System.Windows.Forms.MessageBox]::Show(
                 $successMsg,
