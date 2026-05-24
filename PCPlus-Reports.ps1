@@ -439,17 +439,12 @@ function Build-HardwareReport {
     if (Test-Path $qrAppPath) { try { $qrAppointmentUri = "data:image/png;base64,$((Get-Content $qrAppPath -Raw).Trim())" } catch {} }
     if (Test-Path $qrSvcPath) { try { $qrServiceUri = "data:image/png;base64,$((Get-Content $qrSvcPath -Raw).Trim())" } catch {} }
 
-    # Load cross-promotion banners
-    $bannerSecTopUri = ""; $bannerSecBottomUri = ""
-    $bstPath = Join-Path $Global:ScriptDir "banner-security-top.txt"
-    $bsbPath = Join-Path $Global:ScriptDir "banner-security-bottom.txt"
-    if (Test-Path $bstPath) { try { $bannerSecTopUri = "data:image/jpeg;base64,$((Get-Content $bstPath -Raw).Trim())" } catch {} }
-    if (Test-Path $bsbPath) { try { $bannerSecBottomUri = "data:image/jpeg;base64,$((Get-Content $bsbPath -Raw).Trim())" } catch {} }
-
-    # Load hardware report's own banner
-    $bannerHwOwnUri = ""
-    $bhoPath = Join-Path $Global:ScriptDir "banner-hardware-top.txt"
-    if (Test-Path $bhoPath) { try { $bannerHwOwnUri = "data:image/jpeg;base64,$((Get-Content $bhoPath -Raw).Trim())" } catch {} }
+    # Load report header/footer banners (Paul's branded images)
+    $reportHeaderUri = ""; $reportFooterUri = ""
+    $rhPath = Join-Path $Global:ScriptDir "report-header-base64.txt"
+    $rfPath = Join-Path $Global:ScriptDir "report-footer-base64.txt"
+    if (Test-Path $rhPath) { try { $reportHeaderUri = "data:image/jpeg;base64,$((Get-Content $rhPath -Raw).Trim())" } catch {} }
+    if (Test-Path $rfPath) { try { $reportFooterUri = "data:image/jpeg;base64,$((Get-Content $rfPath -Raw).Trim())" } catch {} }
 
     # Battery score for display
     $batteryScore = if ($SystemInfo.Battery.Present -and $SystemInfo.Battery.HealthPct -gt 0) { $SystemInfo.Battery.HealthPct } else { -1 }
@@ -823,7 +818,7 @@ tr:hover td { background: #eaf7fc; }
 
 <!-- ══════════════════════════ COVER PAGE ══════════════════════════ -->
 <div style="page-break-after:always;">
-$(if($bannerHwOwnUri){"<div style='text-align:center;margin-bottom:15px;'><img src='$bannerHwOwnUri' alt='PC Plus Hardware Test' style='width:100%;border-radius:8px;'/></div>"})
+$(if($reportHeaderUri){"<div style='text-align:center;margin-bottom:15px;'><img src='$reportHeaderUri' alt='PC Plus Computing - Hardware &amp; Security Audit' style='width:100%;border-radius:8px;'/></div>"})
 
 <div style="display:flex;gap:20px;align-items:center;margin:15px 0;">
 <div style="flex:1;">
@@ -850,7 +845,7 @@ $(if($Params.ContactName){"<tr><td style='border:none;padding:4px 8px;color:#647
 </div>
 </div>
 
-$(if($bannerSecTopUri){"<div style='text-align:center;margin-top:15px;'><img src='$bannerSecTopUri' alt='PC Plus Security Audit' style='width:100%;border-radius:8px;'/></div>"})
+$(if($reportFooterUri){"<div style='text-align:center;margin-top:15px;'><img src='$reportFooterUri' alt='PC Plus Computing' style='width:100%;border-radius:8px;'/></div>"})
 </div>
 
 <!-- ══════════════════════════ EXECUTIVE SUMMARY ══════════════════════════ -->
@@ -1281,8 +1276,6 @@ $(if(-not (Test-CustomerMode)){@"
 </div>
 "@})
 
-$(if($bannerSecBottomUri){"<div class='page-break'></div><div class='promo-banner' style='padding-top:30px;'><img src='$bannerSecBottomUri' alt='175-Point Security Inspection'/></div>"})
-
 <!-- ══════════════════════════ BACK PAGE ══════════════════════════ -->
 <div class="page-break"></div>
 
@@ -1304,18 +1297,13 @@ $(if($qrServiceUri){"<img src='$qrServiceUri' alt='Send Info'/>"}else{"<div clas
 </div>
 </div>
 
-<div style="margin-top:40px;padding:20px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;display:inline-block;">
-<div style="font-size:11pt;font-weight:700;color:#0a1628;margin-bottom:8px;">Get In Touch</div>
-<div style="font-size:10pt;color:#475569;">
-&#127760; $WEBSITE &nbsp;&nbsp;|&nbsp;&nbsp; &#128222; $PHONE
-</div>
-</div>
-
 <div style="margin-top:40px;font-size:8pt;color:#94a3b8;">
 Hardware Diagnostic Report generated $date<br/>
 Technician: $($Params.TechName) &nbsp;|&nbsp; Device: $($SystemInfo.ComputerName)
 </div>
 </div>
+
+$(if($reportFooterUri){"<div style='text-align:center;margin-top:20px;'><img src='$reportFooterUri' alt='PC Plus Computing' style='width:100%;border-radius:8px;'/></div>"})
 
 </body></html>
 "@
@@ -1352,17 +1340,12 @@ function Build-SecurityReport {
     if (Test-Path $qrAppPath) { try { $qrAppointmentUri = "data:image/png;base64,$((Get-Content $qrAppPath -Raw).Trim())" } catch {} }
     if (Test-Path $qrSvcPath) { try { $qrServiceUri = "data:image/png;base64,$((Get-Content $qrSvcPath -Raw).Trim())" } catch {} }
 
-    # Load cross-promotion banners
-    $bannerHwTopUri = ""; $bannerHwBottomUri = ""
-    $bhtPath = Join-Path $Global:ScriptDir "banner-hardware-top.txt"
-    $bhbPath = Join-Path $Global:ScriptDir "banner-hardware-bottom.txt"
-    if (Test-Path $bhtPath) { try { $bannerHwTopUri = "data:image/jpeg;base64,$((Get-Content $bhtPath -Raw).Trim())" } catch {} }
-    if (Test-Path $bhbPath) { try { $bannerHwBottomUri = "data:image/jpeg;base64,$((Get-Content $bhbPath -Raw).Trim())" } catch {} }
-
-    # Load security report's own banner
-    $bannerSecOwnUri = ""
-    $bsoPath = Join-Path $Global:ScriptDir "banner-security-top.txt"
-    if (Test-Path $bsoPath) { try { $bannerSecOwnUri = "data:image/jpeg;base64,$((Get-Content $bsoPath -Raw).Trim())" } catch {} }
+    # Load report header/footer banners (Paul's branded images)
+    $reportHeaderUri = ""; $reportFooterUri = ""
+    $rhPath = Join-Path $Global:ScriptDir "report-header-base64.txt"
+    $rfPath = Join-Path $Global:ScriptDir "report-footer-base64.txt"
+    if (Test-Path $rhPath) { try { $reportHeaderUri = "data:image/jpeg;base64,$((Get-Content $rhPath -Raw).Trim())" } catch {} }
+    if (Test-Path $rfPath) { try { $reportFooterUri = "data:image/jpeg;base64,$((Get-Content $rfPath -Raw).Trim())" } catch {} }
 
     # Breakdown rows
     $breakdownRows = ($Scoring.Breakdown | ForEach-Object {
@@ -1706,7 +1689,7 @@ tr:hover td { background: #eaf7fc; }
 
 <!-- COVER PAGE -->
 <div style="page-break-after:always;">
-$(if($bannerSecOwnUri){"<div style='text-align:center;margin-bottom:15px;'><img src='$bannerSecOwnUri' alt='PC Plus Security Audit' style='width:100%;border-radius:8px;'/></div>"})
+$(if($reportHeaderUri){"<div style='text-align:center;margin-bottom:15px;'><img src='$reportHeaderUri' alt='PC Plus Computing - Hardware &amp; Security Audit' style='width:100%;border-radius:8px;'/></div>"})
 
 <div style="display:flex;gap:20px;align-items:center;margin:15px 0;">
 <div style="flex:1;">
@@ -1733,7 +1716,7 @@ $(if($Params.ContactName){"<tr><td style='border:none;padding:4px 8px;color:#647
 </div>
 </div>
 
-$(if($bannerHwTopUri){"<div style='text-align:center;margin-top:15px;'><img src='$bannerHwTopUri' alt='PC Plus Hardware Test' style='width:100%;border-radius:8px;'/></div>"})
+$(if($reportFooterUri){"<div style='text-align:center;margin-top:15px;'><img src='$reportFooterUri' alt='PC Plus Computing' style='width:100%;border-radius:8px;'/></div>"})
 </div>
 
 <!-- EXECUTIVE SUMMARY -->
@@ -1845,8 +1828,6 @@ $(if($criticalPatches -gt 0){"<div style='background:#fef5f5;border-left:4px sol
 
 <table><tr><th>KB Article</th><th>Update Title</th><th>Severity</th><th style="text-align:right;">Size</th></tr>$patchRows</table>
 
-$(if($bannerHwBottomUri){"<div class='page-break'></div><div class='promo-banner' style='padding-top:30px;'><img src='$bannerHwBottomUri' alt='PC Plus Hardware Test'/></div>"})
-
 <!-- BACK PAGE -->
 <div class="page-break"></div>
 
@@ -1868,18 +1849,13 @@ $(if($qrServiceUri){"<img src='$qrServiceUri' alt='Send Info'/>"}else{"<div clas
 </div>
 </div>
 
-<div style="margin-top:40px;padding:20px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;display:inline-block;">
-<div style="font-size:11pt;font-weight:700;color:#0a1628;margin-bottom:8px;">Get In Touch</div>
-<div style="font-size:10pt;color:#475569;">
-&#127760; $WEBSITE &nbsp;&nbsp;|&nbsp;&nbsp; &#128222; $PHONE
-</div>
-</div>
-
 <div style="margin-top:40px;font-size:8pt;color:#94a3b8;">
 Security Audit Report generated $date<br/>
 Technician: $($Params.TechName) &nbsp;|&nbsp; Device: $($SystemInfo.ComputerName)
 </div>
 </div>
+
+$(if($reportFooterUri){"<div style='text-align:center;margin-top:20px;'><img src='$reportFooterUri' alt='PC Plus Computing' style='width:100%;border-radius:8px;'/></div>"})
 
 </body></html>
 "@
@@ -1922,6 +1898,13 @@ function Build-CustomerSummary {
     $qrSvcPath = Join-Path $Global:ScriptDir "qr-service-requests.txt"
     if (Test-Path $qrAppPath) { try { $qrAppUri = "data:image/png;base64,$((Get-Content $qrAppPath -Raw).Trim())" } catch {} }
     if (Test-Path $qrSvcPath) { try { $qrSvcUri = "data:image/png;base64,$((Get-Content $qrSvcPath -Raw).Trim())" } catch {} }
+
+    # Load report header/footer banners
+    $reportHeaderUri = ""; $reportFooterUri = ""
+    $rhPath = Join-Path $Global:ScriptDir "report-header-base64.txt"
+    $rfPath = Join-Path $Global:ScriptDir "report-footer-base64.txt"
+    if (Test-Path $rhPath) { try { $reportHeaderUri = "data:image/jpeg;base64,$((Get-Content $rhPath -Raw).Trim())" } catch {} }
+    if (Test-Path $rfPath) { try { $reportFooterUri = "data:image/jpeg;base64,$((Get-Content $rfPath -Raw).Trim())" } catch {} }
 
     # Calculate category scores
     $secScore = if ($Scoring) { $Scoring.Score } else { 0 }
@@ -2175,6 +2158,7 @@ th { background: #f1f5f9; padding: 8px 12px; text-align: left; font-size: 9.5pt;
 </head>
 <body>
 <div class="page">
+    $(if($reportHeaderUri){"<div style='text-align:center;margin-bottom:12px;'><img src='$reportHeaderUri' alt='PC Plus Computing' style='width:100%;border-radius:8px;'/></div>"})
     <div class="header">
         $logoHTML
         <div style="font-size:16pt;font-weight:700;color:#0a3a56;margin-top:8px;">Computer Health Report</div>
@@ -2229,6 +2213,7 @@ th { background: #f1f5f9; padding: 8px 12px; text-align: left; font-size: 9.5pt;
             Scan mode: $ScanMode | Technician: $($Params.TechName) | Report generated $(Get-Date -Format 'yyyy-MM-dd HH:mm')
         </div>
     </div>
+    $(if($reportFooterUri){"<div style='text-align:center;margin-top:12px;'><img src='$reportFooterUri' alt='PC Plus Computing' style='width:100%;border-radius:8px;'/></div>"})
 </div>
 </body>
 </html>
@@ -2314,6 +2299,13 @@ function Build-WearAndTearHTMLReport {
     if (Test-Path $logoPath) { try { $logoDataUri = "data:image/png;base64,$((Get-Content $logoPath -Raw).Trim())" } catch {} }
     $logoHTML = if ($logoDataUri) { "<img src='$logoDataUri' alt='PC Plus Computing' style='width:240px;'/>" } else { "<div style='font-size:18pt;font-weight:700;color:#0a3a56;letter-spacing:2px;'>PC PLUS COMPUTING</div>" }
 
+    # Load report header/footer banners
+    $reportHeaderUri = ""; $reportFooterUri = ""
+    $rhPath = Join-Path $Global:ScriptDir "report-header-base64.txt"
+    $rfPath = Join-Path $Global:ScriptDir "report-footer-base64.txt"
+    if (Test-Path $rhPath) { try { $reportHeaderUri = "data:image/jpeg;base64,$((Get-Content $rhPath -Raw).Trim())" } catch {} }
+    if (Test-Path $rfPath) { try { $reportFooterUri = "data:image/jpeg;base64,$((Get-Content $rfPath -Raw).Trim())" } catch {} }
+
     $html = @"
 <!DOCTYPE html>
 <html><head><meta charset="utf-8"/><title>Wear &amp; Tear Life Report - $($Params.CustomerName)</title>
@@ -2342,6 +2334,7 @@ tr:nth-child(even) { background:#f8fafc; }
 @media print { body { background:white; } .page { padding:0; box-shadow:none; } }
 </style></head><body>
 <div class="page">
+    $(if($reportHeaderUri){"<div style='text-align:center;margin-bottom:12px;'><img src='$reportHeaderUri' alt='PC Plus Computing' style='width:100%;border-radius:8px;'/></div>"})
     <div class="header">
         $logoHTML
         <div style="font-size:8pt;color:#2596be;font-weight:600;letter-spacing:3px;margin-top:4px;">YOUR SECURITY, OUR PRIORITY</div>
@@ -2387,6 +2380,7 @@ tr:nth-child(even) { background:#f8fafc; }
         <div style="color:#2596be;">Your Security, Our Priority</div>
         <div style="margin-top:6px;">Technician: $($Params.TechName) | Report generated $(Get-Date -Format 'yyyy-MM-dd HH:mm')</div>
     </div>
+    $(if($reportFooterUri){"<div style='text-align:center;margin-top:12px;'><img src='$reportFooterUri' alt='PC Plus Computing' style='width:100%;border-radius:8px;'/></div>"})
 </div>
 </body></html>
 "@
@@ -3242,10 +3236,12 @@ function Build-GamingPCReport {
     if (Test-Path $qrAppPath) { try { $qrAppUri = "data:image/png;base64,$((Get-Content $qrAppPath -Raw).Trim())" } catch {} }
     if (Test-Path $qrSvcPath) { try { $qrSvcUri = "data:image/png;base64,$((Get-Content $qrSvcPath -Raw).Trim())" } catch {} }
 
-    # ── Load gaming banner ──────────────────────────────────────────────────
-    $bannerGamingUri = ""
-    $bgPath = Join-Path $Global:ScriptDir "banner-gaming-top.txt"
-    if (Test-Path $bgPath) { try { $bannerGamingUri = "data:image/jpeg;base64,$((Get-Content $bgPath -Raw).Trim())" } catch {} }
+    # ── Load report header/footer banners ─────────────────────────────────
+    $reportHeaderUri = ""; $reportFooterUri = ""
+    $rhPath = Join-Path $Global:ScriptDir "report-header-base64.txt"
+    $rfPath = Join-Path $Global:ScriptDir "report-footer-base64.txt"
+    if (Test-Path $rhPath) { try { $reportHeaderUri = "data:image/jpeg;base64,$((Get-Content $rhPath -Raw).Trim())" } catch {} }
+    if (Test-Path $rfPath) { try { $reportFooterUri = "data:image/jpeg;base64,$((Get-Content $rfPath -Raw).Trim())" } catch {} }
 
     # ══════════════════════════════════════════════════════════════════════════
     # SVG CHART BUILDERS
@@ -3672,7 +3668,7 @@ tr:hover td { background: #eaf7fc; }
 
 <!-- ══════════════════════════ COVER PAGE ══════════════════════════ -->
 <div style="page-break-after:always;">
-$(if($bannerGamingUri){"<div style='text-align:center;margin-bottom:12px;'><img src='$bannerGamingUri' alt='PC Plus Gaming Diagnostic' style='width:100%;border-radius:8px;'/></div>"})
+$(if($reportHeaderUri){"<div style='text-align:center;margin-bottom:12px;'><img src='$reportHeaderUri' alt='PC Plus Computing - Hardware &amp; Security Audit' style='width:100%;border-radius:8px;'/></div>"})
 <div style="text-align:center;padding:20px 0 10px;">
 $logoHTML
 <div style="font-size:17pt;font-weight:700;color:#0d4b71;margin-top:12px;letter-spacing:0.5px;">Gaming PC Diagnostic Report</div>
@@ -3705,6 +3701,7 @@ $svgHealthDonut
 <div class="summary-chip"><span class="chip-val">$ramTotalGB GB</span><span class="chip-lbl">RAM</span></div>
 $(if($gamingScore -gt 0){"<div class='summary-chip'><span class='chip-val' style='color:$(if($gamingScore -ge 80){""#22c55e""}elseif($gamingScore -ge 60){""#2596be""}else{""#f59e0b""})'>$gamingTier</span><span class='chip-lbl'>Gaming Tier</span></div>"})
 </div>
+$(if($reportFooterUri){"<div style='text-align:center;margin-top:15px;'><img src='$reportFooterUri' alt='PC Plus Computing' style='width:100%;border-radius:8px;'/></div>"})
 </div>
 
 <!-- ══════════════════════════ EXECUTIVE SUMMARY ══════════════════════════ -->
@@ -3844,6 +3841,8 @@ Technician: $techName &nbsp;|&nbsp; Device: $compName
 </div>
 </div>
 
+$(if($reportFooterUri){"<div style='text-align:center;margin-top:20px;'><img src='$reportFooterUri' alt='PC Plus Computing' style='width:100%;border-radius:8px;'/></div>"})
+
 </body>
 </html>
 "@
@@ -3958,10 +3957,12 @@ function Build-GamingPerformanceReport {
     if (Test-Path $qrAppPath) { try { $qrAppUri = "data:image/png;base64,$((Get-Content $qrAppPath -Raw).Trim())" } catch {} }
     if (Test-Path $qrSvcPath) { try { $qrSvcUri = "data:image/png;base64,$((Get-Content $qrSvcPath -Raw).Trim())" } catch {} }
 
-    # ── Load gaming performance banner ──────────────────────────────────────
-    $bannerUri = ""
-    $bgPath = Join-Path $Global:ScriptDir "banner-gaming-top.txt"
-    if (Test-Path $bgPath) { try { $bannerUri = "data:image/jpeg;base64,$((Get-Content $bgPath -Raw).Trim())" } catch {} }
+    # ── Load report header/footer banners ─────────────────────────────────
+    $reportHeaderUri = ""; $reportFooterUri = ""
+    $rhPath = Join-Path $Global:ScriptDir "report-header-base64.txt"
+    $rfPath = Join-Path $Global:ScriptDir "report-footer-base64.txt"
+    if (Test-Path $rhPath) { try { $reportHeaderUri = "data:image/jpeg;base64,$((Get-Content $rhPath -Raw).Trim())" } catch {} }
+    if (Test-Path $rfPath) { try { $reportFooterUri = "data:image/jpeg;base64,$((Get-Content $rfPath -Raw).Trim())" } catch {} }
 
     # ══════════════════════════════════════════════════════════════════════════
     # SVG CHART BUILDER HELPERS
@@ -4615,7 +4616,7 @@ tr:hover td { background: #eaf7fc; }
 
 <!-- =============================== PAGE 1: COVER =============================== -->
 <div style="page-break-after:always;">
-$(if($bannerUri){"<div style='text-align:center;margin-bottom:12px;'><img src='$bannerUri' alt='PC Plus Gaming Performance' style='width:100%;border-radius:8px;'/></div>"})
+$(if($reportHeaderUri){"<div style='text-align:center;margin-bottom:12px;'><img src='$reportHeaderUri' alt='PC Plus Computing - Hardware &amp; Security Audit' style='width:100%;border-radius:8px;'/></div>"})
 <div style="text-align:center;padding:20px 0 10px;">
 $logoHTML
 <div style="font-size:17pt;font-weight:700;color:#0d4b71;margin-top:12px;letter-spacing:0.5px;">PC Plus 360 Gaming Performance &amp; Stability Report</div>
@@ -4693,6 +4694,7 @@ $(if($SystemInfo.OSVersion){"<tr><td>Operating System</td><td>$($SystemInfo.OSVe
 $(if($SystemInfo.GPUs){($SystemInfo.GPUs | ForEach-Object {"<tr><td>GPU</td><td>$($_.Name)$(if($_.VRAM_MB -gt 0){" ($($_.VRAM_MB) MB VRAM)"})</td></tr>"}) -join "`n"})
 $(if($SystemInfo.Disks){($SystemInfo.Disks | ForEach-Object {"<tr><td>Disk ($($_.Drive))</td><td>$($_.Model) - $($_.SizeGB) GB $(if($_.UsedPct){"($($_.UsedPct)% used)"})</td></tr>"}) -join "`n"})
 </table>
+$(if($reportFooterUri){"<div style='text-align:center;margin-top:10px;'><img src='$reportFooterUri' alt='PC Plus Computing' style='width:100%;border-radius:8px;'/></div>"})
 </div>
 
 <!-- =============================== PAGE 2: TEMPERATURE & USAGE CHARTS =============================== -->
@@ -4811,6 +4813,8 @@ Gaming Performance &amp; Stability Report generated $date<br/>
 Technician: $techName &nbsp;|&nbsp; Device: $compName
 </div>
 </div>
+
+$(if($reportFooterUri){"<div style='text-align:center;margin-top:20px;'><img src='$reportFooterUri' alt='PC Plus Computing' style='width:100%;border-radius:8px;'/></div>"})
 
 </body>
 </html>
@@ -5110,6 +5114,13 @@ function Build-LCDDisplayReport {
     if (Test-Path $qrAppPath) { try { $qrAppUri = "data:image/png;base64,$((Get-Content $qrAppPath -Raw).Trim())" } catch {} }
     if (Test-Path $qrSvcPath) { try { $qrSvcUri = "data:image/png;base64,$((Get-Content $qrSvcPath -Raw).Trim())" } catch {} }
 
+    # ── Load report header/footer banners ─────────────────────────────────
+    $reportHeaderUri = ""; $reportFooterUri = ""
+    $rhPath = Join-Path $Global:ScriptDir "report-header-base64.txt"
+    $rfPath = Join-Path $Global:ScriptDir "report-footer-base64.txt"
+    if (Test-Path $rhPath) { try { $reportHeaderUri = "data:image/jpeg;base64,$((Get-Content $rhPath -Raw).Trim())" } catch {} }
+    if (Test-Path $rfPath) { try { $reportFooterUri = "data:image/jpeg;base64,$((Get-Content $rfPath -Raw).Trim())" } catch {} }
+
     # ── Donut SVG for wear score ──
     $donutR = 40; $donutCirc = [math]::Round(2 * [math]::PI * $donutR, 1)
     $donutOffset = [math]::Round($donutCirc - ($donutCirc * $scoreVal / 100), 1)
@@ -5305,6 +5316,7 @@ tr:hover td { background: #eaf7fc; }
 
 <!-- =============================== PAGE 1: COVER =============================== -->
 <div style="page-break-after:always;">
+$(if($reportHeaderUri){"<div style='text-align:center;margin-bottom:12px;'><img src='$reportHeaderUri' alt='PC Plus Computing - Hardware &amp; Security Audit' style='width:100%;border-radius:8px;'/></div>"})
 <div style="text-align:center;padding:20px 0 10px;">
 $logoHTML
 <div style="font-size:17pt;font-weight:700;color:#0d4b71;margin-top:12px;letter-spacing:0.5px;">PC Plus 360 LCD Display Wear &amp; Life Report</div>
@@ -5369,6 +5381,7 @@ $donutSVG
 <tr><td>Laptop Detected</td><td>$(if($sys.IsLaptop){"<span class='warn'>Yes - LCD wear monitoring recommended</span>"}else{"No (Desktop)"})</td></tr>
 <tr><td>Uptime</td><td>$($sys.UptimeHours) hours</td></tr>
 </table>
+$(if($reportFooterUri){"<div style='text-align:center;margin-top:10px;'><img src='$reportFooterUri' alt='PC Plus Computing' style='width:100%;border-radius:8px;'/></div>"})
 </div>
 
 <!-- =============================== PAGE 2: FINDINGS & HARDWARE =============================== -->
@@ -5487,6 +5500,8 @@ LCD Display Wear &amp; Life Report generated $date<br/>
 Technician: $techName &nbsp;|&nbsp; Device: $compName
 </div>
 </div>
+
+$(if($reportFooterUri){"<div style='text-align:center;margin-top:20px;'><img src='$reportFooterUri' alt='PC Plus Computing' style='width:100%;border-radius:8px;'/></div>"})
 
 </body>
 </html>

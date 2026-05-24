@@ -10,15 +10,12 @@
 # Note: These are used when the script is invoked standalone for ReportCard.
 # When dot-sourced by PCPlus-360.ps1, the parent handles parameters.
 
-if (-not $Global:PCPlus360Loaded) {
-    # Script is being run standalone
-    param(
-        [switch]$JsonOutput,
-        [string[]]$Category,
-        [string]$CustomerName = "Customer",
-        [string]$TechnicianName = "PC Plus Technician"
-    )
-}
+param(
+    [switch]$JsonOutput,
+    [string[]]$Category,
+    [string]$CustomerName = "Customer",
+    [string]$TechnicianName = "PC Plus Technician"
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PERFORMANCE SCORE CALCULATOR (0-100 composite score)
