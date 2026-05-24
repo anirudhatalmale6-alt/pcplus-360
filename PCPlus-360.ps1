@@ -289,6 +289,7 @@ $xaml = @"
                         <Button x:Name="btnConsent" Style="{StaticResource SideNav}"><TextBlock Text="  Customer Consent" FontSize="11.5" Foreground="#fbbf24" FontWeight="SemiBold"/></Button>
                         <Button x:Name="btnReportCard" Style="{StaticResource SideNav}"><TextBlock Text="  Report Card" FontSize="11.5" Foreground="#34d399" FontWeight="SemiBold"/></Button>
                         <Button x:Name="btnToolsManager" Style="{StaticResource SideNav}"><TextBlock Text="  Portable Tools" FontSize="11.5" Foreground="#818cf8" FontWeight="SemiBold"/></Button>
+                        <Button x:Name="btnDesktopBadge" Style="{StaticResource SideNav}"><TextBlock Text="  Desktop Badge" FontSize="11.5" Foreground="#38bdf8" FontWeight="SemiBold"/></Button>
 
                         <TextBlock Text="  REPORTS" FontSize="9" FontWeight="SemiBold" Foreground="#4a7a8a" Margin="0,12,0,4"/>
                         <Button x:Name="btnHWReport" Style="{StaticResource SideNav}"><TextBlock Text="  Hardware Report" FontSize="11.5" Foreground="#22c55e"/></Button>
@@ -941,6 +942,7 @@ $xaml = @"
         "btnReportCard"   = "PCPlus-ReportCard.ps1"
         "btnToolsManager" = "PCPlus-PortableToolsManager.ps1"
         "btnRemediation"  = "PCPlus-RemediationLibrary.ps1"
+        "btnDesktopBadge" = "PCPlus-DesktopBadge.ps1"
     }
     foreach ($btnName in $roadmapScripts.Keys) {
         $scriptName = $roadmapScripts[$btnName]
