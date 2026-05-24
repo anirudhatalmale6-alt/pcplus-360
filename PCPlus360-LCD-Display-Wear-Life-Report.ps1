@@ -17,8 +17,12 @@ What it checks:
 - Display disconnect/reconnect style events
 - Thermal correlation risk
 - Dead pixel / burn-in / color test page generator
+- Interactive burn-in detection test (WinForms fullscreen color screens with technician rating)
+- Webcam detection and status (device name, driver version, enabled/disabled)
+- Touchscreen detection (digitizer status, max touch points, Windows touch features)
 - Manual technician checklist for LCD condition
-- Approximate LCD health score and life estimate
+- Enhanced display health scoring (0-100 with color depth, HDR, webcam, touch, burn-in factors)
+- Optional JSON export for ReportCard integration (-JsonOutput switch)
 
 Important:
 Windows cannot directly read exact LCD backlight hours or true panel remaining life.
@@ -30,13 +34,15 @@ PowerShell.exe -ExecutionPolicy Bypass -File .\PCPlus360-LCD-Display-Wear-Life-R
 
 Optional:
 PowerShell.exe -ExecutionPolicy Bypass -File .\PCPlus360-LCD-Display-Wear-Life-Report.ps1 -CustomerName "Customer Name" -TechnicianName "Paul" -OpenReport
+PowerShell.exe -ExecutionPolicy Bypass -File .\PCPlus360-LCD-Display-Wear-Life-Report.ps1 -CustomerName "Customer Name" -TechnicianName "Paul" -OpenReport -JsonOutput
 #>
 
 param(
     [string]$CustomerName = "Customer",
     [string]$TechnicianName = "PC Plus Technician",
     [switch]$OpenReport,
-    [switch]$CreateVisualTestOnly
+    [switch]$CreateVisualTestOnly,
+    [switch]$JsonOutput
 )
 
 $ErrorActionPreference = "Continue"
@@ -286,6 +292,263 @@ function Get-PCPlusThermalCorrelation {
     }
 }
 
+function Get-PCPlusWebcamInfo {
+    Write-PCLog "Detecting webcam devices."
+
+    $webcams = @()
+    try {
+        # Check PnP devices for camera/webcam/imaging devices
+        $pnpDevices = @(Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.Caption -match 'camera|webcam|imaging|video capture|IR camera|integrated camera' -or
+                $_.PNPClass -eq 'Camera' -or $_.PNPClass -eq 'Image'
+            })
+        foreach ($dev in $pnpDevices) {
+            $driverVer = $null
+            try {
+                $driverInfo = Get-CimInstance Win32_PnPSignedDriver -Filter "DeviceID='$($dev.DeviceID -replace "\\","\\\\")'" -ErrorAction SilentlyContinue
+                if ($driverInfo) { $driverVer = $driverInfo.DriverVersion }
+            } catch {}
+
+            $webcams += [PSCustomObject]@{
+                DeviceName    = $dev.Caption
+                Status        = $dev.Status
+                DeviceID      = $dev.DeviceID
+                PNPClass      = $dev.PNPClass
+                Manufacturer  = $dev.Manufacturer
+                DriverVersion = $driverVer
+                IsEnabled     = ($dev.Status -eq 'OK')
+            }
+        }
+    } catch {
+        Write-PCLog "Webcam detection error: $_" "WARN"
+    }
+
+    [PSCustomObject]@{
+        WebcamDetected = ($webcams.Count -gt 0)
+        WebcamCount    = $webcams.Count
+        Webcams        = $webcams
+    }
+}
+
+function Get-PCPlusTouchscreenInfo {
+    Write-PCLog "Detecting touchscreen capability."
+
+    $touchDevices = @()
+    try {
+        $pnpDevices = @(Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.Caption -match 'touch screen|touch digitizer|touch controller|HID-compliant touch' -or
+                $_.Caption -match 'touch pad' -eq $false -and $_.Caption -match 'touch'
+            })
+        foreach ($dev in $pnpDevices) {
+            # Skip touchpads - we only want touchscreens
+            if ($dev.Caption -match 'touchpad|track ?pad|synaptics.*pad|elan.*pad') { continue }
+            $touchDevices += [PSCustomObject]@{
+                DeviceName = $dev.Caption
+                Status     = $dev.Status
+                DeviceID   = $dev.DeviceID
+                PNPClass   = $dev.PNPClass
+                IsEnabled  = ($dev.Status -eq 'OK')
+            }
+        }
+    } catch {
+        Write-PCLog "Touchscreen detection error: $_" "WARN"
+    }
+
+    # Check max touch points via SM_MAXIMUMTOUCHES (SM index 95)
+    $maxTouchPoints = $null
+    try {
+        Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class TouchInfo {
+    [DllImport("user32.dll")]
+    public static extern int GetSystemMetrics(int nIndex);
+    public static int GetMaxTouchPoints() { return GetSystemMetrics(95); }
+}
+"@ -ErrorAction SilentlyContinue
+        $maxTouchPoints = [TouchInfo]::GetMaxTouchPoints()
+    } catch {
+        Write-PCLog "Could not query touch points: $_" "WARN"
+    }
+
+    # Check if Windows touch/tablet features are enabled
+    $touchEnabled = $false
+    try {
+        # SM_DIGITIZER = 94
+        $digitizerFlags = [TouchInfo]::GetSystemMetrics(94)
+        # Bit 0x01 = integrated touch, 0x02 = external touch, 0x40 = touch ready
+        $touchEnabled = ($digitizerFlags -band 0x41) -ne 0
+    } catch {}
+
+    [PSCustomObject]@{
+        TouchscreenDetected = ($touchDevices.Count -gt 0)
+        TouchDeviceCount    = $touchDevices.Count
+        TouchDevices        = $touchDevices
+        MaxTouchPoints      = $maxTouchPoints
+        TouchEnabled        = $touchEnabled
+        Notes               = if ($touchDevices.Count -eq 0) { "No touchscreen digitizer detected." } else { "Touchscreen hardware found. Max touch points: $maxTouchPoints" }
+    }
+}
+
+function Invoke-PCPlusBurnInTest {
+    Write-PCLog "Starting interactive burn-in detection test (WinForms)."
+
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
+
+    $colors = @(
+        @{ Name = "RED";   Color = [System.Drawing.Color]::Red;       FG = [System.Drawing.Color]::White },
+        @{ Name = "GREEN"; Color = [System.Drawing.Color]::Lime;      FG = [System.Drawing.Color]::Black },
+        @{ Name = "BLUE";  Color = [System.Drawing.Color]::Blue;      FG = [System.Drawing.Color]::White },
+        @{ Name = "WHITE"; Color = [System.Drawing.Color]::White;     FG = [System.Drawing.Color]::Black },
+        @{ Name = "BLACK"; Color = [System.Drawing.Color]::Black;     FG = [System.Drawing.Color]::White },
+        @{ Name = "GRAY";  Color = [System.Drawing.Color]::Gray;      FG = [System.Drawing.Color]::White }
+    )
+
+    $totalColors = $colors.Count
+    $displaySeconds = 3
+
+    # Show each color fullscreen for $displaySeconds seconds
+    foreach ($colorDef in $colors) {
+        $form = New-Object System.Windows.Forms.Form
+        $form.Text = "PC Plus Computing 360 - Burn-In Test"
+        $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
+        $form.WindowState = [System.Windows.Forms.FormWindowState]::Maximized
+        $form.TopMost = $true
+        $form.BackColor = $colorDef.Color
+        $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
+
+        $label = New-Object System.Windows.Forms.Label
+        $label.Text = "$($colorDef.Name) SCREEN`r`n`r`nLook for uneven brightness, dark spots, or color bleeding"
+        $label.ForeColor = $colorDef.FG
+        $label.BackColor = [System.Drawing.Color]::FromArgb(120, 0, 0, 0)
+        if ($colorDef.Name -eq "BLACK") {
+            $label.BackColor = [System.Drawing.Color]::FromArgb(80, 255, 255, 255)
+        }
+        $label.Font = New-Object System.Drawing.Font("Segoe UI", 22, [System.Drawing.FontStyle]::Bold)
+        $label.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+        $label.AutoSize = $false
+        $label.Size = New-Object System.Drawing.Size(800, 200)
+
+        $form.Add_Shown({
+            # Center the label on the form
+            $label.Location = New-Object System.Drawing.Point(
+                [int](($form.ClientSize.Width - $label.Width) / 2),
+                [int](($form.ClientSize.Height - $label.Height) / 2)
+            )
+        })
+
+        $form.Controls.Add($label)
+
+        # Timer to close after display period
+        $timer = New-Object System.Windows.Forms.Timer
+        $timer.Interval = $displaySeconds * 1000
+        $timer.Add_Tick({ $form.Close() })
+
+        # Allow ESC to close early
+        $form.Add_KeyDown({
+            if ($_.KeyCode -eq 'Escape') { $form.Close() }
+        })
+
+        $form.Add_Shown({ $timer.Start() })
+        $form.ShowDialog() | Out-Null
+        $timer.Dispose()
+        $form.Dispose()
+    }
+
+    # Now show the rating dialog
+    $ratingForm = New-Object System.Windows.Forms.Form
+    $ratingForm.Text = "PC Plus Computing 360 - Burn-In Assessment"
+    $ratingForm.Size = New-Object System.Drawing.Size(620, 320)
+    $ratingForm.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
+    $ratingForm.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
+    $ratingForm.MaximizeBox = $false
+    $ratingForm.MinimizeBox = $false
+    $ratingForm.TopMost = $true
+    $ratingForm.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#0a1628")
+    $ratingForm.ForeColor = [System.Drawing.Color]::White
+
+    $titleLabel = New-Object System.Windows.Forms.Label
+    $titleLabel.Text = "PC Plus Computing 360"
+    $titleLabel.Font = New-Object System.Drawing.Font("Segoe UI", 16, [System.Drawing.FontStyle]::Bold)
+    $titleLabel.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#2596be")
+    $titleLabel.Location = New-Object System.Drawing.Point(30, 20)
+    $titleLabel.AutoSize = $true
+    $ratingForm.Controls.Add($titleLabel)
+
+    $questionLabel = New-Object System.Windows.Forms.Label
+    $questionLabel.Text = "Did you notice any burn-in, dead pixels, or uneven areas?"
+    $questionLabel.Font = New-Object System.Drawing.Font("Segoe UI", 13)
+    $questionLabel.ForeColor = [System.Drawing.Color]::White
+    $questionLabel.Location = New-Object System.Drawing.Point(30, 70)
+    $questionLabel.Size = New-Object System.Drawing.Size(540, 40)
+    $ratingForm.Controls.Add($questionLabel)
+
+    $subLabel = New-Object System.Windows.Forms.Label
+    $subLabel.Text = "Select the result of your visual inspection:"
+    $subLabel.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+    $subLabel.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#a0b0c0")
+    $subLabel.Location = New-Object System.Drawing.Point(30, 115)
+    $subLabel.AutoSize = $true
+    $ratingForm.Controls.Add($subLabel)
+
+    $burnInResult = "Unsure"
+
+    $btnYes = New-Object System.Windows.Forms.Button
+    $btnYes.Text = "Yes - Issues Found"
+    $btnYes.Size = New-Object System.Drawing.Size(160, 50)
+    $btnYes.Location = New-Object System.Drawing.Point(30, 160)
+    $btnYes.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+    $btnYes.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#e74c3c")
+    $btnYes.ForeColor = [System.Drawing.Color]::White
+    $btnYes.Font = New-Object System.Drawing.Font("Segoe UI", 11, [System.Drawing.FontStyle]::Bold)
+    $btnYes.Add_Click({ $script:burnInResult = "Yes"; $ratingForm.Close() })
+    $ratingForm.Controls.Add($btnYes)
+
+    $btnNo = New-Object System.Windows.Forms.Button
+    $btnNo.Text = "No - Display Clean"
+    $btnNo.Size = New-Object System.Drawing.Size(160, 50)
+    $btnNo.Location = New-Object System.Drawing.Point(220, 160)
+    $btnNo.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+    $btnNo.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#27ae60")
+    $btnNo.ForeColor = [System.Drawing.Color]::White
+    $btnNo.Font = New-Object System.Drawing.Font("Segoe UI", 11, [System.Drawing.FontStyle]::Bold)
+    $btnNo.Add_Click({ $script:burnInResult = "No"; $ratingForm.Close() })
+    $ratingForm.Controls.Add($btnNo)
+
+    $btnUnsure = New-Object System.Windows.Forms.Button
+    $btnUnsure.Text = "Unsure"
+    $btnUnsure.Size = New-Object System.Drawing.Size(160, 50)
+    $btnUnsure.Location = New-Object System.Drawing.Point(410, 160)
+    $btnUnsure.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+    $btnUnsure.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#f39c12")
+    $btnUnsure.ForeColor = [System.Drawing.Color]::White
+    $btnUnsure.Font = New-Object System.Drawing.Font("Segoe UI", 11, [System.Drawing.FontStyle]::Bold)
+    $btnUnsure.Add_Click({ $script:burnInResult = "Unsure"; $ratingForm.Close() })
+    $ratingForm.Controls.Add($btnUnsure)
+
+    $ratingForm.ShowDialog() | Out-Null
+    $ratingForm.Dispose()
+
+    $result = $script:burnInResult
+    Write-PCLog "Burn-in test result: $result"
+
+    [PSCustomObject]@{
+        TestPerformed    = $true
+        BurnInDetected   = $result
+        ColorsShown      = ($colors | ForEach-Object { $_.Name })
+        DisplaySeconds   = $displaySeconds
+        TechnicianRating = $result
+        Notes            = switch ($result) {
+            "Yes"    { "Technician observed burn-in, dead pixels, or uneven areas during visual test." }
+            "No"     { "Display passed visual burn-in and uniformity check. No issues observed." }
+            "Unsure" { "Technician was unsure about display condition. Further inspection recommended." }
+        }
+    }
+}
+
 function New-PCPlusVisualDisplayTest {
     Write-PCLog "Creating fullscreen LCD visual test page."
 
@@ -351,7 +614,7 @@ document.addEventListener('keydown',e=>{if(e.key==='ArrowRight')setTest((idx+1)%
 }
 
 function Get-PCPlusDisplayWearScore {
-    param($System,$Monitor,$Adapter,$Brightness,$Events,$Thermal)
+    param($System,$Monitor,$Adapter,$Brightness,$Events,$Thermal,$Webcam,$Touchscreen,$BurnIn)
 
     $score=100
     $findings=@()
@@ -414,6 +677,88 @@ function Get-PCPlusDisplayWearScore {
     if ($Monitor.MonitorCount -eq 0) {
         $score -= 5
         $findings += New-Finding "Monitor Detection" "Low" "Monitor EDID information was not detected." "Check display driver/monitor detection if display issues exist."
+    }
+
+    # Color depth check
+    foreach ($gpu in $Adapter.GPUs) {
+        if ($gpu.VideoModeDescription -match '(\d+)\s*(?:bit|bpp|colors)') {
+            $colorBits = [int]$Matches[1]
+            if ($colorBits -lt 32) {
+                $score -= 3
+                $findings += New-Finding "Color Depth" "Low" "Display running at $colorBits-bit color." "32-bit (True Color) recommended for accurate display testing."
+            }
+        }
+    }
+
+    # HDR support check
+    $hdrSupported = $false
+    try {
+        $hdrKey = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\MonitorData\*" -ErrorAction SilentlyContinue
+        if ($hdrKey) {
+            foreach ($prop in $hdrKey.PSObject.Properties) {
+                if ($prop.Name -match 'HDR' -and $prop.Value) { $hdrSupported = $true }
+            }
+        }
+    } catch {}
+    if (-not $hdrSupported) {
+        # Not a penalty, just informational
+        $findings += New-Finding "HDR Support" "Info" "HDR display capability not detected or not enabled." "HDR is optional. Modern displays with HDR tend to have better panel quality."
+    }
+
+    # Webcam scoring
+    if ($null -ne $Webcam) {
+        if ($Webcam.WebcamDetected) {
+            $allOK = $true
+            foreach ($cam in $Webcam.Webcams) {
+                if ($cam.Status -ne 'OK') {
+                    $allOK = $false
+                    $score -= 3
+                    $findings += New-Finding "Webcam Status" "Low" "Webcam '$($cam.DeviceName)' status is $($cam.Status)." "Check Device Manager for webcam driver issues."
+                }
+            }
+            if ($allOK) {
+                $findings += New-Finding "Webcam" "Info" "$($Webcam.WebcamCount) webcam(s) detected and functional." "Webcam hardware is operational."
+            }
+        } else {
+            if ($System.IsLaptop) {
+                $score -= 2
+                $findings += New-Finding "Webcam Missing" "Low" "No webcam detected on laptop." "Most laptops should have a built-in webcam. Check if disabled in BIOS/Device Manager."
+            }
+        }
+    }
+
+    # Touchscreen scoring (relevant for laptops / 2-in-1s)
+    if ($null -ne $Touchscreen) {
+        if ($Touchscreen.TouchscreenDetected) {
+            $allTouchOK = $true
+            foreach ($td in $Touchscreen.TouchDevices) {
+                if ($td.Status -ne 'OK') {
+                    $allTouchOK = $false
+                    $score -= 3
+                    $findings += New-Finding "Touchscreen Status" "Low" "Touch device '$($td.DeviceName)' status is $($td.Status)." "Check touch digitizer in Device Manager."
+                }
+            }
+            if ($allTouchOK) {
+                $findings += New-Finding "Touchscreen" "Info" "Touchscreen detected with $($Touchscreen.MaxTouchPoints) touch points." "Touch digitizer is operational."
+            }
+        }
+    }
+
+    # Burn-in test scoring
+    if ($null -ne $BurnIn -and $BurnIn.TestPerformed) {
+        switch ($BurnIn.BurnInDetected) {
+            "Yes" {
+                $score -= 15
+                $findings += New-Finding "Burn-In Test" "High" "Technician observed burn-in, dead pixels, or uneven areas." "Display panel may need replacement or further professional assessment."
+            }
+            "Unsure" {
+                $score -= 5
+                $findings += New-Finding "Burn-In Test" "Moderate" "Technician was unsure about display condition." "Recommend retest in a darker environment or use a dedicated pixel test tool."
+            }
+            "No" {
+                $findings += New-Finding "Burn-In Test" "Info" "Display passed visual burn-in and uniformity check." "No action needed."
+            }
+        }
     }
 
     if ($score -lt 0) { $score=0 }
@@ -570,6 +915,48 @@ a.btn{display:inline-block;background:#2596be;color:white;text-decoration:none;p
   </div>
 
   <div class="card">
+    <h2>Burn-In Detection Test</h2>
+    <table>
+      <tr><th>Test Performed</th><td>$($Data.BurnIn.TestPerformed)</td></tr>
+      <tr><th>Technician Rating</th><td class='$(if($Data.BurnIn.BurnInDetected -eq "Yes"){"fail"}elseif($Data.BurnIn.BurnInDetected -eq "Unsure"){"warn"}else{"pass"})'>$($Data.BurnIn.BurnInDetected)</td></tr>
+      <tr><th>Colors Tested</th><td>$($Data.BurnIn.ColorsShown -join ", ")</td></tr>
+      <tr><th>Notes</th><td>$($Data.BurnIn.Notes)</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Webcam Detection</h2>
+    <table>
+      <tr><th>Webcam Detected</th><td>$($Data.Webcam.WebcamDetected)</td></tr>
+      <tr><th>Webcam Count</th><td>$($Data.Webcam.WebcamCount)</td></tr>
+    </table>
+    $(if($Data.Webcam.WebcamDetected){
+      $wcRows = foreach($wc in $Data.Webcam.Webcams){
+        "<tr><td>$(HtmlEncode $wc.DeviceName)</td><td class='$(if($wc.Status -eq 'OK'){"pass"}else{"fail"})'>$($wc.Status)</td><td>$(HtmlEncode $wc.Manufacturer)</td><td>$($wc.DriverVersion)</td></tr>"
+      }
+      "<table><tr><th>Device</th><th>Status</th><th>Manufacturer</th><th>Driver Version</th></tr>$($wcRows -join '')</table>"
+    } else {
+      "<p>No webcam devices detected.</p>"
+    })
+  </div>
+
+  <div class="card">
+    <h2>Touchscreen Detection</h2>
+    <table>
+      <tr><th>Touchscreen Detected</th><td>$($Data.Touchscreen.TouchscreenDetected)</td></tr>
+      <tr><th>Max Touch Points</th><td>$($Data.Touchscreen.MaxTouchPoints)</td></tr>
+      <tr><th>Touch Enabled</th><td>$($Data.Touchscreen.TouchEnabled)</td></tr>
+      <tr><th>Notes</th><td>$($Data.Touchscreen.Notes)</td></tr>
+    </table>
+    $(if($Data.Touchscreen.TouchscreenDetected){
+      $tsRows = foreach($ts in $Data.Touchscreen.TouchDevices){
+        "<tr><td>$(HtmlEncode $ts.DeviceName)</td><td class='$(if($ts.Status -eq 'OK'){"pass"}else{"fail"})'>$($ts.Status)</td><td>$($ts.PNPClass)</td></tr>"
+      }
+      "<table><tr><th>Device</th><th>Status</th><th>Class</th></tr>$($tsRows -join '')</table>"
+    })
+  </div>
+
+  <div class="card">
     <h2>Technician Notes</h2>
     <p>For best LCD life estimate, add technician visual results: max brightness comparison, dead/stuck pixel count, backlight bleed level, burn-in/image retention, yellow tint, hinge-angle flicker, and external monitor comparison.</p>
   </div>
@@ -599,7 +986,10 @@ $Adapter = Get-PCPlusDisplayAdapterInfo
 $Brightness = Get-PCPlusBrightnessInfo
 $Events = Get-PCPlusDisplayEvents
 $Thermal = Get-PCPlusThermalCorrelation
-$Score = Get-PCPlusDisplayWearScore -System $System -Monitor $Monitor -Adapter $Adapter -Brightness $Brightness -Events $Events -Thermal $Thermal
+$Webcam = Get-PCPlusWebcamInfo
+$Touchscreen = Get-PCPlusTouchscreenInfo
+$BurnIn = Invoke-PCPlusBurnInTest
+$Score = Get-PCPlusDisplayWearScore -System $System -Monitor $Monitor -Adapter $Adapter -Brightness $Brightness -Events $Events -Thermal $Thermal -Webcam $Webcam -Touchscreen $Touchscreen -BurnIn $BurnIn
 
 $Data = [PSCustomObject]@{
     System=$System
@@ -608,6 +998,9 @@ $Data = [PSCustomObject]@{
     Brightness=$Brightness
     Events=$Events
     Thermal=$Thermal
+    Webcam=$Webcam
+    Touchscreen=$Touchscreen
+    BurnIn=$BurnIn
     Score=$Score
     VisualTestFile=$VisualTestFile
     ReportDir=$ReportDir
@@ -618,6 +1011,17 @@ $Data | ConvertTo-Json -Depth 12 | Set-Content -Path $JsonFile -Encoding UTF8
 $topFindings = $Score.Findings | ForEach-Object {
     "- [$($_.Severity)] $($_.Category): $($_.Finding) Recommendation: $($_.Recommendation)"
 }
+
+$webcamSummary = if ($Webcam.WebcamDetected) {
+    $camNames = ($Webcam.Webcams | ForEach-Object { "$($_.DeviceName) [$($_.Status)]" }) -join ", "
+    "Webcam: $($Webcam.WebcamCount) detected - $camNames"
+} else { "Webcam: Not detected" }
+
+$touchSummary = if ($Touchscreen.TouchscreenDetected) {
+    "Touchscreen: Detected ($($Touchscreen.MaxTouchPoints) touch points)"
+} else { "Touchscreen: Not detected" }
+
+$burnInSummary = "Burn-In Test: $($BurnIn.BurnInDetected) - $($BurnIn.Notes)"
 
 $summary=@"
 PC Plus 360 LCD / Display Wear & Approximate Life Report
@@ -635,6 +1039,10 @@ Grade: $($Score.Grade)
 Risk Level: $($Score.Risk)
 Approximate LCD / Display Life:
 $($Score.ApproxLife)
+
+$webcamSummary
+$touchSummary
+$burnInSummary
 
 Top Findings:
 $($topFindings -join "`r`n")
@@ -666,10 +1074,114 @@ Set-Content -Path $TxtFile -Value $summary -Encoding UTF8
     CurrentBrightness=$Brightness.CurrentBrightness
     DisplayEvents=$Events.EventCount
     DriverResetEvents=$Events.DriverResetCount
+    WebcamDetected=$Webcam.WebcamDetected
+    WebcamCount=$Webcam.WebcamCount
+    TouchscreenDetected=$Touchscreen.TouchscreenDetected
+    MaxTouchPoints=$Touchscreen.MaxTouchPoints
+    BurnInResult=$BurnIn.BurnInDetected
     ReportDate=Get-Date
 } | Export-Csv -Path $CsvFile -NoTypeInformation
 
 New-PCPlusDisplayHtmlReport -Data $Data
+
+# -JsonOutput: Export structured JSON for ReportCard integration
+if ($JsonOutput) {
+    $rcJsonFile = Join-Path $ReportDir "PCPlus360-DisplayWear-ReportCard.json"
+    $reportCardData = [PSCustomObject]@{
+        ReportType        = "LCD Display Wear & Life"
+        ReportVersion     = "2.0"
+        Brand             = "PC Plus Computing 360"
+        GeneratedAt       = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+        ComputerName      = $System.ComputerName
+        CustomerName      = $CustomerName
+        TechnicianName    = $TechnicianName
+        System            = [PSCustomObject]@{
+            Manufacturer  = $System.Manufacturer
+            Model         = $System.Model
+            SerialNumber  = $System.SerialNumber
+            BIOSAgeYears  = $System.BIOSAgeYears
+            IsLaptop      = $System.IsLaptop
+            OS            = $System.OS
+            OSBuild       = $System.OSBuild
+        }
+        DisplayHealth     = [PSCustomObject]@{
+            Score         = $Score.Score
+            Grade         = $Score.Grade
+            Risk          = $Score.Risk
+            ApproxLife    = $Score.ApproxLife
+        }
+        Monitors          = $Monitor.WmiMonitorID
+        MonitorCount      = $Monitor.MonitorCount
+        DisplayAdapters   = @($Adapter.GPUs | ForEach-Object {
+            [PSCustomObject]@{
+                Name                     = $_.Name
+                VRAMGB                   = $_.AdapterRAMGB
+                DriverVersion            = $_.DriverVersion
+                DriverDate               = if ($_.DriverDate) { $_.DriverDate.ToString("yyyy-MM-dd") } else { $null }
+                DriverAgeYears           = $_.DriverAgeYears
+                Resolution               = "$($_.CurrentHorizontalResolution)x$($_.CurrentVerticalResolution)"
+                RefreshRate              = $_.CurrentRefreshRate
+                Status                   = $_.Status
+            }
+        })
+        Brightness        = [PSCustomObject]@{
+            Supported     = $Brightness.BrightnessSupported
+            Current       = $Brightness.CurrentBrightness
+        }
+        Webcam            = [PSCustomObject]@{
+            Detected      = $Webcam.WebcamDetected
+            Count         = $Webcam.WebcamCount
+            Devices       = @($Webcam.Webcams | ForEach-Object {
+                [PSCustomObject]@{
+                    Name          = $_.DeviceName
+                    Status        = $_.Status
+                    Manufacturer  = $_.Manufacturer
+                    DriverVersion = $_.DriverVersion
+                }
+            })
+        }
+        Touchscreen       = [PSCustomObject]@{
+            Detected      = $Touchscreen.TouchscreenDetected
+            DeviceCount   = $Touchscreen.TouchDeviceCount
+            MaxTouchPoints = $Touchscreen.MaxTouchPoints
+            TouchEnabled  = $Touchscreen.TouchEnabled
+        }
+        BurnInTest        = [PSCustomObject]@{
+            Performed     = $BurnIn.TestPerformed
+            Result        = $BurnIn.BurnInDetected
+            Notes         = $BurnIn.Notes
+        }
+        StabilityEvents   = [PSCustomObject]@{
+            TotalEvents       = $Events.EventCount
+            DriverResets      = $Events.DriverResetCount
+            CableReconnects   = $Events.PossibleCableReconnectCount
+            DaysChecked       = $Events.DaysChecked
+        }
+        ThermalRisk       = [PSCustomObject]@{
+            EventCount    = $Thermal.ThermalEventCount
+            MaxTempC      = $Thermal.MaxReportedTemperatureC
+        }
+        Findings          = @($Score.Findings | ForEach-Object {
+            [PSCustomObject]@{
+                Category       = $_.Category
+                Severity       = $_.Severity
+                Finding        = $_.Finding
+                Recommendation = $_.Recommendation
+            }
+        })
+        ReportFiles       = [PSCustomObject]@{
+            HTML          = $HtmlFile
+            JSON          = $JsonFile
+            CSV           = $CsvFile
+            TXT           = $TxtFile
+            Log           = $LogFile
+            VisualTest    = $VisualTestFile
+            ReportCard    = $rcJsonFile
+        }
+    }
+    $reportCardData | ConvertTo-Json -Depth 10 | Set-Content -Path $rcJsonFile -Encoding UTF8
+    Write-PCLog "ReportCard JSON exported to $rcJsonFile"
+}
 
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor Cyan
@@ -680,6 +1192,10 @@ Write-Host "Grade: $($Score.Grade)"
 Write-Host "Risk: $($Score.Risk)"
 Write-Host "Approx Life: $($Score.ApproxLife)"
 Write-Host ""
+Write-Host "Webcam: $(if($Webcam.WebcamDetected){"$($Webcam.WebcamCount) detected"}else{"Not detected"})"
+Write-Host "Touchscreen: $(if($Touchscreen.TouchscreenDetected){"Detected ($($Touchscreen.MaxTouchPoints) touch points)"}else{"Not detected"})"
+Write-Host "Burn-In Test: $($BurnIn.BurnInDetected)"
+Write-Host ""
 Write-Host "Report Folder: $ReportDir"
 Write-Host "HTML Report:   $HtmlFile"
 Write-Host "Visual Test:   $VisualTestFile"
@@ -687,6 +1203,7 @@ Write-Host "TXT Summary:   $TxtFile"
 Write-Host "JSON Raw Data: $JsonFile"
 Write-Host "CSV Summary:   $CsvFile"
 Write-Host "Log File:      $LogFile"
+if ($JsonOutput) { Write-Host "ReportCard:    $(Join-Path $ReportDir 'PCPlus360-DisplayWear-ReportCard.json')" }
 Write-Host ""
 
 if ($OpenReport -and (Test-Path $HtmlFile)) { Start-Process $HtmlFile }

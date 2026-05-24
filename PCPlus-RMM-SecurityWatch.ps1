@@ -20,7 +20,10 @@ param(
     [string]$TechName     = "PC Plus RMM",
     [switch]$SkipUpload,
     [string]$OutputDir    = "C:\PCPlus360-Reports",
-    [string]$CanaryDir    = "C:\PCPlus360-Canary"
+    [string]$CanaryDir    = "C:\PCPlus360-Canary",
+    [switch]$Monitor,
+    [int]$MonitorInterval = 60,
+    [string]$EncryptPassword = ""
 )
 
 $ErrorActionPreference = "SilentlyContinue"
@@ -38,6 +41,110 @@ $alerts = [System.Collections.ArrayList]::new()
 function Add-Alert {
     param([string]$Severity, [string]$Category, [string]$Message, [string]$Detail = "")
     [void]$alerts.Add(@{ Severity = $Severity; Category = $Category; Message = $Message; Detail = $Detail; Time = (Get-Date).ToString("HH:mm:ss") })
+}
+
+# ── Encrypted ZIP Creation for secure upload of findings ──
+function New-EncryptedFindings {
+    param(
+        [string]$SourcePath,
+        [string]$Password,
+        [string]$OutDir
+    )
+    $zipPath = Join-Path $OutDir ("PCPlus360-SecFindings-" + $env:COMPUTERNAME + "-" + (Get-Date).ToString("yyyyMMdd-HHmmss") + ".zip")
+
+    # Try 7-Zip first (supports AES-256 encryption)
+    $sevenZipPaths = @(
+        "${env:ProgramFiles}\7-Zip\7z.exe",
+        "${env:ProgramFiles(x86)}\7-Zip\7z.exe"
+    )
+    $sevenZip = $null
+    foreach ($szp in $sevenZipPaths) {
+        if (Test-Path $szp) { $sevenZip = $szp; break }
+    }
+
+    if ($sevenZip) {
+        $zipPath = $zipPath -replace '\.zip$', '.7z'
+        $args7z = @("a", "-t7z", "-mhe=on", "-p$Password", $zipPath, $SourcePath)
+        $proc = Start-Process -FilePath $sevenZip -ArgumentList $args7z -NoNewWindow -Wait -PassThru -RedirectStandardOutput ([IO.Path]::GetTempFileName()) -RedirectStandardError ([IO.Path]::GetTempFileName())
+        if ($proc.ExitCode -eq 0 -and (Test-Path $zipPath)) {
+            return @{ Success = $true; Path = $zipPath; Method = "7-Zip AES-256" }
+        }
+    }
+
+    # Fallback: .NET ZipArchive (no native AES in .NET Framework 4.x, but we create
+    # a standard ZIP and XOR-obfuscate the content as a basic protection layer)
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop
+        Add-Type -AssemblyName System.IO.Compression -ErrorAction Stop
+
+        $zipPath = $zipPath -replace '\.7z$', '.zip'
+        $fileBytes = [IO.File]::ReadAllBytes($SourcePath)
+
+        # XOR obfuscation with password-derived key (basic protection for transit)
+        $keyBytes = [Text.Encoding]::UTF8.GetBytes($Password)
+        for ($i = 0; $i -lt $fileBytes.Length; $i++) {
+            $fileBytes[$i] = $fileBytes[$i] -bxor $keyBytes[$i % $keyBytes.Length]
+        }
+
+        $zipStream = [IO.File]::Create($zipPath)
+        $archive = New-Object System.IO.Compression.ZipArchive($zipStream, [System.IO.Compression.ZipArchiveMode]::Create)
+        $entryName = [IO.Path]::GetFileName($SourcePath) + ".enc"
+        $entry = $archive.CreateEntry($entryName, [System.IO.Compression.CompressionLevel]::Optimal)
+        $entryStream = $entry.Open()
+        $entryStream.Write($fileBytes, 0, $fileBytes.Length)
+        $entryStream.Close()
+        $archive.Dispose()
+        $zipStream.Close()
+
+        return @{ Success = $true; Path = $zipPath; Method = "ZipArchive+XOR" }
+    } catch {
+        return @{ Success = $false; Path = ""; Method = "Failed: $($_.Exception.Message)" }
+    }
+}
+
+# ── Defender Threat Event Log Detection (last 24h) ──
+function Get-DefenderThreatEvents {
+    $threatEvents = @()
+    try {
+        # Windows Defender Operational log - threat detections (Event IDs: 1006=malware detected, 1116=threat detected, 1117=action taken)
+        $defenderEvents = Get-WinEvent -FilterHashtable @{
+            LogName   = 'Microsoft-Windows-Windows Defender/Operational'
+            Id        = 1006,1007,1008,1009,1116,1117,1118,1119
+            StartTime = (Get-Date).AddHours(-24)
+        } -MaxEvents 25 -ErrorAction SilentlyContinue
+
+        foreach ($evt in $defenderEvents) {
+            $severity = switch ($evt.Id) {
+                { $_ -in @(1006,1116) } { "CRITICAL" }
+                { $_ -in @(1117,1118) } { "HIGH" }
+                default { "MEDIUM" }
+            }
+            $action = switch ($evt.Id) {
+                1006 { "Malware detected" }
+                1007 { "Action taken on malware" }
+                1008 { "Action failed" }
+                1009 { "Item restored from quarantine" }
+                1116 { "Threat detected" }
+                1117 { "Protection action taken" }
+                1118 { "Protection action failed" }
+                1119 { "Protection action - critical failure" }
+                default { "Defender event" }
+            }
+            $threatName = ""
+            if ($evt.Message -match "Name:\s*(.+?)[\r\n]") { $threatName = $Matches[1].Trim() }
+            elseif ($evt.Message -match "Threat Name:\s*(.+?)[\r\n]") { $threatName = $Matches[1].Trim() }
+
+            $threatEvents += @{
+                Time        = $evt.TimeCreated.ToString("yyyy-MM-dd HH:mm:ss")
+                EventId     = $evt.Id
+                Action      = $action
+                ThreatName  = $threatName
+                Severity    = $severity
+                Message     = $evt.Message.Substring(0, [math]::Min($evt.Message.Length, 300))
+            }
+        }
+    } catch {}
+    return $threatEvents
 }
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -321,6 +428,20 @@ $defenderStatus = Invoke-Safe {
         ThreatsFound  = ($threats | Measure-Object).Count
     }
 } @{ RealTime = $null; DefAge = $null; LastScan = "Unknown"; ThreatsFound = 0 }
+
+# 2J. Defender Threat Event Log (detailed threat history)
+$defenderThreatEvents = Get-DefenderThreatEvents
+if ($defenderThreatEvents.Count -gt 0) {
+    foreach ($dte in $defenderThreatEvents) {
+        if ($dte.Severity -eq "CRITICAL") {
+            Add-Alert "CRITICAL" "Defender" "$($dte.Action): $($dte.ThreatName)" "Event $($dte.EventId) at $($dte.Time)"
+        } elseif ($dte.Severity -eq "HIGH") {
+            Add-Alert "HIGH" "Defender" "$($dte.Action): $($dte.ThreatName)" "Event $($dte.EventId) at $($dte.Time)"
+        } else {
+            Add-Alert "MEDIUM" "Defender" "$($dte.Action)" "Event $($dte.EventId) at $($dte.Time)"
+        }
+    }
+}
 
 # ═════════════════════════════════════════════════════════════════════════════
 # PART 3: FULL 41-CHECK SECURITY AUDIT
@@ -720,4 +841,114 @@ $summary = @{
     scan_seconds    = [math]::Round(($scanEnd - $scanStart).TotalSeconds, 0)
 }
 
-$summary | ConvertTo-Json -Depth 3 -Compress | Write-Output
+# Add Defender threat event details to summary
+$summary["defender_threat_events"] = $defenderThreatEvents.Count
+
+# Add severity breakdown per finding
+$findingSeverities = @{
+    CRITICAL = @($alerts | Where-Object { $_.Severity -eq "CRITICAL" }).Count
+    HIGH     = @($alerts | Where-Object { $_.Severity -eq "HIGH" }).Count
+    MEDIUM   = @($alerts | Where-Object { $_.Severity -eq "MEDIUM" }).Count
+    INFO     = @($alerts | Where-Object { $_.Severity -eq "INFO" }).Count
+}
+$summary["severity_breakdown"] = $findingSeverities
+
+# ── Encrypted Upload Preparation ──
+$encryptedResult = @{ Success = $false; Path = ""; Method = "Skipped" }
+if ($EncryptPassword -and $EncryptPassword.Length -gt 0 -and (Test-Path $reportFile)) {
+    $encryptedResult = New-EncryptedFindings -SourcePath $reportFile -Password $EncryptPassword -OutDir $OutputDir
+    $summary["encrypted_archive"] = $encryptedResult.Path
+    $summary["encryption_method"] = $encryptedResult.Method
+}
+
+$summary | ConvertTo-Json -Depth 4 -Compress | Write-Output
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PART 8: REAL-TIME MONITORING MODE (-Monitor switch)
+# ═════════════════════════════════════════════════════════════════════════════
+if ($Monitor) {
+    # Output initial scan results, then enter monitoring loop
+    $lastEventTime = Get-Date
+    $monitorIteration = 0
+
+    while ($true) {
+        Start-Sleep -Seconds $MonitorInterval
+        $monitorIteration++
+        $newAlerts = [System.Collections.ArrayList]::new()
+
+        # Check for new security events since last check
+        $checkSince = $lastEventTime
+
+        # New failed logins
+        $newFailedLogins = Invoke-Safe {
+            $events = Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4625; StartTime=$checkSince} -MaxEvents 20 -ErrorAction SilentlyContinue
+            ($events | Measure-Object).Count
+        } 0
+        if ($newFailedLogins -ge 5) {
+            [void]$newAlerts.Add(@{ Severity = "CRITICAL"; Category = "Intrusion"; Message = "$newFailedLogins new failed logins"; Time = (Get-Date).ToString("HH:mm:ss") })
+        }
+
+        # Defender real-time status change
+        $currentRTP = Invoke-Safe { (Get-MpComputerStatus -ErrorAction Stop).RealTimeProtectionEnabled } $null
+        if ($currentRTP -eq $false) {
+            [void]$newAlerts.Add(@{ Severity = "CRITICAL"; Category = "Security"; Message = "Defender Real-Time Protection OFF"; Time = (Get-Date).ToString("HH:mm:ss") })
+        }
+
+        # New Defender threat detections
+        $newThreats = Invoke-Safe {
+            Get-WinEvent -FilterHashtable @{
+                LogName   = 'Microsoft-Windows-Windows Defender/Operational'
+                Id        = 1006,1116,1117
+                StartTime = $checkSince
+            } -MaxEvents 10 -ErrorAction SilentlyContinue
+        } @()
+        foreach ($nt in $newThreats) {
+            $tName = ""
+            if ($nt.Message -match "Name:\s*(.+?)[\r\n]") { $tName = $Matches[1].Trim() }
+            [void]$newAlerts.Add(@{ Severity = "CRITICAL"; Category = "Defender"; Message = "Threat detected: $tName"; Time = $nt.TimeCreated.ToString("HH:mm:ss") })
+        }
+
+        # Canary file integrity check
+        $canaryCheck = Invoke-Safe {
+            $canaryFiles = @("~budget_2024.xlsx","~invoice_backup.docx","~client_data.pdf","~photos_2024.zip")
+            foreach ($cf in $canaryFiles) {
+                $path = Join-Path $CanaryDir $cf
+                if (Test-Path $path) {
+                    $content = Get-Content $path -Raw -ErrorAction SilentlyContinue
+                    if (-not $content -or $content -notmatch "PCPLUS360-CANARY") {
+                        return "MODIFIED: $cf"
+                    }
+                } else {
+                    return "MISSING: $cf"
+                }
+            }
+            return "OK"
+        } "OK"
+        if ($canaryCheck -ne "OK") {
+            [void]$newAlerts.Add(@{ Severity = "CRITICAL"; Category = "Ransomware"; Message = "Canary file $canaryCheck"; Time = (Get-Date).ToString("HH:mm:ss") })
+        }
+
+        # Firewall profile check
+        $fwCheck = Invoke-Safe {
+            $fw = Get-NetFirewallProfile -ErrorAction Stop
+            $disabled = $fw | Where-Object { -not $_.Enabled }
+            if ($disabled) { ($disabled | ForEach-Object { $_.Name }) -join ", " } else { "OK" }
+        } "OK"
+        if ($fwCheck -ne "OK") {
+            [void]$newAlerts.Add(@{ Severity = "CRITICAL"; Category = "Security"; Message = "Firewall disabled on: $fwCheck"; Time = (Get-Date).ToString("HH:mm:ss") })
+        }
+
+        # Output new findings only (as JSON lines)
+        if ($newAlerts.Count -gt 0) {
+            $monitorOutput = @{
+                monitor_iteration = $monitorIteration
+                timestamp         = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+                new_alerts        = @($newAlerts)
+                alert_count       = $newAlerts.Count
+            }
+            $monitorOutput | ConvertTo-Json -Depth 3 -Compress | Write-Output
+        }
+
+        $lastEventTime = Get-Date
+    }
+}

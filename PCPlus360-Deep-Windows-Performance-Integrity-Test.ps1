@@ -46,7 +46,9 @@ param(
     [switch]$RunRepair,
     [switch]$SkipSFC,
     [switch]$SkipDISM,
-    [switch]$SkipPowerReports
+    [switch]$SkipPowerReports,
+
+    [switch]$JsonOutput
 )
 
 $ErrorActionPreference = "Continue"
@@ -759,6 +761,318 @@ function Test-PCPlusNetworkResponse {
 }
 
 # ============================================================
+# Disk I/O Benchmark
+# ============================================================
+
+function Invoke-PCPlusDiskBenchmark {
+    Write-PCLog "Running disk I/O benchmark."
+
+    $results = @()
+    $benchDir = Join-Path $ReportDir "DiskBenchmark"
+    New-Item -ItemType Directory -Path $benchDir -Force | Out-Null
+
+    $testSizeMB = 256
+    $testBytes = $testSizeMB * 1MB
+    $testFile = Join-Path $benchDir "pcplus-diskbench.tmp"
+
+    try {
+        # Sequential Write
+        $buffer = New-Object byte[] $testBytes
+        $rng = New-Object Random
+        $rng.NextBytes($buffer)
+
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        [System.IO.File]::WriteAllBytes($testFile, $buffer)
+        # Flush to disk
+        $fs = [System.IO.File]::Open($testFile, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Write)
+        $fs.Flush($true)
+        $fs.Close()
+        $fs.Dispose()
+        $sw.Stop()
+
+        $writeSeconds = $sw.Elapsed.TotalSeconds
+        $writeMBps = if ($writeSeconds -gt 0) { [math]::Round($testSizeMB / $writeSeconds, 2) } else { 0 }
+
+        $results += [PSCustomObject]@{
+            Test          = "Sequential Write ${testSizeMB}MB"
+            SizeMB        = $testSizeMB
+            Seconds       = [math]::Round($writeSeconds, 3)
+            ThroughputMBps = $writeMBps
+            Success       = $true
+            Notes         = ""
+        }
+
+        # Sequential Read
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        $readBuffer = [System.IO.File]::ReadAllBytes($testFile)
+        $sw.Stop()
+
+        $readSeconds = $sw.Elapsed.TotalSeconds
+        $readMBps = if ($readSeconds -gt 0) { [math]::Round($testSizeMB / $readSeconds, 2) } else { 0 }
+
+        $results += [PSCustomObject]@{
+            Test          = "Sequential Read ${testSizeMB}MB"
+            SizeMB        = $testSizeMB
+            Seconds       = [math]::Round($readSeconds, 3)
+            ThroughputMBps = $readMBps
+            Success       = $true
+            Notes         = ""
+        }
+
+        $readBuffer = $null
+        $buffer = $null
+    } catch {
+        $results += [PSCustomObject]@{
+            Test          = "Disk Benchmark"
+            SizeMB        = $testSizeMB
+            Seconds       = $null
+            ThroughputMBps = $null
+            Success       = $false
+            Notes         = $_.Exception.Message
+        }
+    } finally {
+        if (Test-Path $testFile) { Remove-Item $testFile -Force -ErrorAction SilentlyContinue }
+        [GC]::Collect()
+    }
+
+    $results
+}
+
+# ============================================================
+# Network Performance Benchmark
+# ============================================================
+
+function Invoke-PCPlusNetworkBenchmark {
+    Write-PCLog "Running network performance benchmark."
+
+    $results = [ordered]@{
+        DNSLookups = @()
+        PingLatency = @()
+    }
+
+    # DNS lookup benchmarks
+    $dnsTargets = @("google.com", "microsoft.com", "cloudflare.com")
+    foreach ($target in $dnsTargets) {
+        try {
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            $resolved = Resolve-DnsName $target -Type A -ErrorAction Stop | Select-Object -First 1
+            $sw.Stop()
+            $results.DNSLookups += [PSCustomObject]@{
+                Target     = $target
+                ResolvedIP = $resolved.IPAddress
+                LookupMS   = $sw.ElapsedMilliseconds
+                Success    = $true
+            }
+        } catch {
+            $results.DNSLookups += [PSCustomObject]@{
+                Target     = $target
+                ResolvedIP = $null
+                LookupMS   = $null
+                Success    = $false
+            }
+        }
+    }
+
+    # Ping latency to common servers
+    $pingTargets = @(
+        @{Name="Google DNS"; IP="8.8.8.8"},
+        @{Name="Cloudflare DNS"; IP="1.1.1.1"},
+        @{Name="Google DNS Secondary"; IP="8.8.4.4"},
+        @{Name="Quad9 DNS"; IP="9.9.9.9"}
+    )
+
+    foreach ($pt in $pingTargets) {
+        try {
+            $pings = @(Test-Connection $pt.IP -Count 10 -ErrorAction SilentlyContinue)
+            $avgMs = if ($pings.Count -gt 0) { [math]::Round(($pings | Measure-Object ResponseTime -Average).Average, 2) } else { $null }
+            $minMs = if ($pings.Count -gt 0) { ($pings | Measure-Object ResponseTime -Minimum).Minimum } else { $null }
+            $maxMs = if ($pings.Count -gt 0) { ($pings | Measure-Object ResponseTime -Maximum).Maximum } else { $null }
+            $jitter = if ($pings.Count -gt 1) {
+                $times = $pings | ForEach-Object { $_.ResponseTime }
+                $diffs = @()
+                for ($i = 1; $i -lt $times.Count; $i++) { $diffs += [math]::Abs($times[$i] - $times[$i-1]) }
+                if ($diffs.Count -gt 0) { [math]::Round(($diffs | Measure-Object -Average).Average, 2) } else { 0 }
+            } else { $null }
+            $loss = [math]::Round(((10 - $pings.Count) / 10) * 100, 1)
+
+            $results.PingLatency += [PSCustomObject]@{
+                Name         = $pt.Name
+                IP           = $pt.IP
+                Sent         = 10
+                Received     = $pings.Count
+                PacketLoss   = $loss
+                AvgMS        = $avgMs
+                MinMS        = $minMs
+                MaxMS        = $maxMs
+                JitterMS     = $jitter
+            }
+        } catch {
+            $results.PingLatency += [PSCustomObject]@{
+                Name         = $pt.Name
+                IP           = $pt.IP
+                Sent         = 10
+                Received     = 0
+                PacketLoss   = 100
+                AvgMS        = $null
+                MinMS        = $null
+                MaxMS        = $null
+                JitterMS     = $null
+            }
+        }
+    }
+
+    [PSCustomObject]$results
+}
+
+# ============================================================
+# Trend Tracking & System Comparison
+# ============================================================
+
+$PerfTrendDir = "C:\PCPlus360\Reports"
+$PerfTrendFile = Join-Path $PerfTrendDir "WindowsPerformance-History.json"
+
+function Get-PerfTrendHistory {
+    if (Test-Path $PerfTrendFile) {
+        try {
+            $content = Get-Content -Path $PerfTrendFile -Raw -ErrorAction Stop
+            $history = $content | ConvertFrom-Json -ErrorAction Stop
+            if ($history -is [array]) { return $history }
+            return @($history)
+        } catch {
+            Write-PCLog "Could not parse performance trend file. Starting fresh." "WARN"
+            return @()
+        }
+    }
+    return @()
+}
+
+function Save-PerfTrendEntry {
+    param($Entry)
+    New-Item -ItemType Directory -Path $PerfTrendDir -Force | Out-Null
+    $history = @(Get-PerfTrendHistory)
+    $history += $Entry
+    if ($history.Count -gt 100) { $history = $history[($history.Count - 100)..($history.Count - 1)] }
+    $history | ConvertTo-Json -Depth 8 | Set-Content -Path $PerfTrendFile -Encoding UTF8
+}
+
+function Get-PerfTrendComparison {
+    param($CurrentEntry)
+    $history = @(Get-PerfTrendHistory)
+    if ($history.Count -eq 0) {
+        return [PSCustomObject]@{
+            HasPrevious   = $false
+            PreviousDate  = $null
+            Note          = "First run. This session becomes the baseline."
+            Deltas        = @()
+        }
+    }
+
+    $prev = $history[$history.Count - 1]
+    $deltas = @()
+
+    # Score comparison
+    $prevScore = if ($null -ne $prev.Score) { $prev.Score } else { 0 }
+    $curScore  = if ($null -ne $CurrentEntry.Score) { $CurrentEntry.Score } else { 0 }
+    $deltas += [PSCustomObject]@{
+        Metric   = "Health Score"
+        Previous = $prevScore
+        Current  = $curScore
+        Delta    = $curScore - $prevScore
+        Status   = if (($curScore - $prevScore) -gt 0) { "Improved" } elseif (($curScore - $prevScore) -lt 0) { "Degraded" } else { "Unchanged" }
+    }
+
+    # Disk write throughput
+    $prevWrite = if ($null -ne $prev.DiskWriteMBps) { $prev.DiskWriteMBps } else { 0 }
+    $curWrite  = if ($null -ne $CurrentEntry.DiskWriteMBps) { $CurrentEntry.DiskWriteMBps } else { 0 }
+    $deltas += [PSCustomObject]@{
+        Metric   = "Disk Write MB/s"
+        Previous = $prevWrite
+        Current  = $curWrite
+        Delta    = [math]::Round($curWrite - $prevWrite, 2)
+        Status   = if (($curWrite - $prevWrite) -gt 5) { "Improved" } elseif (($curWrite - $prevWrite) -lt -5) { "Degraded" } else { "Unchanged" }
+    }
+
+    # Disk read throughput
+    $prevRead = if ($null -ne $prev.DiskReadMBps) { $prev.DiskReadMBps } else { 0 }
+    $curRead  = if ($null -ne $CurrentEntry.DiskReadMBps) { $CurrentEntry.DiskReadMBps } else { 0 }
+    $deltas += [PSCustomObject]@{
+        Metric   = "Disk Read MB/s"
+        Previous = $prevRead
+        Current  = $curRead
+        Delta    = [math]::Round($curRead - $prevRead, 2)
+        Status   = if (($curRead - $prevRead) -gt 5) { "Improved" } elseif (($curRead - $prevRead) -lt -5) { "Degraded" } else { "Unchanged" }
+    }
+
+    # Network latency (average ping to 8.8.8.8)
+    $prevPing = if ($null -ne $prev.AvgPingMS) { $prev.AvgPingMS } else { 0 }
+    $curPing  = if ($null -ne $CurrentEntry.AvgPingMS) { $CurrentEntry.AvgPingMS } else { 0 }
+    $deltas += [PSCustomObject]@{
+        Metric   = "Avg Ping (8.8.8.8) ms"
+        Previous = $prevPing
+        Current  = $curPing
+        Delta    = [math]::Round($curPing - $prevPing, 2)
+        Status   = if (($curPing - $prevPing) -gt 5) { "Degraded" } elseif (($curPing - $prevPing) -lt -5) { "Improved" } else { "Unchanged" }
+    }
+
+    [PSCustomObject]@{
+        HasPrevious   = $true
+        PreviousDate  = $prev.Timestamp
+        Note          = "Comparing against previous run from $($prev.Timestamp)."
+        Deltas        = $deltas
+    }
+}
+
+function Get-SystemCategory {
+    param($Score, $DiskWriteMBps, $TotalRAMGB, $CPUName)
+
+    # Classify the system based on score and hardware
+    $category = "Low-end PC"
+    $notes = @()
+
+    # RAM-based classification
+    if ($TotalRAMGB -ge 64) { $ramTier = 4; $notes += "RAM: Workstation-class ($TotalRAMGB GB)" }
+    elseif ($TotalRAMGB -ge 32) { $ramTier = 3; $notes += "RAM: High-end ($TotalRAMGB GB)" }
+    elseif ($TotalRAMGB -ge 16) { $ramTier = 2; $notes += "RAM: Mid-range ($TotalRAMGB GB)" }
+    elseif ($TotalRAMGB -ge 8) { $ramTier = 1; $notes += "RAM: Entry-level ($TotalRAMGB GB)" }
+    else { $ramTier = 0; $notes += "RAM: Below minimum ($TotalRAMGB GB)" }
+
+    # Disk-based classification
+    if ($null -eq $DiskWriteMBps -or $DiskWriteMBps -le 0) { $diskTier = 1 }
+    elseif ($DiskWriteMBps -ge 1500) { $diskTier = 4; $notes += "Disk: NVMe-class ($DiskWriteMBps MB/s write)" }
+    elseif ($DiskWriteMBps -ge 400) { $diskTier = 3; $notes += "Disk: SSD-class ($DiskWriteMBps MB/s write)" }
+    elseif ($DiskWriteMBps -ge 100) { $diskTier = 2; $notes += "Disk: Fast HDD/slow SSD ($DiskWriteMBps MB/s write)" }
+    else { $diskTier = 1; $notes += "Disk: HDD-class ($DiskWriteMBps MB/s write)" }
+
+    # Score-based classification
+    if ($Score -ge 90) { $scoreTier = 4 }
+    elseif ($Score -ge 75) { $scoreTier = 3 }
+    elseif ($Score -ge 55) { $scoreTier = 2 }
+    else { $scoreTier = 1 }
+
+    $avgTier = [math]::Round(($ramTier + $diskTier + $scoreTier) / 3, 1)
+
+    if ($avgTier -ge 3.5) { $category = "Workstation / High-Performance" }
+    elseif ($avgTier -ge 2.5) { $category = "High-end PC" }
+    elseif ($avgTier -ge 1.5) { $category = "Mid-range PC" }
+    else { $category = "Low-end PC" }
+
+    [PSCustomObject]@{
+        Category   = $category
+        AvgTier    = $avgTier
+        ScoreTier  = $scoreTier
+        RAMTier    = $ramTier
+        DiskTier   = $diskTier
+        Notes      = $notes
+        Comparison = @(
+            [PSCustomObject]@{ Tier="Low-end PC"; ScoreRange="0-54"; RAM="< 8 GB"; DiskWrite="< 100 MB/s" }
+            [PSCustomObject]@{ Tier="Mid-range PC"; ScoreRange="55-74"; RAM="8-15 GB"; DiskWrite="100-399 MB/s" }
+            [PSCustomObject]@{ Tier="High-end PC"; ScoreRange="75-89"; RAM="16-31 GB"; DiskWrite="400-1499 MB/s" }
+            [PSCustomObject]@{ Tier="Workstation"; ScoreRange="90-100"; RAM="32+ GB"; DiskWrite="1500+ MB/s" }
+        )
+    }
+}
+
+# ============================================================
 # Score
 # ============================================================
 
@@ -989,6 +1303,65 @@ td{border-bottom:1px solid #dbe8ef;padding:9px;vertical-align:top}
   </div>
 
   <div class="card">
+    <h2>Disk I/O Benchmark</h2>
+    <table>
+      <tr><th>Test</th><th>Size MB</th><th>Seconds</th><th>Throughput MB/s</th><th>Notes</th></tr>
+      $(foreach ($db in $Data.DiskBenchmark) {
+        "<tr><td>$($db.Test)</td><td>$($db.SizeMB)</td><td>$($db.Seconds)</td><td>$($db.ThroughputMBps)</td><td>$($db.Notes)</td></tr>"
+      })
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Network Performance Benchmark</h2>
+    <h3>DNS Lookup Times</h3>
+    <table>
+      <tr><th>Target</th><th>Resolved IP</th><th>Lookup MS</th><th>Success</th></tr>
+      $(foreach ($dns in $Data.NetworkBenchmark.DNSLookups) {
+        "<tr><td>$($dns.Target)</td><td>$($dns.ResolvedIP)</td><td>$($dns.LookupMS)</td><td>$($dns.Success)</td></tr>"
+      })
+    </table>
+    <h3>Ping Latency</h3>
+    <table>
+      <tr><th>Name</th><th>IP</th><th>Recv/Sent</th><th>Loss %</th><th>Avg MS</th><th>Min MS</th><th>Max MS</th><th>Jitter MS</th></tr>
+      $(foreach ($pl in $Data.NetworkBenchmark.PingLatency) {
+        "<tr><td>$($pl.Name)</td><td>$($pl.IP)</td><td>$($pl.Received)/$($pl.Sent)</td><td>$($pl.PacketLoss)%</td><td>$($pl.AvgMS)</td><td>$($pl.MinMS)</td><td>$($pl.MaxMS)</td><td>$($pl.JitterMS)</td></tr>"
+      })
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>System Classification</h2>
+    <p><b>This System:</b> <span class="badge" style="font-size:16px;">$($Data.SystemCategory.Category)</span></p>
+    <ul>
+      $(($Data.SystemCategory.Notes | ForEach-Object { "<li>$_</li>" }) -join "`n")
+    </ul>
+    <h3>Typical System Categories</h3>
+    <table>
+      <tr><th>Category</th><th>Score Range</th><th>RAM</th><th>Disk Write</th></tr>
+      $(foreach ($c in $Data.SystemCategory.Comparison) {
+        $highlight = if ($c.Tier -eq $Data.SystemCategory.Category -or ($c.Tier -eq "Workstation" -and $Data.SystemCategory.Category -match "Workstation")) { " style='background:#eaf7fc;font-weight:700;'" } else { "" }
+        "<tr$highlight><td>$($c.Tier)</td><td>$($c.ScoreRange)</td><td>$($c.RAM)</td><td>$($c.DiskWrite)</td></tr>"
+      })
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Performance Trend</h2>
+    <p><b>$($Data.PerfTrend.Note)</b></p>
+    $(if ($Data.PerfTrend.HasPrevious) {
+        $tRows = foreach ($d in $Data.PerfTrend.Deltas) {
+            $tClass = if ($d.Status -eq "Degraded") { "fail" } elseif ($d.Status -eq "Improved") { "pass" } else { "warn" }
+            "<tr><td>$($d.Metric)</td><td>$($d.Previous)</td><td>$($d.Current)</td><td class='$tClass'>$($d.Delta) ($($d.Status))</td></tr>"
+        }
+        "<table><tr><th>Metric</th><th>Previous</th><th>Current</th><th>Delta</th></tr>$($tRows -join "`n")</table>"
+    } else {
+        "<p>No previous runs to compare. This session establishes the baseline.</p>"
+    })
+    <p>Trend history: <code>$PerfTrendFile</code></p>
+  </div>
+
+  <div class="card">
     <h2>Technician Recommendation</h2>
     <p>If hardware tests pass but Windows score is low, focus on Windows corruption, startup apps, service problems, disk/file system issues, driver crashes, update failures, or application instability.</p>
   </div>
@@ -1031,8 +1404,39 @@ $Data.EventLogScan = @(Get-PCPlusDeepEventLogScan)
 $Data.WindowsUpdateHealth = Get-PCPlusWindowsUpdateHealth
 $Data.PowerReports = Invoke-PCPlusPowerReports
 $Data.NetworkResponse = Test-PCPlusNetworkResponse
+$Data.DiskBenchmark = @(Invoke-PCPlusDiskBenchmark)
+$Data.NetworkBenchmark = Invoke-PCPlusNetworkBenchmark
 
 $Data.Score = Get-PCPlusWindowsHealthScore -Data $Data
+
+# Extract key metrics for trend entry and system classification
+$diskWriteResult = $Data.DiskBenchmark | Where-Object { $_.Test -match "Write" -and $_.Success } | Select-Object -First 1
+$diskReadResult  = $Data.DiskBenchmark | Where-Object { $_.Test -match "Read" -and $_.Success } | Select-Object -First 1
+$diskWriteMBps = if ($diskWriteResult) { $diskWriteResult.ThroughputMBps } else { $null }
+$diskReadMBps  = if ($diskReadResult) { $diskReadResult.ThroughputMBps } else { $null }
+$avgPingResult = $Data.NetworkBenchmark.PingLatency | Where-Object { $_.IP -eq "8.8.8.8" } | Select-Object -First 1
+$avgPingMS = if ($avgPingResult) { $avgPingResult.AvgMS } else { $null }
+
+# System classification
+$Data.SystemCategory = Get-SystemCategory -Score $Data.Score.Score -DiskWriteMBps $diskWriteMBps -TotalRAMGB $Data.System.TotalRAMGB -CPUName $Data.System.CPU
+
+# Build and save trend entry
+$perfTrendEntry = [PSCustomObject]@{
+    Timestamp     = (Get-Date -Format "o")
+    ComputerName  = $env:COMPUTERNAME
+    Mode          = $Mode
+    Score         = $Data.Score.Score
+    Grade         = $Data.Score.Grade
+    DiskWriteMBps = $diskWriteMBps
+    DiskReadMBps  = $diskReadMBps
+    AvgPingMS     = $avgPingMS
+    TotalRAMGB    = $Data.System.TotalRAMGB
+    Category      = $Data.SystemCategory.Category
+}
+
+$Data.PerfTrend = Get-PerfTrendComparison -CurrentEntry $perfTrendEntry
+Save-PerfTrendEntry -Entry $perfTrendEntry
+Write-PCLog "Performance trend entry saved to $PerfTrendFile."
 
 $Data | ConvertTo-Json -Depth 12 | Set-Content -Path $JsonFile -Encoding UTF8
 
@@ -1062,6 +1466,15 @@ CheckHealth: $($Data.DISM.CheckHealth)
 ScanHealth: $($Data.DISM.ScanHealth)
 RestoreHealth: $($Data.DISM.RestoreHealth)
 
+Disk I/O Benchmark:
+Write: $diskWriteMBps MB/s
+Read: $diskReadMBps MB/s
+
+System Classification: $($Data.SystemCategory.Category)
+
+Network Benchmark:
+Avg Ping (8.8.8.8): $avgPingMS ms
+
 Report Folder:
 $ReportDir
 "@
@@ -1077,6 +1490,10 @@ Set-Content -Path $TxtFile -Value $summary -Encoding UTF8
     DISMCheck = $Data.DISM.CheckHealth
     ProblemDevices = $Data.DriverDeviceHealth.ProblemDeviceCount
     RebootPending = $Data.WindowsUpdateHealth.RebootPending
+    DiskWriteMBps = $diskWriteMBps
+    DiskReadMBps = $diskReadMBps
+    AvgPingMS = $avgPingMS
+    SystemCategory = $Data.SystemCategory.Category
     ReportDate = Get-Date
 } | Export-Csv -Path $CsvFile -NoTypeInformation
 
@@ -1092,5 +1509,57 @@ Write-Host "JSON Raw Data: $JsonFile"
 Write-Host "TXT Summary:   $TxtFile"
 Write-Host "CSV Summary:   $CsvFile"
 Write-Host "Log File:      $LogFile"
+# Display additional benchmark results
+Write-Host ""
+Write-Host "Disk I/O Benchmark:" -ForegroundColor Green
+if ($diskWriteMBps) { Write-Host "  Sequential Write: $diskWriteMBps MB/s" }
+if ($diskReadMBps)  { Write-Host "  Sequential Read:  $diskReadMBps MB/s" }
+
+Write-Host ""
+Write-Host "System Classification: $($Data.SystemCategory.Category)" -ForegroundColor Green
+$Data.SystemCategory.Notes | ForEach-Object { Write-Host "  - $_" }
+
+Write-Host ""
+Write-Host "Performance Trend:" -ForegroundColor Green
+Write-Host "  $($Data.PerfTrend.Note)"
+if ($Data.PerfTrend.HasPrevious) {
+    foreach ($d in $Data.PerfTrend.Deltas) {
+        $color = if ($d.Status -eq "Degraded") { "Red" } elseif ($d.Status -eq "Improved") { "Green" } else { "Gray" }
+        Write-Host "  $($d.Metric): Prev=$($d.Previous), Now=$($d.Current), Delta=$($d.Delta) ($($d.Status))" -ForegroundColor $color
+    }
+}
+Write-Host "Trend File: $PerfTrendFile"
+
 Write-Host ""
 Write-PCLog "PC Plus 360 Deep Windows Performance & Integrity Test completed."
+
+# -JsonOutput: Emit structured JSON to stdout for ReportCard integration
+if ($JsonOutput) {
+    $reportCardData = [PSCustomObject]@{
+        ScriptName      = "PCPlus360-Deep-Windows-Performance-Integrity-Test"
+        Version         = "2.0"
+        Timestamp       = (Get-Date -Format "o")
+        ComputerName    = $env:COMPUTERNAME
+        CustomerName    = $CustomerName
+        TechnicianName  = $TechnicianName
+        Mode            = $Mode
+        Score           = $Data.Score.Score
+        Grade           = $Data.Score.Grade
+        Issues          = $Data.Score.Issues
+        SFC             = $Data.SFC.Summary
+        DISMCheck       = $Data.DISM.CheckHealth
+        ProblemDevices  = $Data.DriverDeviceHealth.ProblemDeviceCount
+        RebootPending   = $Data.WindowsUpdateHealth.RebootPending
+        DiskWriteMBps   = $diskWriteMBps
+        DiskReadMBps    = $diskReadMBps
+        AvgPingMS       = $avgPingMS
+        SystemCategory  = $Data.SystemCategory.Category
+        TotalRAMGB      = $Data.System.TotalRAMGB
+        CPU             = $Data.System.CPU
+        TrendPrevious   = $Data.PerfTrend.HasPrevious
+        TrendPrevDate   = $Data.PerfTrend.PreviousDate
+        ReportPath      = $HtmlFile
+        ReportDir       = $ReportDir
+    }
+    $reportCardData | ConvertTo-Json -Depth 4
+}

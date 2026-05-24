@@ -130,6 +130,193 @@ foreach ($v in $hw.Volumes) {
     if ($v.FreePct -lt 10) { $diskAlerts += "$($v.Drive) LOW SPACE: $($v.FreeGB) GB free ($($v.FreePct)%)" }
 }
 
+# ── Predictive Failure Analysis (SMART-based) ──
+$hw.PredictiveFailure = Invoke-Safe {
+    $predictions = @()
+    Get-PhysicalDisk | ForEach-Object {
+        $disk = $_
+        $bt = "$($disk.BusType)"
+        if ($bt -in @("USB","SD","Unknown","Unspecified")) { return }
+
+        $rel = Get-StorageReliabilityCounter -PhysicalDisk $disk -ErrorAction SilentlyContinue
+        if (-not $rel) { return }
+
+        $riskLevel = "OK"
+        $riskFactors = @()
+
+        # Reallocated sector count (high = pending failure)
+        if ($rel.ReadErrorsTotal -and $rel.ReadErrorsTotal -gt 0) {
+            if ($rel.ReadErrorsTotal -gt 100) {
+                $riskLevel = "CRITICAL"
+                $riskFactors += "Read errors: $($rel.ReadErrorsTotal)"
+            } elseif ($rel.ReadErrorsTotal -gt 10) {
+                if ($riskLevel -ne "CRITICAL") { $riskLevel = "WARNING" }
+                $riskFactors += "Read errors: $($rel.ReadErrorsTotal)"
+            }
+        }
+        if ($rel.WriteErrorsTotal -and $rel.WriteErrorsTotal -gt 0) {
+            if ($rel.WriteErrorsTotal -gt 100) {
+                $riskLevel = "CRITICAL"
+                $riskFactors += "Write errors: $($rel.WriteErrorsTotal)"
+            } elseif ($rel.WriteErrorsTotal -gt 10) {
+                if ($riskLevel -ne "CRITICAL") { $riskLevel = "WARNING" }
+                $riskFactors += "Write errors: $($rel.WriteErrorsTotal)"
+            }
+        }
+
+        # SSD Wear Level
+        if ($rel.Wear) {
+            if ($rel.Wear -gt 90) {
+                $riskLevel = "CRITICAL"
+                $riskFactors += "SSD wear at $($rel.Wear)% - imminent failure"
+            } elseif ($rel.Wear -gt 70) {
+                if ($riskLevel -ne "CRITICAL") { $riskLevel = "WARNING" }
+                $riskFactors += "SSD wear at $($rel.Wear)%"
+            }
+        }
+
+        # Temperature check for SSD
+        if ($rel.Temperature) {
+            $diskType = "$($disk.MediaType)"
+            if ($diskType -eq "SSD" -and $rel.Temperature -gt 60) {
+                if ($riskLevel -eq "OK") { $riskLevel = "WARNING" }
+                $riskFactors += "SSD temp $($rel.Temperature)C (>60C threshold)"
+            } elseif ($diskType -eq "SSD" -and $rel.Temperature -gt 70) {
+                $riskLevel = "CRITICAL"
+                $riskFactors += "SSD temp CRITICAL: $($rel.Temperature)C"
+            }
+            if ($diskType -eq "HDD" -and $rel.Temperature -gt 50) {
+                if ($riskLevel -eq "OK") { $riskLevel = "WARNING" }
+                $riskFactors += "HDD temp $($rel.Temperature)C (>50C threshold)"
+            }
+        }
+
+        # Power-on hours (>40,000 for HDD = aging)
+        if ($rel.PowerOnHours -and "$($disk.MediaType)" -eq "HDD") {
+            if ($rel.PowerOnHours -gt 50000) {
+                if ($riskLevel -eq "OK") { $riskLevel = "WARNING" }
+                $riskFactors += "HDD power-on hours: $($rel.PowerOnHours) (>50,000)"
+            }
+        }
+
+        # Windows reported health status
+        if ("$($disk.HealthStatus)" -eq "Warning") {
+            if ($riskLevel -eq "OK") { $riskLevel = "WARNING" }
+            $riskFactors += "Windows reports Warning health status"
+        } elseif ("$($disk.HealthStatus)" -notin @("Healthy","Unknown","")) {
+            $riskLevel = "CRITICAL"
+            $riskFactors += "Windows reports $($disk.HealthStatus) health status"
+        }
+
+        if ($riskFactors.Count -gt 0) {
+            $predictions += @{
+                Disk        = $disk.FriendlyName
+                RiskLevel   = $riskLevel
+                Factors     = $riskFactors
+                Recommendation = switch ($riskLevel) {
+                    "CRITICAL" { "REPLACE IMMEDIATELY - Back up all data NOW" }
+                    "WARNING"  { "Schedule replacement - Monitor closely" }
+                    default    { "Continue monitoring" }
+                }
+            }
+            $diskAlerts += "$($disk.FriendlyName): PREDICTIVE $riskLevel - $($riskFactors -join '; ')"
+        }
+    }
+    $predictions
+} @()
+
+# ── Temperature Trending & Threshold Alerts ──
+$hw.ThermalAnalysis = @()
+foreach ($tz in $hw.Thermal) {
+    $status = "Normal"
+    $threshold = ""
+    if ($tz.TempC -gt 95) {
+        $status = "CRITICAL"
+        $threshold = "CPU >95C - Thermal throttling/shutdown risk"
+        $thermalAlerts += "$($tz.Zone): $($tz.TempC)C - CRITICAL (>95C)"
+    } elseif ($tz.TempC -gt 85) {
+        $status = "WARNING"
+        $threshold = "CPU >85C - Performance degradation likely"
+    } elseif ($tz.TempC -gt 75) {
+        $status = "ELEVATED"
+        $threshold = "CPU >75C - Above optimal range"
+    }
+    $hw.ThermalAnalysis += @{
+        Zone      = $tz.Zone
+        TempC     = $tz.TempC
+        TempF     = $tz.TempF
+        Status    = $status
+        Threshold = $threshold
+    }
+}
+
+# ── Battery Degradation Alert ──
+$hw.BatteryAnalysis = @{ Status = "N/A"; WearLevel = 0; Alert = "" }
+if ($hw.Battery.Present -and $hw.Battery.HealthPct -gt 0) {
+    $wearLevel = 100 - $hw.Battery.HealthPct
+    $batStatus = "Healthy"
+    $batAlert = ""
+    if ($wearLevel -gt 40) {
+        $batStatus = "CRITICAL"
+        $batAlert = "Battery degradation >40% ($([math]::Round($wearLevel,1))%) - Replacement strongly recommended"
+        $diskAlerts += "Battery: CRITICAL wear $([math]::Round($wearLevel,1))%"
+    } elseif ($wearLevel -gt 20) {
+        $batStatus = "WARNING"
+        $batAlert = "Battery degradation >20% ($([math]::Round($wearLevel,1))%) - Monitor closely"
+        $diskAlerts += "Battery: WARNING wear $([math]::Round($wearLevel,1))%"
+    }
+    $hw.BatteryAnalysis = @{
+        Status    = $batStatus
+        WearLevel = [math]::Round($wearLevel, 1)
+        HealthPct = $hw.Battery.HealthPct
+        Alert     = $batAlert
+    }
+}
+
+# ── Memory Error Detection (Windows Memory Diagnostic) ──
+$hw.MemoryDiagnostics = Invoke-Safe {
+    $memResults = @{ Status = "No recent test"; Errors = 0; LastTest = "N/A"; Details = "" }
+
+    # Check MemoryDiagnostics-Results event log
+    $memEvents = Get-WinEvent -FilterHashtable @{
+        LogName      = 'System'
+        ProviderName = 'Microsoft-Windows-MemoryDiagnostics-Results'
+    } -MaxEvents 5 -ErrorAction SilentlyContinue
+
+    if ($memEvents -and $memEvents.Count -gt 0) {
+        $latest = $memEvents[0]
+        $memResults.LastTest = $latest.TimeCreated.ToString("yyyy-MM-dd HH:mm")
+
+        if ($latest.Message -match "no errors") {
+            $memResults.Status = "PASS"
+            $memResults.Details = "Windows Memory Diagnostic found no errors"
+        } else {
+            $memResults.Status = "FAIL"
+            $memResults.Errors = 1
+            $memResults.Details = $latest.Message.Substring(0, [math]::Min($latest.Message.Length, 200))
+            $diskAlerts += "MEMORY ERROR: Windows Memory Diagnostic detected issues"
+        }
+    }
+
+    # Also check for WHEA (hardware error) memory events
+    $wheaEvents = Get-WinEvent -FilterHashtable @{
+        LogName = 'System'
+        Id      = 18,19,20,47
+        ProviderName = 'Microsoft-Windows-WHEA-Logger'
+        StartTime = (Get-Date).AddDays(-30)
+    } -MaxEvents 10 -ErrorAction SilentlyContinue
+
+    $memWheaErrors = @($wheaEvents | Where-Object { $_.Message -match "memory|DIMM|RAM" })
+    if ($memWheaErrors.Count -gt 0) {
+        $memResults.Status = "FAIL"
+        $memResults.Errors += $memWheaErrors.Count
+        $memResults.Details += " | WHEA memory errors: $($memWheaErrors.Count) in last 30 days"
+        $diskAlerts += "MEMORY WHEA ERRORS: $($memWheaErrors.Count) hardware memory errors in 30 days"
+    }
+
+    $memResults
+} @{ Status = "Unable to check"; Errors = 0; LastTest = "N/A"; Details = "" }
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. NETWORK CONNECTIVITY
 # ─────────────────────────────────────────────────────────────────────────────
@@ -609,27 +796,97 @@ if (-not $SkipUpload -and -not [string]::IsNullOrWhiteSpace($UploadUrl)) {
 $scanEnd  = Get-Date
 $duration = [math]::Round(($scanEnd - $scanStart).TotalSeconds, 0)
 
-$summary = @{
-    computer         = $env:COMPUTERNAME
-    os               = $hw.System.OSVersion
-    hardware_score   = $hwScore
-    hardware_grade   = $hwGrade
-    passed_checks    = $passedCount
-    failed_checks    = $failedCount
-    alerts           = $hwAlerts + $diskAlerts + $thermalAlerts
-    disk_health      = $diskHealthOverall
-    cpu_load_pct     = $hw.CPULoad.CurrentPct
-    ram_total_gb     = $hw.System.RAMTotalGB
-    ram_used_pct     = $hw.System.RAMUsedPct
-    gateway_ms       = $hw.Network.GatewayPing.AvgMs
-    internet         = $hw.Network.InternetTest.Success
-    event_errors_24h = $hw.RecentErrors.Count
-    battery_present  = $hw.Battery.Present
-    battery_health   = if ($hw.Battery.Present) { $hw.Battery.HealthPct } else { "N/A" }
-    report_path      = $reportFile
-    uploaded         = $uploaded
-    upload_message   = $uploadMsg
-    scan_seconds     = $duration
+# Build predictive failure details for JSON
+$predictiveDetails = @()
+foreach ($pf in $hw.PredictiveFailure) {
+    $predictiveDetails += @{
+        disk           = $pf.Disk
+        risk_level     = $pf.RiskLevel
+        factors        = $pf.Factors
+        recommendation = $pf.Recommendation
+    }
 }
 
-$summary | ConvertTo-Json -Depth 3 -Compress | Write-Output
+# Build thermal analysis for JSON
+$thermalDetails = @()
+foreach ($ta in $hw.ThermalAnalysis) {
+    $thermalDetails += @{
+        zone      = $ta.Zone
+        temp_c    = $ta.TempC
+        status    = $ta.Status
+        threshold = $ta.Threshold
+    }
+}
+
+# Build disk details for JSON
+$diskDetails = @()
+foreach ($pd in $hw.PhysicalDisks) {
+    $diskDetails += @{
+        model      = $pd.Model
+        size_gb    = $pd.SizeGB
+        media_type = $pd.MediaType
+        bus_type   = $pd.BusType
+        health     = $pd.Health
+        temp       = $pd.Temp
+        power_on   = $pd.PowerOn
+        wear       = $pd.Wear
+    }
+}
+
+# Build volume details for JSON
+$volumeDetails = @()
+foreach ($vl in $hw.Volumes) {
+    $volumeDetails += @{
+        drive    = $vl.Drive
+        label    = $vl.Label
+        size_gb  = $vl.SizeGB
+        free_gb  = $vl.FreeGB
+        free_pct = $vl.FreePct
+    }
+}
+
+$summary = @{
+    computer              = $env:COMPUTERNAME
+    os                    = $hw.System.OSVersion
+    hardware_score        = $hwScore
+    hardware_grade        = $hwGrade
+    passed_checks         = $passedCount
+    failed_checks         = $failedCount
+    alerts                = $hwAlerts + $diskAlerts + $thermalAlerts
+    disk_health           = $diskHealthOverall
+    disks                 = $diskDetails
+    volumes               = $volumeDetails
+    predictive_failures   = $predictiveDetails
+    thermal_analysis      = $thermalDetails
+    cpu_load_pct          = $hw.CPULoad.CurrentPct
+    cpu_status            = $hw.CPULoad.Status
+    ram_total_gb          = $hw.System.RAMTotalGB
+    ram_free_gb           = $hw.System.RAMFreeGB
+    ram_used_pct          = $hw.System.RAMUsedPct
+    gateway_ms            = $hw.Network.GatewayPing.AvgMs
+    internet              = $hw.Network.InternetTest.Success
+    public_ip             = $hw.Network.PublicIP
+    event_errors_24h      = $hw.RecentErrors.Count
+    battery_present       = $hw.Battery.Present
+    battery_health        = if ($hw.Battery.Present) { $hw.Battery.HealthPct } else { "N/A" }
+    battery_wear_level    = $hw.BatteryAnalysis.WearLevel
+    battery_status        = $hw.BatteryAnalysis.Status
+    battery_alert         = $hw.BatteryAnalysis.Alert
+    memory_diagnostic     = @{
+        status    = $hw.MemoryDiagnostics.Status
+        errors    = $hw.MemoryDiagnostics.Errors
+        last_test = $hw.MemoryDiagnostics.LastTest
+        details   = $hw.MemoryDiagnostics.Details
+    }
+    startup_programs      = $hw.StartupCount
+    running_services      = $hw.RunningServices
+    uptime                = $hw.System.Uptime
+    manufacturer          = $hw.System.Manufacturer
+    model                 = $hw.System.Model
+    report_path           = $reportFile
+    uploaded              = $uploaded
+    upload_message        = $uploadMsg
+    scan_seconds          = $duration
+}
+
+$summary | ConvertTo-Json -Depth 5 -Compress | Write-Output

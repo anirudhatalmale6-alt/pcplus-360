@@ -464,6 +464,59 @@ $scoreChecks = @(
 )
 
 # Run missing patches before scoring (needed for "No Critical Patches" check)
+# ── CVE Lookup Table (critical Windows CVEs 2024-2026) ──
+$cveKBLookup = @{
+    "KB5034441" = @(@{CVE="CVE-2024-20666";CVSS=6.6;Severity="Medium";Desc="BitLocker bypass"})
+    "KB5034763" = @(@{CVE="CVE-2024-21351";CVSS=7.6;Severity="High";Desc="SmartScreen bypass"},@{CVE="CVE-2024-21412";CVSS=8.1;Severity="High";Desc="Internet Shortcut security bypass"})
+    "KB5035845" = @(@{CVE="CVE-2024-21407";CVSS=8.1;Severity="High";Desc="Hyper-V RCE"},@{CVE="CVE-2024-21408";CVSS=7.8;Severity="High";Desc="Hyper-V DoS"})
+    "KB5036892" = @(@{CVE="CVE-2024-26234";CVSS=6.7;Severity="Medium";Desc="Proxy driver spoofing"},@{CVE="CVE-2024-29988";CVSS=8.8;Severity="High";Desc="SmartScreen prompt bypass"})
+    "KB5037765" = @(@{CVE="CVE-2024-30040";CVSS=8.8;Severity="High";Desc="MSHTML platform bypass"},@{CVE="CVE-2024-30051";CVSS=7.8;Severity="High";Desc="DWM Core Library EoP"})
+    "KB5039211" = @(@{CVE="CVE-2024-30080";CVSS=9.8;Severity="Critical";Desc="MSMQ RCE"},@{CVE="CVE-2024-30078";CVSS=8.8;Severity="High";Desc="Wi-Fi Driver RCE"})
+    "KB5040427" = @(@{CVE="CVE-2024-38054";CVSS=7.8;Severity="High";Desc="Kernel Streaming EoP"},@{CVE="CVE-2024-38112";CVSS=7.5;Severity="High";Desc="MSHTML spoofing (exploited)"})
+    "KB5041578" = @(@{CVE="CVE-2024-38178";CVSS=7.5;Severity="High";Desc="Scripting Engine RCE"},@{CVE="CVE-2024-38193";CVSS=7.8;Severity="High";Desc="WinSock EoP (exploited)"},@{CVE="CVE-2024-38106";CVSS=7.0;Severity="High";Desc="Kernel EoP (exploited)"})
+    "KB5043050" = @(@{CVE="CVE-2024-38014";CVSS=7.8;Severity="High";Desc="Windows Installer EoP"},@{CVE="CVE-2024-43491";CVSS=9.8;Severity="Critical";Desc="Servicing Stack RCE"},@{CVE="CVE-2024-38217";CVSS=5.4;Severity="Medium";Desc="MotW bypass (exploited)"})
+    "KB5044273" = @(@{CVE="CVE-2024-43572";CVSS=7.8;Severity="High";Desc="MMC RCE"},@{CVE="CVE-2024-43573";CVSS=6.5;Severity="Medium";Desc="MSHTML spoofing (exploited)"})
+    "KB5044284" = @(@{CVE="CVE-2024-43451";CVSS=6.5;Severity="Medium";Desc="NTLM hash disclosure (exploited)"},@{CVE="CVE-2024-49039";CVSS=8.8;Severity="High";Desc="Task Scheduler EoP (exploited)"})
+    "KB5048652" = @(@{CVE="CVE-2024-49138";CVSS=7.8;Severity="High";Desc="CLFS Driver EoP (exploited)"})
+    "KB5049981" = @(@{CVE="CVE-2025-21333";CVSS=7.8;Severity="High";Desc="Hyper-V NT Kernel EoP"},@{CVE="CVE-2025-21334";CVSS=7.8;Severity="High";Desc="Hyper-V NT Kernel EoP"},@{CVE="CVE-2025-21335";CVSS=7.8;Severity="High";Desc="Hyper-V NT Kernel EoP"})
+    "KB5051974" = @(@{CVE="CVE-2025-21391";CVSS=7.1;Severity="High";Desc="Windows Storage EoP (exploited)"},@{CVE="CVE-2025-21418";CVSS=7.8;Severity="High";Desc="WinSock EoP (exploited)"})
+    "KB5053596" = @(@{CVE="CVE-2025-24983";CVSS=7.0;Severity="High";Desc="Win32k EoP (exploited)"},@{CVE="CVE-2025-24984";CVSS=4.6;Severity="Medium";Desc="NTFS info disclosure"},@{CVE="CVE-2025-24985";CVSS=7.8;Severity="High";Desc="Fast FAT RCE"},@{CVE="CVE-2025-24991";CVSS=5.5;Severity="Medium";Desc="NTFS info disclosure"},@{CVE="CVE-2025-24993";CVSS=7.8;Severity="High";Desc="NTFS RCE"},@{CVE="CVE-2025-26633";CVSS=7.0;Severity="High";Desc="MMC bypass (exploited)"})
+    "KB5055518" = @(@{CVE="CVE-2025-29824";CVSS=7.8;Severity="High";Desc="CLFS EoP (exploited)"},@{CVE="CVE-2025-27480";CVSS=8.1;Severity="High";Desc="RDP RCE"})
+    "KB5058379" = @(@{CVE="CVE-2025-30397";CVSS=7.5;Severity="High";Desc="Scripting Engine RCE (exploited)"},@{CVE="CVE-2025-32706";CVSS=7.8;Severity="High";Desc="CLFS EoP (exploited)"})
+}
+
+function Get-CVEsForKB {
+    param([string]$KBString)
+    $results = @()
+    foreach ($kb in ($KBString -split ',\s*')) {
+        $kb = $kb.Trim()
+        if ($cveKBLookup.ContainsKey($kb)) {
+            $results += $cveKBLookup[$kb]
+        }
+    }
+    return $results
+}
+
+function Get-RiskSeverity {
+    param([string]$MsrcSeverity, [array]$CVEs)
+    # If we have CVEs, use the highest CVSS
+    if ($CVEs -and $CVEs.Count -gt 0) {
+        $maxCVSS = ($CVEs | ForEach-Object { $_.CVSS } | Measure-Object -Maximum).Maximum
+        if ($maxCVSS -ge 9.0) { return "Critical" }
+        if ($maxCVSS -ge 7.0) { return "High" }
+        if ($maxCVSS -ge 4.0) { return "Medium" }
+        return "Low"
+    }
+    # Fall back to MSRC severity
+    switch ($MsrcSeverity) {
+        "Critical"  { return "Critical" }
+        "Important" { return "High" }
+        "Moderate"  { return "Medium" }
+        "Low"       { return "Low" }
+        default     { return "Medium" }
+    }
+}
+
 $missingPatches = Invoke-Safe {
     $session = New-Object -ComObject Microsoft.Update.Session
     $searcher = $session.CreateUpdateSearcher()
@@ -472,7 +525,29 @@ $missingPatches = Invoke-Safe {
     foreach ($u in $result.Updates) {
         $sev = if ($u.MsrcSeverity) { $u.MsrcSeverity } else { "Unknown" }
         $kb = @(); foreach ($k in $u.KBArticleIDs) { $kb += "KB$k" }
-        $patches += @{ Title = $u.Title; KB = ($kb -join ", "); Severity = $sev; SizeMB = [math]::Round($u.MaxDownloadSize / 1MB, 1) }
+        $kbStr = ($kb -join ", ")
+
+        $cves = Get-CVEsForKB -KBString $kbStr
+        $riskSeverity = Get-RiskSeverity -MsrcSeverity $sev -CVEs $cves
+        $cveIds = @()
+        $maxCVSS = 0
+        if ($cves -and $cves.Count -gt 0) {
+            foreach ($c in $cves) {
+                $cveIds += $c.CVE
+                if ($c.CVSS -gt $maxCVSS) { $maxCVSS = $c.CVSS }
+            }
+        }
+
+        $patches += @{
+            Title        = $u.Title
+            KB           = $kbStr
+            Severity     = $sev
+            RiskLevel    = $riskSeverity
+            CVEs         = $cveIds
+            MaxCVSS      = $maxCVSS
+            CVEDetails   = $cves
+            SizeMB       = [math]::Round($u.MaxDownloadSize / 1MB, 1)
+        }
     }
     $patches
 } @()
@@ -529,11 +604,13 @@ foreach ($pd in $hwResults.PhysicalDisks) {
 $patchRowsHtml = ""
 if ($missingPatches.Count -gt 0) {
     foreach ($p in $missingPatches) {
-        $sevColor = switch ($p.Severity) { "Critical" { "#e74c3c" }; "Important" { "#f39c12" }; default { "#666" } }
-        $patchRowsHtml += "<tr><td>$($p.KB)</td><td>$($p.Title)</td><td style=`"color:${sevColor};font-weight:bold`">$($p.Severity)</td><td>$($p.SizeMB) MB</td></tr>`n"
+        $riskColor = switch ($p.RiskLevel) { "Critical" { "#e74c3c" }; "High" { "#e67e22" }; "Medium" { "#f39c12" }; default { "#666" } }
+        $cveDisplay = if ($p.CVEs -and $p.CVEs.Count -gt 0) { ($p.CVEs -join ", ") } else { "-" }
+        $cvssDisplay = if ($p.MaxCVSS -gt 0) { "$($p.MaxCVSS)" } else { "-" }
+        $patchRowsHtml += "<tr><td>$($p.KB)</td><td>$($p.Title)</td><td style=`"color:${riskColor};font-weight:bold`">$($p.RiskLevel)</td><td>$cvssDisplay</td><td style=`"font-size:11px`">$cveDisplay</td><td>$($p.SizeMB) MB</td></tr>`n"
     }
 } else {
-    $patchRowsHtml = "<tr><td colspan=`"4`" style=`"text-align:center;color:#27ae60`">All patches up to date</td></tr>"
+    $patchRowsHtml = "<tr><td colspan=`"6`" style=`"text-align:center;color:#27ae60`">All patches up to date</td></tr>"
 }
 
 # Network adapter rows
@@ -797,7 +874,7 @@ $thermalHtml
 <div class="section">
   <h2>Missing Patches ($($missingPatches.Count))</h2>
   <table>
-    <thead><tr><th>KB</th><th>Title</th><th>Severity</th><th>Size</th></tr></thead>
+    <thead><tr><th>KB</th><th>Title</th><th>Risk</th><th>CVSS</th><th>CVEs</th><th>Size</th></tr></thead>
     <tbody>$patchRowsHtml</tbody>
   </table>
 </div>
@@ -897,28 +974,72 @@ $duration = [math]::Round(($scanEnd - $scanStart).TotalSeconds, 0)
 $critList = @()
 foreach ($cf in $criticalFailures) { $critList += $cf }
 
+# ── Alert Thresholds ──
+$criticalCVEPatches = @($missingPatches | Where-Object { $_.RiskLevel -eq "Critical" })
+$highCVEPatches     = @($missingPatches | Where-Object { $_.RiskLevel -eq "High" })
+$allCVEIds          = @()
+foreach ($p in $missingPatches) {
+    if ($p.CVEs) { foreach ($c in $p.CVEs) { $allCVEIds += $c } }
+}
+$alertStatus = "OK"
+$alertReasons = @()
+if ($criticalCVEPatches.Count -gt 0) {
+    $alertStatus = "ALERT"
+    $alertReasons += "Critical CVEs missing: $($criticalCVEPatches.Count) patch(es)"
+}
+if ($missingPatches.Count -gt 10) {
+    $alertStatus = "ALERT"
+    $alertReasons += "More than 10 updates pending: $($missingPatches.Count)"
+}
+if ($highCVEPatches.Count -gt 5) {
+    if ($alertStatus -ne "ALERT") { $alertStatus = "WARNING" }
+    $alertReasons += "Multiple high-severity patches pending: $($highCVEPatches.Count)"
+}
+
+# Build patch details for JSON
+$patchDetails = @()
+foreach ($p in $missingPatches) {
+    $pd = @{
+        kb        = $p.KB
+        title     = $p.Title
+        risk      = $p.RiskLevel
+        severity  = $p.Severity
+        cves      = $p.CVEs
+        max_cvss  = $p.MaxCVSS
+        size_mb   = $p.SizeMB
+    }
+    $patchDetails += $pd
+}
+
 $summary = @{
-    computer           = $env:COMPUTERNAME
-    os                 = $hwResults.System.OSVersion
-    os_build           = $hwResults.System.OSBuild
-    security_score     = $secScore
-    security_grade     = $secGrade
-    passed_checks      = $passedCount
-    failed_checks      = $failedCount
-    critical_failures  = $critList
-    disk_health        = $diskHealthOverall
-    ram_gb             = $hwResults.System.RAMTotalGB
-    ram_used_pct       = $hwResults.System.RAMUsedPct
-    cpu                = $hwResults.System.CPUModel
-    missing_patches    = $missingPatches.Count
-    startup_programs   = $hwResults.StartupCount
-    running_services   = $hwResults.RunningServices
-    report_path        = $reportFile
-    uploaded           = $uploaded
-    upload_message     = $uploadMsg
+    computer              = $env:COMPUTERNAME
+    os                    = $hwResults.System.OSVersion
+    os_build              = $hwResults.System.OSBuild
+    security_score        = $secScore
+    security_grade        = $secGrade
+    passed_checks         = $passedCount
+    failed_checks         = $failedCount
+    critical_failures     = $critList
+    disk_health           = $diskHealthOverall
+    ram_gb                = $hwResults.System.RAMTotalGB
+    ram_used_pct          = $hwResults.System.RAMUsedPct
+    cpu                   = $hwResults.System.CPUModel
+    missing_patches       = $missingPatches.Count
+    critical_cve_patches  = $criticalCVEPatches.Count
+    high_cve_patches      = $highCVEPatches.Count
+    total_cves_exposed    = $allCVEIds.Count
+    cve_ids_exposed       = $allCVEIds
+    alert_status          = $alertStatus
+    alert_reasons         = $alertReasons
+    patch_details         = $patchDetails
+    startup_programs      = $hwResults.StartupCount
+    running_services      = $hwResults.RunningServices
+    report_path           = $reportFile
+    uploaded              = $uploaded
+    upload_message        = $uploadMsg
     scan_duration_seconds = $duration
 }
 
 # PS 5.1 compatible JSON output (ConvertTo-Json)
-$jsonOutput = $summary | ConvertTo-Json -Depth 3 -Compress
+$jsonOutput = $summary | ConvertTo-Json -Depth 5 -Compress
 Write-Output $jsonOutput

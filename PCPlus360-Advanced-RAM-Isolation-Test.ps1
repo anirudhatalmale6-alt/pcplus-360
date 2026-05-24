@@ -31,7 +31,9 @@ param(
     [int]$StandardMinutes = 10,
     [int]$DeepMinutes = 30,
 
-    [int]$MemoryUsePercent = 75
+    [int]$MemoryUsePercent = 75,
+
+    [switch]$JsonOutput
 )
 
 $ErrorActionPreference = "Continue"
@@ -315,13 +317,104 @@ function Get-RamConfigurationWarnings {
     return $warnings
 }
 
+# ------------------------------
+# Trend Tracking & Baseline
+# ------------------------------
+$TrendDir = "C:\PCPlus360\Reports"
+$TrendFile = Join-Path $TrendDir "RAM-Isolation-History.json"
+
+function Get-TrendHistory {
+    if (Test-Path $TrendFile) {
+        try {
+            $content = Get-Content -Path $TrendFile -Raw -ErrorAction Stop
+            $history = $content | ConvertFrom-Json -ErrorAction Stop
+            if ($history -is [array]) { return $history }
+            return @($history)
+        } catch {
+            Write-Log "Could not parse trend history file. Starting fresh." "WARN"
+            return @()
+        }
+    }
+    return @()
+}
+
+function Save-TrendEntry {
+    param($Entry)
+    New-Item -ItemType Directory -Path $TrendDir -Force | Out-Null
+    $history = @(Get-TrendHistory)
+    $history += $Entry
+    # Keep last 100 entries
+    if ($history.Count -gt 100) { $history = $history[($history.Count - 100)..($history.Count - 1)] }
+    $history | ConvertTo-Json -Depth 8 | Set-Content -Path $TrendFile -Encoding UTF8
+}
+
+function Get-BaselineComparison {
+    param($CurrentEntry)
+    $history = @(Get-TrendHistory)
+    if ($history.Count -eq 0) {
+        return [PSCustomObject]@{
+            HasBaseline      = $false
+            BaselineDate     = $null
+            Note             = "This is the first run. It will become the baseline for future comparisons."
+            Deltas           = @()
+        }
+    }
+
+    $baseline = $history[0]
+    $deltas = @()
+
+    # Compare total pattern errors
+    $basePatErr = if ($null -ne $baseline.TotalPatternErrors) { $baseline.TotalPatternErrors } else { 0 }
+    $curPatErr  = if ($null -ne $CurrentEntry.TotalPatternErrors) { $CurrentEntry.TotalPatternErrors } else { 0 }
+    $deltaPatErr = $curPatErr - $basePatErr
+    $deltas += [PSCustomObject]@{
+        Metric   = "Total Pattern Errors"
+        Baseline = $basePatErr
+        Current  = $curPatErr
+        Delta    = $deltaPatErr
+        Status   = if ($deltaPatErr -gt 0) { "Worse" } elseif ($deltaPatErr -lt 0) { "Better" } else { "Same" }
+    }
+
+    # Compare total random errors
+    $baseRndErr = if ($null -ne $baseline.TotalRandomErrors) { $baseline.TotalRandomErrors } else { 0 }
+    $curRndErr  = if ($null -ne $CurrentEntry.TotalRandomErrors) { $CurrentEntry.TotalRandomErrors } else { 0 }
+    $deltaRndErr = $curRndErr - $baseRndErr
+    $deltas += [PSCustomObject]@{
+        Metric   = "Total Random Errors"
+        Baseline = $baseRndErr
+        Current  = $curRndErr
+        Delta    = $deltaRndErr
+        Status   = if ($deltaRndErr -gt 0) { "Worse" } elseif ($deltaRndErr -lt 0) { "Better" } else { "Same" }
+    }
+
+    # Compare pass rate
+    $basePassRate = if ($null -ne $baseline.PassRate) { $baseline.PassRate } else { 100 }
+    $curPassRate  = if ($null -ne $CurrentEntry.PassRate) { $CurrentEntry.PassRate } else { 100 }
+    $deltaPass = $curPassRate - $basePassRate
+    $deltas += [PSCustomObject]@{
+        Metric   = "Pass Rate (%)"
+        Baseline = $basePassRate
+        Current  = $curPassRate
+        Delta    = $deltaPass
+        Status   = if ($deltaPass -lt 0) { "Worse" } elseif ($deltaPass -gt 0) { "Better" } else { "Same" }
+    }
+
+    [PSCustomObject]@{
+        HasBaseline      = $true
+        BaselineDate     = $baseline.Timestamp
+        Note             = "Comparing against baseline from $($baseline.Timestamp)."
+        Deltas           = $deltas
+    }
+}
+
 function New-HtmlReport {
     param(
         $SystemSummary,
         $RamInventory,
         $RoundResults,
         $ConfigWarnings,
-        $Events
+        $Events,
+        $TrendComparison
     )
 
     $rows = foreach ($r in $RoundResults) {
@@ -379,6 +472,10 @@ td { border-bottom:1px solid #dbe8ef; padding:9px; vertical-align:top; }
 </div>
 
 <div class="container">
+  <div class="card" style="background:#fff3cd;border-left:6px solid #f59e0b;">
+    <p style="margin:0;font-size:14px;"><b>ADVANCED VERSION</b> - This is the Advanced RAM Isolation Test with trend tracking and baseline comparison. A basic/quick version (<code>PCPlus-RAMIsolation.ps1</code>) is also available for rapid single-round checks.</p>
+  </div>
+
   <div class="card">
     <h2>Executive Summary</h2>
     <div class="grid">
@@ -423,6 +520,21 @@ td { border-bottom:1px solid #dbe8ef; padding:9px; vertical-align:top; }
   </div>
 
   <div class="card">
+    <h2>Trend Tracking & Baseline Comparison</h2>
+    <p><b>$($TrendComparison.Note)</b></p>
+    $(if ($TrendComparison.HasBaseline) {
+        $trendRows = foreach ($d in $TrendComparison.Deltas) {
+            $dClass = if ($d.Status -eq "Worse") { "fail" } elseif ($d.Status -eq "Better") { "pass" } else { "warn" }
+            "<tr><td>$($d.Metric)</td><td>$($d.Baseline)</td><td>$($d.Current)</td><td class='$dClass'>$($d.Delta) ($($d.Status))</td></tr>"
+        }
+        "<table><tr><th>Metric</th><th>Baseline</th><th>Current</th><th>Delta</th></tr>$($trendRows -join "`n")</table>"
+    } else {
+        "<p>No previous runs to compare. This session establishes the baseline.</p>"
+    })
+    <p>Trend history stored at: <code>$TrendFile</code></p>
+  </div>
+
+  <div class="card">
     <h2>Technician Recommendation</h2>
     <p>If one RAM stick fails in a known-good slot, suspect the RAM stick. If one known-good RAM stick fails in only one slot, suspect the motherboard slot or memory channel.</p>
     <p>For final confirmation, run MemTest86 bootable USB for 4 full passes.</p>
@@ -461,6 +573,10 @@ Write-Host ""
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host "PC PLUS 360 - ADVANCED PHYSICAL RAM ISOLATION TEST" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "[ADVANCED VERSION] This is the full Advanced test with trend" -ForegroundColor Yellow
+Write-Host "tracking and baseline comparison. For quick single-round" -ForegroundColor Yellow
+Write-Host "checks, use PCPlus-RAMIsolation.ps1 instead." -ForegroundColor Yellow
 Write-Host ""
 Write-Host "IMPORTANT:" -ForegroundColor Yellow
 Write-Host "This is a guided physical isolation workflow."
@@ -567,6 +683,44 @@ do {
 
 $Events = @(Get-RecentMemoryRelatedEvents -HoursBack 72)
 
+# Build trend entry for this session
+$totalPatternErrors = ($RoundResults | Measure-Object PatternErrors -Sum -ErrorAction SilentlyContinue).Sum
+if ($null -eq $totalPatternErrors) { $totalPatternErrors = 0 }
+$totalRandomErrors = ($RoundResults | Measure-Object RandomErrors -Sum -ErrorAction SilentlyContinue).Sum
+if ($null -eq $totalRandomErrors) { $totalRandomErrors = 0 }
+$passedCount = @($RoundResults | Where-Object { $_.Result -eq "PASS" }).Count
+$passRate = if ($RoundResults.Count -gt 0) { [math]::Round(($passedCount / $RoundResults.Count) * 100, 1) } else { 100 }
+
+$trendEntry = [PSCustomObject]@{
+    Timestamp          = (Get-Date -Format "o")
+    ComputerName       = $env:COMPUTERNAME
+    Mode               = $Mode
+    RoundsRun          = $RoundResults.Count
+    RoundsPassed       = $passedCount
+    RoundsFailed       = @($RoundResults | Where-Object { $_.Result -eq "FAIL" }).Count
+    RoundsWarning      = @($RoundResults | Where-Object { $_.Result -eq "WARNING" }).Count
+    PassRate           = $passRate
+    TotalPatternErrors = $totalPatternErrors
+    TotalRandomErrors  = $totalRandomErrors
+    TotalRAMGB         = $SystemSummary.TotalRAMGB
+    ModulesDetected    = $RamInventory.Count
+}
+
+$TrendComparison = Get-BaselineComparison -CurrentEntry $trendEntry
+Save-TrendEntry -Entry $trendEntry
+Write-Log "Trend entry saved to $TrendFile."
+
+# Display trend comparison
+Write-Host ""
+Write-Host "Trend Tracking:" -ForegroundColor Green
+Write-Host "  $($TrendComparison.Note)"
+if ($TrendComparison.HasBaseline) {
+    foreach ($d in $TrendComparison.Deltas) {
+        $color = if ($d.Status -eq "Worse") { "Red" } elseif ($d.Status -eq "Better") { "Green" } else { "Gray" }
+        Write-Host "  $($d.Metric): Baseline=$($d.Baseline), Current=$($d.Current), Delta=$($d.Delta) ($($d.Status))" -ForegroundColor $color
+    }
+}
+
 $raw = [PSCustomObject]@{
     CustomerName = $CustomerName
     TechnicianName = $TechnicianName
@@ -577,10 +731,12 @@ $raw = [PSCustomObject]@{
     ConfigurationWarnings = $ConfigWarnings
     RoundResults = $RoundResults
     RecentEvents = $Events | Select-Object -First 50
+    TrendEntry = $trendEntry
+    TrendComparison = $TrendComparison
 }
 
 $raw | ConvertTo-Json -Depth 8 | Set-Content -Path $JsonFile -Encoding UTF8
-New-HtmlReport -SystemSummary $SystemSummary -RamInventory $RamInventory -RoundResults $RoundResults -ConfigWarnings $ConfigWarnings -Events $Events
+New-HtmlReport -SystemSummary $SystemSummary -RamInventory $RamInventory -RoundResults $RoundResults -ConfigWarnings $ConfigWarnings -Events $Events -TrendComparison $TrendComparison
 
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor Cyan
@@ -590,6 +746,7 @@ Write-Host "HTML Report: $HtmlFile"
 Write-Host "CSV Results: $CsvFile"
 Write-Host "Raw JSON: $JsonFile"
 Write-Host "Log File: $LogFile"
+Write-Host "Trend File: $TrendFile"
 Write-Host ""
 Write-Host "Final Recommendation:" -ForegroundColor Yellow
 Write-Host "- If one stick fails in a known-good slot, suspect the RAM stick."
@@ -598,3 +755,31 @@ Write-Host "- For final confirmation, run MemTest86 bootable USB for 4 passes."
 Write-Host ""
 
 Write-Log "PC Plus 360 Advanced Physical RAM Isolation Test completed."
+
+# -JsonOutput: Emit structured JSON to stdout for ReportCard integration
+if ($JsonOutput) {
+    $reportCardData = [PSCustomObject]@{
+        ScriptName         = "PCPlus360-Advanced-RAM-Isolation-Test"
+        Version            = "2.0"
+        Timestamp          = (Get-Date -Format "o")
+        ComputerName       = $env:COMPUTERNAME
+        CustomerName       = $CustomerName
+        TechnicianName     = $TechnicianName
+        Mode               = $Mode
+        TotalRAMGB         = $SystemSummary.TotalRAMGB
+        ModulesDetected    = $RamInventory.Count
+        RoundsRun          = $RoundResults.Count
+        RoundsPassed       = $passedCount
+        RoundsFailed       = @($RoundResults | Where-Object { $_.Result -eq "FAIL" }).Count
+        RoundsWarning      = @($RoundResults | Where-Object { $_.Result -eq "WARNING" }).Count
+        PassRate           = $passRate
+        TotalPatternErrors = $totalPatternErrors
+        TotalRandomErrors  = $totalRandomErrors
+        TrendBaseline      = $TrendComparison.HasBaseline
+        TrendBaselineDate  = $TrendComparison.BaselineDate
+        ConfigWarnings     = $ConfigWarnings
+        ReportPath         = $HtmlFile
+        SessionDir         = $SessionDir
+    }
+    $reportCardData | ConvertTo-Json -Depth 4
+}

@@ -31,7 +31,9 @@ param(
     [int]$StandardMinutes = 10,
     [int]$DeepMinutes = 30,
 
-    [int]$MemoryUsePercent = 75
+    [int]$MemoryUsePercent = 75,
+
+    [switch]$JsonOutput
 )
 
 $ErrorActionPreference = "Continue"
@@ -315,13 +317,244 @@ function Get-RamConfigurationWarnings {
     return $warnings
 }
 
+function Get-MemoryThermalInfo {
+    Write-Log "Checking memory controller thermal information."
+    $thermalData = [PSCustomObject]@{
+        Source            = "None"
+        TemperatureCelsius = $null
+        Status            = "Unknown"
+        Notes             = @()
+    }
+
+    # Try LibreHardwareMonitor WMI namespace first (most accurate)
+    try {
+        $lhwSensors = Get-CimInstance -Namespace "root/LibreHardwareMonitor" -ClassName Sensor -ErrorAction Stop |
+            Where-Object { $_.SensorType -eq "Temperature" -and $_.Name -match "Memory|RAM|DIMM" } |
+            Select-Object -First 1
+        if ($lhwSensors) {
+            $thermalData.Source = "LibreHardwareMonitor"
+            $thermalData.TemperatureCelsius = [math]::Round($lhwSensors.Value, 1)
+            $thermalData.Notes += "Reading from LibreHardwareMonitor sensor: $($lhwSensors.Name)"
+        }
+    } catch {
+        $thermalData.Notes += "LibreHardwareMonitor WMI not available."
+    }
+
+    # Fallback: try OpenHardwareMonitor namespace
+    if ($null -eq $thermalData.TemperatureCelsius) {
+        try {
+            $ohmSensors = Get-CimInstance -Namespace "root/OpenHardwareMonitor" -ClassName Sensor -ErrorAction Stop |
+                Where-Object { $_.SensorType -eq "Temperature" -and $_.Name -match "Memory|RAM|DIMM" } |
+                Select-Object -First 1
+            if ($ohmSensors) {
+                $thermalData.Source = "OpenHardwareMonitor"
+                $thermalData.TemperatureCelsius = [math]::Round($ohmSensors.Value, 1)
+                $thermalData.Notes += "Reading from OpenHardwareMonitor sensor: $($ohmSensors.Name)"
+            }
+        } catch {
+            $thermalData.Notes += "OpenHardwareMonitor WMI not available."
+        }
+    }
+
+    # Fallback: MSAcpi_ThermalZoneTemperature (system-wide, not memory-specific)
+    if ($null -eq $thermalData.TemperatureCelsius) {
+        try {
+            $acpiThermal = Get-CimInstance -Namespace "root/WMI" -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction Stop |
+                Select-Object -First 1
+            if ($acpiThermal -and $acpiThermal.CurrentTemperature) {
+                # MSAcpi returns temperature in tenths of Kelvin
+                $celsius = [math]::Round(($acpiThermal.CurrentTemperature / 10) - 273.15, 1)
+                if ($celsius -gt -40 -and $celsius -lt 150) {
+                    $thermalData.Source = "MSAcpi_ThermalZoneTemperature (system-wide, not memory-specific)"
+                    $thermalData.TemperatureCelsius = $celsius
+                    $thermalData.Notes += "ACPI thermal zone reading (may represent CPU/chipset, not memory directly)."
+                }
+            }
+        } catch {
+            $thermalData.Notes += "MSAcpi_ThermalZoneTemperature not accessible (requires admin)."
+        }
+    }
+
+    # Determine status based on temperature
+    if ($null -ne $thermalData.TemperatureCelsius) {
+        $temp = $thermalData.TemperatureCelsius
+        if ($temp -lt 45) { $thermalData.Status = "Normal" }
+        elseif ($temp -lt 60) { $thermalData.Status = "Warm" }
+        elseif ($temp -lt 75) { $thermalData.Status = "Hot - check airflow" }
+        else { $thermalData.Status = "Critical - potential thermal damage" }
+    } else {
+        $thermalData.Status = "Not available"
+        $thermalData.Notes += "Install LibreHardwareMonitor for memory-specific thermal readings."
+    }
+
+    return $thermalData
+}
+
+function Get-PredictiveFailureAssessment {
+    param(
+        $RoundResults,
+        $Events,
+        $ConfigWarnings
+    )
+
+    Write-Log "Computing predictive failure assessment."
+
+    $riskScore = 0
+    $factors = @()
+
+    # Factor 1: Test round failures
+    $failCount = @($RoundResults | Where-Object { $_.Result -eq "FAIL" }).Count
+    $warnCount = @($RoundResults | Where-Object { $_.Result -eq "WARNING" }).Count
+    if ($failCount -gt 0) {
+        $riskScore += [math]::Min(40, $failCount * 20)
+        $factors += "FAIL results in $failCount test round(s)."
+    }
+    if ($warnCount -gt 0) {
+        $riskScore += [math]::Min(15, $warnCount * 5)
+        $factors += "WARNING results in $warnCount test round(s)."
+    }
+
+    # Factor 2: Pattern errors across rounds
+    $totalPatternErrors = ($RoundResults | Measure-Object PatternErrors -Sum -ErrorAction SilentlyContinue).Sum
+    $totalRandomErrors  = ($RoundResults | Measure-Object RandomErrors -Sum -ErrorAction SilentlyContinue).Sum
+    if ($totalPatternErrors -gt 0) {
+        $riskScore += [math]::Min(25, $totalPatternErrors * 5)
+        $factors += "Total pattern errors: $totalPatternErrors."
+    }
+    if ($totalRandomErrors -gt 0) {
+        $riskScore += [math]::Min(20, $totalRandomErrors * 5)
+        $factors += "Total random errors: $totalRandomErrors."
+    }
+
+    # Factor 3: WHEA / hardware error events
+    $wheaEvents = @($Events | Where-Object { $_.ProviderName -match "WHEA" })
+    if ($wheaEvents.Count -gt 0) {
+        $riskScore += [math]::Min(20, $wheaEvents.Count * 5)
+        $factors += "WHEA hardware errors in event log: $($wheaEvents.Count)."
+    }
+
+    # Factor 4: BugCheck / BSOD events
+    $bsodEvents = @($Events | Where-Object { $_.Id -eq 1001 })
+    if ($bsodEvents.Count -gt 0) {
+        $riskScore += [math]::Min(15, $bsodEvents.Count * 5)
+        $factors += "BugCheck/BSOD events: $($bsodEvents.Count)."
+    }
+
+    # Factor 5: Unexpected shutdowns
+    $unexpectedShutdowns = @($Events | Where-Object { $_.Id -in @(41, 6008) })
+    if ($unexpectedShutdowns.Count -gt 0) {
+        $riskScore += [math]::Min(10, $unexpectedShutdowns.Count * 3)
+        $factors += "Unexpected shutdown events: $($unexpectedShutdowns.Count)."
+    }
+
+    # Factor 6: Configuration warnings (mixed RAM)
+    if ($ConfigWarnings.Count -gt 0) {
+        $riskScore += [math]::Min(10, $ConfigWarnings.Count * 3)
+        $factors += "RAM configuration warnings: $($ConfigWarnings.Count)."
+    }
+
+    # Cap at 100
+    if ($riskScore -gt 100) { $riskScore = 100 }
+
+    # Determine probability level
+    $probability = if ($riskScore -ge 60) { "High" }
+        elseif ($riskScore -ge 30) { "Medium" }
+        else { "Low" }
+
+    $recommendation = switch ($probability) {
+        "High"   { "Imminent DIMM failure likely. Replace suspect module(s) immediately. Confirm with MemTest86." }
+        "Medium" { "Elevated risk of DIMM failure. Monitor closely, run MemTest86, consider proactive replacement." }
+        "Low"    { "No strong indicators of imminent DIMM failure. Continue monitoring." }
+    }
+
+    [PSCustomObject]@{
+        RiskScore       = $riskScore
+        Probability     = $probability
+        Factors         = $factors
+        Recommendation  = $recommendation
+    }
+}
+
+function Get-DIMMSlotMap {
+    Write-Log "Mapping DIMM slot population."
+
+    $memArrays = @(Get-CimInstance Win32_PhysicalMemoryArray -ErrorAction SilentlyContinue)
+    $memModules = @(Get-CimInstance Win32_PhysicalMemory -ErrorAction SilentlyContinue)
+
+    $totalSlots = 0
+    $maxCapacityGB = 0
+    foreach ($arr in $memArrays) {
+        if ($arr.MemoryDevices) { $totalSlots += $arr.MemoryDevices }
+        if ($arr.MaxCapacity) {
+            # MaxCapacity is in KB
+            $maxCapacityGB += [math]::Round($arr.MaxCapacity / 1MB, 2)
+        } elseif ($arr.MaxCapacityEx) {
+            # MaxCapacityEx is in KB (large memory support)
+            $maxCapacityGB += [math]::Round($arr.MaxCapacityEx / 1MB, 2)
+        }
+    }
+
+    $populatedSlots = $memModules.Count
+    $emptySlots = [math]::Max(0, $totalSlots - $populatedSlots)
+    $currentCapacityGB = 0
+    foreach ($m in $memModules) {
+        if ($m.Capacity) { $currentCapacityGB += [math]::Round($m.Capacity / 1GB, 2) }
+    }
+
+    # Build slot detail list
+    $slotDetails = @()
+    foreach ($m in $memModules) {
+        $slotDetails += [PSCustomObject]@{
+            SlotName     = $m.DeviceLocator
+            Bank         = $m.BankLabel
+            Status       = "Populated"
+            CapacityGB   = [math]::Round($m.Capacity / 1GB, 2)
+            SpeedMHz     = $m.Speed
+            Manufacturer = $m.Manufacturer
+            PartNumber   = ($m.PartNumber -as [string]).Trim()
+            SerialNumber = ($m.SerialNumber -as [string]).Trim()
+        }
+    }
+
+    # Upgrade recommendation
+    $upgradeNotes = @()
+    if ($emptySlots -gt 0) {
+        $upgradeNotes += "$emptySlots empty slot(s) available for expansion."
+    }
+    if ($currentCapacityGB -lt $maxCapacityGB) {
+        $remainingGB = [math]::Round($maxCapacityGB - $currentCapacityGB, 2)
+        $upgradeNotes += "Can add up to $remainingGB GB more RAM (max supported: $maxCapacityGB GB)."
+    }
+    if ($emptySlots -eq 0 -and $currentCapacityGB -ge $maxCapacityGB) {
+        $upgradeNotes += "All slots populated at maximum capacity. No further RAM upgrade possible without replacing existing modules."
+    }
+    if ($currentCapacityGB -lt 8) {
+        $upgradeNotes += "Recommended: Upgrade to at least 8 GB for modern Windows usage."
+    } elseif ($currentCapacityGB -lt 16) {
+        $upgradeNotes += "Consider upgrading to 16 GB for multitasking and productivity."
+    }
+
+    [PSCustomObject]@{
+        TotalSlots       = $totalSlots
+        PopulatedSlots   = $populatedSlots
+        EmptySlots       = $emptySlots
+        MaxCapacityGB    = $maxCapacityGB
+        CurrentCapacityGB = $currentCapacityGB
+        SlotDetails      = $slotDetails
+        UpgradeNotes     = $upgradeNotes
+    }
+}
+
 function New-HtmlReport {
     param(
         $SystemSummary,
         $RamInventory,
         $RoundResults,
         $ConfigWarnings,
-        $Events
+        $Events,
+        $ThermalInfo,
+        $PredictiveFailure,
+        $DIMMSlotMap
     )
 
     $rows = foreach ($r in $RoundResults) {
@@ -420,6 +653,41 @@ td { border-bottom:1px solid #dbe8ef; padding:9px; vertical-align:top; }
       <tr><th>Time</th><th>Source</th><th>ID</th><th>Level</th><th>Message</th></tr>
       $($eventRows -join "`n")
     </table>
+  </div>
+
+  <div class="card">
+    <h2>Memory Configuration Summary</h2>
+    <div class="grid">
+      <div class="metric"><b>Total Slots</b><span>$($DIMMSlotMap.TotalSlots)</span></div>
+      <div class="metric"><b>Populated</b><span>$($DIMMSlotMap.PopulatedSlots)</span></div>
+      <div class="metric"><b>Empty</b><span>$($DIMMSlotMap.EmptySlots)</span></div>
+      <div class="metric"><b>Max Capacity</b><span>$($DIMMSlotMap.MaxCapacityGB) GB</span></div>
+    </div>
+    <p><b>Current Capacity:</b> $($DIMMSlotMap.CurrentCapacityGB) GB</p>
+    <ul>
+      $(($DIMMSlotMap.UpgradeNotes | ForEach-Object { "<li>$_</li>" }) -join "`n")
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>Thermal Monitoring</h2>
+    <p><b>Source:</b> $($ThermalInfo.Source)</p>
+    <p><b>Temperature:</b> $(if ($null -ne $ThermalInfo.TemperatureCelsius) { "$($ThermalInfo.TemperatureCelsius) C" } else { "N/A" })</p>
+    <p><b>Status:</b> <span class="$(if ($ThermalInfo.Status -match 'Critical') {'fail'} elseif ($ThermalInfo.Status -match 'Hot|Warm') {'warn'} else {'pass'})">$($ThermalInfo.Status)</span></p>
+    <ul>
+      $(($ThermalInfo.Notes | ForEach-Object { "<li>$_</li>" }) -join "`n")
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>Predictive Failure Assessment</h2>
+    <p><b>Risk Score:</b> $($PredictiveFailure.RiskScore)/100</p>
+    <p><b>Failure Probability:</b> <span class="$(if ($PredictiveFailure.Probability -eq 'High') {'fail'} elseif ($PredictiveFailure.Probability -eq 'Medium') {'warn'} else {'pass'})">$($PredictiveFailure.Probability)</span></p>
+    <p><b>Recommendation:</b> $($PredictiveFailure.Recommendation)</p>
+    <h3>Risk Factors</h3>
+    <ul>
+      $(if ($PredictiveFailure.Factors.Count -gt 0) { ($PredictiveFailure.Factors | ForEach-Object { "<li>$_</li>" }) -join "`n" } else { "<li>No risk factors identified.</li>" })
+    </ul>
   </div>
 
   <div class="card">
@@ -567,6 +835,41 @@ do {
 
 $Events = @(Get-RecentMemoryRelatedEvents -HoursBack 72)
 
+# New diagnostics
+$ThermalInfo = Get-MemoryThermalInfo
+$DIMMSlotMap = Get-DIMMSlotMap
+$PredictiveFailure = Get-PredictiveFailureAssessment -RoundResults $RoundResults -Events $Events -ConfigWarnings $ConfigWarnings
+
+# Display memory configuration summary
+Write-Host ""
+Write-Host "Memory Configuration Summary:" -ForegroundColor Green
+Write-Host "  Total Slots:      $($DIMMSlotMap.TotalSlots)"
+Write-Host "  Populated Slots:  $($DIMMSlotMap.PopulatedSlots)"
+Write-Host "  Empty Slots:      $($DIMMSlotMap.EmptySlots)"
+Write-Host "  Max Capacity:     $($DIMMSlotMap.MaxCapacityGB) GB"
+Write-Host "  Current Capacity: $($DIMMSlotMap.CurrentCapacityGB) GB"
+if ($DIMMSlotMap.UpgradeNotes.Count -gt 0) {
+    $DIMMSlotMap.UpgradeNotes | ForEach-Object { Write-Host "  - $_" -ForegroundColor Cyan }
+}
+
+# Display thermal info
+Write-Host ""
+Write-Host "Thermal Monitoring:" -ForegroundColor Green
+Write-Host "  Source: $($ThermalInfo.Source)"
+if ($null -ne $ThermalInfo.TemperatureCelsius) {
+    Write-Host "  Temperature: $($ThermalInfo.TemperatureCelsius) C"
+}
+$thermalColor = if ($ThermalInfo.Status -match "Critical") { "Red" } elseif ($ThermalInfo.Status -match "Hot|Warm") { "Yellow" } else { "Green" }
+Write-Host "  Status: $($ThermalInfo.Status)" -ForegroundColor $thermalColor
+
+# Display predictive failure
+Write-Host ""
+Write-Host "Predictive Failure Assessment:" -ForegroundColor Green
+$failColor = if ($PredictiveFailure.Probability -eq "High") { "Red" } elseif ($PredictiveFailure.Probability -eq "Medium") { "Yellow" } else { "Green" }
+Write-Host "  Risk Score: $($PredictiveFailure.RiskScore)/100"
+Write-Host "  Probability: $($PredictiveFailure.Probability)" -ForegroundColor $failColor
+Write-Host "  $($PredictiveFailure.Recommendation)"
+
 $raw = [PSCustomObject]@{
     CustomerName = $CustomerName
     TechnicianName = $TechnicianName
@@ -577,10 +880,13 @@ $raw = [PSCustomObject]@{
     ConfigurationWarnings = $ConfigWarnings
     RoundResults = $RoundResults
     RecentEvents = $Events | Select-Object -First 50
+    ThermalInfo = $ThermalInfo
+    DIMMSlotMap = $DIMMSlotMap
+    PredictiveFailure = $PredictiveFailure
 }
 
 $raw | ConvertTo-Json -Depth 8 | Set-Content -Path $JsonFile -Encoding UTF8
-New-HtmlReport -SystemSummary $SystemSummary -RamInventory $RamInventory -RoundResults $RoundResults -ConfigWarnings $ConfigWarnings -Events $Events
+New-HtmlReport -SystemSummary $SystemSummary -RamInventory $RamInventory -RoundResults $RoundResults -ConfigWarnings $ConfigWarnings -Events $Events -ThermalInfo $ThermalInfo -PredictiveFailure $PredictiveFailure -DIMMSlotMap $DIMMSlotMap
 
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor Cyan
@@ -598,3 +904,36 @@ Write-Host "- For final confirmation, run MemTest86 bootable USB for 4 passes."
 Write-Host ""
 
 Write-Log "PC Plus 360 Advanced Physical RAM Isolation Test completed."
+
+# -JsonOutput: Emit structured JSON to stdout for ReportCard integration
+if ($JsonOutput) {
+    $reportCardData = [PSCustomObject]@{
+        ScriptName         = "PCPlus-RAMIsolation"
+        Version            = "2.0"
+        Timestamp          = (Get-Date -Format "o")
+        ComputerName       = $env:COMPUTERNAME
+        CustomerName       = $CustomerName
+        TechnicianName     = $TechnicianName
+        Mode               = $Mode
+        TotalRAMGB         = $SystemSummary.TotalRAMGB
+        ModulesDetected    = $RamInventory.Count
+        TotalSlots         = $DIMMSlotMap.TotalSlots
+        PopulatedSlots     = $DIMMSlotMap.PopulatedSlots
+        EmptySlots         = $DIMMSlotMap.EmptySlots
+        MaxCapacityGB      = $DIMMSlotMap.MaxCapacityGB
+        CurrentCapacityGB  = $DIMMSlotMap.CurrentCapacityGB
+        ThermalStatus      = $ThermalInfo.Status
+        ThermalCelsius     = $ThermalInfo.TemperatureCelsius
+        FailureProbability = $PredictiveFailure.Probability
+        FailureRiskScore   = $PredictiveFailure.RiskScore
+        RoundsRun          = $RoundResults.Count
+        RoundsPassed       = @($RoundResults | Where-Object { $_.Result -eq "PASS" }).Count
+        RoundsFailed       = @($RoundResults | Where-Object { $_.Result -eq "FAIL" }).Count
+        RoundsWarning      = @($RoundResults | Where-Object { $_.Result -eq "WARNING" }).Count
+        ConfigWarnings     = $ConfigWarnings
+        UpgradeNotes       = $DIMMSlotMap.UpgradeNotes
+        ReportPath         = $HtmlFile
+        SessionDir         = $SessionDir
+    }
+    $reportCardData | ConvertTo-Json -Depth 4
+}
