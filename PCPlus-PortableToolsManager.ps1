@@ -367,9 +367,29 @@ function Get-ToolStatus {
     $installed = Test-Path $exePath
     $localVer  = ""
     $sizeMB    = 0
+    $foundPath = $exePath
+
+    if (-not $installed) {
+        # Search in Tools root folder (user may have dropped EXEs directly there)
+        $rootExe = Join-Path $ToolsDir $Tool.executable
+        if (Test-Path $rootExe) {
+            $installed = $true
+            $foundPath = $rootExe
+        }
+    }
+
+    if (-not $installed) {
+        # Recursive search anywhere under Tools folder
+        $found = Get-ChildItem -Path $ToolsDir -Filter $Tool.executable -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) {
+            $installed = $true
+            $foundPath = $found.FullName
+            $toolDir = $found.DirectoryName
+        }
+    }
 
     if ($installed) {
-        $localVer = Get-FileVersionFromExe $exePath
+        $localVer = Get-FileVersionFromExe $foundPath
         if (-not $localVer) { $localVer = "Installed" }
         $sizeMB = Get-FolderSizeMB $toolDir
     }
@@ -387,9 +407,62 @@ function Get-ToolStatus {
         ManifestVersion = $Tool.version
         UpdateAvailable = $updateAvailable
         SizeMB          = $sizeMB
-        ExePath         = $exePath
+        ExePath         = $foundPath
         ToolDir         = $toolDir
     }
+}
+
+function Find-UnregisteredTools {
+    # Scan Tools folder for EXEs not in the manifest and auto-add them
+    $knownExes = @{}
+    foreach ($t in $script:Manifest) {
+        $knownExes[$t.executable.ToLower()] = $true
+    }
+
+    $newTools = [System.Collections.ArrayList]::new()
+    $allExes = Get-ChildItem -Path $ToolsDir -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue
+
+    foreach ($exe in $allExes) {
+        $exeName = $exe.Name.ToLower()
+        if ($knownExes.ContainsKey($exeName)) { continue }
+        # Skip common non-tool EXEs
+        if ($exeName -match "^(uninstall|setup|update|uninst|install)") { continue }
+
+        $ver = Get-FileVersionFromExe $exe.FullName
+        $desc = ""
+        try {
+            $fi = $exe.VersionInfo
+            if ($fi.FileDescription) { $desc = $fi.FileDescription }
+            elseif ($fi.ProductName) { $desc = $fi.ProductName }
+        } catch {}
+        if (-not $desc) { $desc = "Auto-detected portable tool" }
+
+        $relDir = $exe.DirectoryName
+        $extractTo = if ($relDir -eq $ToolsDir) { $exe.BaseName } else {
+            $relDir.Replace($ToolsDir, "").TrimStart("\", "/")
+            $parts = $relDir.Replace($ToolsDir, "").TrimStart("\", "/").Split("\", "/")
+            $parts[0]
+        }
+
+        $toolEntry = @{
+            id          = "auto_" + $exe.BaseName.ToLower() -replace '[^a-z0-9]', '_'
+            name        = $exe.BaseName
+            description = $desc
+            category    = "Auto-Detected"
+            downloadUrl = ""
+            fileName    = $exe.Name
+            executable  = $exe.Name
+            version     = if ($ver) { $ver } else { "" }
+            sha256      = ""
+            isZip       = $false
+            extractTo   = $extractTo
+        }
+
+        [void]$newTools.Add($toolEntry)
+        $knownExes[$exeName] = $true
+    }
+
+    return $newTools
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -508,29 +581,17 @@ function Install-Tool {
 
 function Launch-Tool {
     param([hashtable]$Tool, [System.Windows.Forms.TextBox]$Log)
-    $toolDir = Join-Path $ToolsDir $Tool.extractTo
-    $exePath = Join-Path $toolDir $Tool.executable
 
-    if (Test-Path $exePath) {
+    $status = Get-ToolStatus $Tool
+    if ($status.Installed -and (Test-Path $status.ExePath)) {
         $Log.AppendText("Launching $($Tool.name)...`r`n")
         try {
-            Start-Process -FilePath $exePath -WorkingDirectory $toolDir
+            Start-Process -FilePath $status.ExePath -WorkingDirectory $status.ToolDir
         } catch {
             $Log.AppendText("  [FAIL] Could not launch: $($_.Exception.Message)`r`n")
         }
     } else {
-        # Search for exe in subdirectories
-        $found = Get-ChildItem -Path $toolDir -Filter $Tool.executable -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($found) {
-            $Log.AppendText("Launching $($Tool.name) from $($found.DirectoryName)...`r`n")
-            try {
-                Start-Process -FilePath $found.FullName -WorkingDirectory $found.DirectoryName
-            } catch {
-                $Log.AppendText("  [FAIL] Could not launch: $($_.Exception.Message)`r`n")
-            }
-        } else {
-            $Log.AppendText("[FAIL] $($Tool.name) not found. Install it first.`r`n")
-        }
+        $Log.AppendText("[FAIL] $($Tool.name) not found. Install it first.`r`n")
     }
 }
 
@@ -540,6 +601,15 @@ function Launch-Tool {
 
 function Show-MainForm {
     $script:Manifest = Initialize-Manifest
+
+    # Auto-detect tools dropped directly into the Tools folder
+    $discovered = Find-UnregisteredTools
+    if ($discovered -and $discovered.Count -gt 0) {
+        foreach ($newTool in $discovered) {
+            [void]$script:Manifest.Add($newTool)
+        }
+        Save-Manifest $script:Manifest
+    }
 
     $form = New-Object System.Windows.Forms.Form
     $form.Text = "PC Plus Computing 360 - Portable Tools Manager"
@@ -859,6 +929,15 @@ function Show-MainForm {
 
     # ── Event Handlers ──
     $btnRefresh.Add_Click({
+        # Re-scan Tools folder for newly added EXEs
+        $discovered = Find-UnregisteredTools
+        if ($discovered -and $discovered.Count -gt 0) {
+            foreach ($newTool in $discovered) {
+                [void]$script:Manifest.Add($newTool)
+            }
+            Save-Manifest $script:Manifest
+            $txtLog.AppendText("Found $($discovered.Count) new tool(s) in Tools folder.`r`n")
+        }
         & $populateGrid
         $txtLog.AppendText("Tool list refreshed.`r`n")
     })
