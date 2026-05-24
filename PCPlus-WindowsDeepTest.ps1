@@ -46,7 +46,8 @@ param(
     [switch]$RunRepair,
     [switch]$SkipSFC,
     [switch]$SkipDISM,
-    [switch]$SkipPowerReports
+    [switch]$SkipPowerReports,
+    [switch]$JsonOutput
 )
 
 $ErrorActionPreference = "Continue"
@@ -845,6 +846,293 @@ function Get-PCPlusWindowsHealthScore {
 }
 
 # ============================================================
+# AUTOMATED REPAIR SUGGESTIONS
+# Maps each failed test to actionable fix suggestions
+# ============================================================
+
+function Get-PCPlusRepairSuggestions {
+    param($Data)
+    $suggestions = @()
+
+    # SFC failures
+    if ($Data.SFC.Summary -match "FAIL") {
+        $suggestions += [PSCustomObject]@{
+            Category = "Windows Integrity"; Issue = "SFC found unfixable corrupt files"
+            Severity = "Critical"; AutoFixable = $true
+            RepairCommand = "DISM /Online /Cleanup-Image /RestoreHealth && sfc /scannow"
+            ManualSteps = "1. Run DISM RestoreHealth first. 2. Re-run SFC. 3. If still failing, consider in-place Windows upgrade."
+        }
+    }
+    elseif ($Data.SFC.Summary -match "REPAIRED|WARNING") {
+        $suggestions += [PSCustomObject]@{
+            Category = "Windows Integrity"; Issue = "SFC found and repaired corrupt files"
+            Severity = "Moderate"; AutoFixable = $false
+            RepairCommand = ""; ManualSteps = "Re-run SFC to verify all repairs hold. Monitor for recurrence."
+        }
+    }
+
+    # DISM failures
+    if ($Data.DISM.CheckHealth -match "WARNING" -or $Data.DISM.ScanHealth -match "WARNING") {
+        $suggestions += [PSCustomObject]@{
+            Category = "Component Store"; Issue = "DISM reports repairable component store corruption"
+            Severity = "High"; AutoFixable = $true
+            RepairCommand = "DISM /Online /Cleanup-Image /RestoreHealth"
+            ManualSteps = "Run DISM RestoreHealth with internet connection for Windows Update source files."
+        }
+    }
+
+    # File system issues
+    foreach ($fs in $Data.FileSystemHealth) {
+        if ($fs.DirtyBit -match "dirty") {
+            $suggestions += [PSCustomObject]@{
+                Category = "File System"; Issue = "$($fs.Drive) dirty bit is set"
+                Severity = "High"; AutoFixable = $true
+                RepairCommand = "chkdsk $($fs.Drive) /f /r"
+                ManualSteps = "Schedule CHKDSK for next reboot. The dirty bit indicates an improper shutdown or file system error."
+            }
+        }
+        if ($fs.ChkdskSummary -match "WARNING|problems") {
+            $suggestions += [PSCustomObject]@{
+                Category = "File System"; Issue = "$($fs.Drive) CHKDSK found problems"
+                Severity = "High"; AutoFixable = $true
+                RepairCommand = "chkdsk $($fs.Drive) /f /r"
+                ManualSteps = "Back up important data, then schedule CHKDSK with /f /r flags for repair on next reboot."
+            }
+        }
+        if ($fs.FreePercent -lt 10) {
+            $suggestions += [PSCustomObject]@{
+                Category = "Storage Space"; Issue = "$($fs.Drive) has only $($fs.FreePercent)% free space"
+                Severity = "High"; AutoFixable = $true
+                RepairCommand = "cleanmgr /d $($fs.Drive.Replace(':',''))"
+                ManualSteps = "Run Disk Cleanup, empty recycle bin, remove temp files, uninstall unused programs."
+            }
+        }
+    }
+
+    # Device issues
+    if ($Data.DriverDeviceHealth.ProblemDeviceCount -gt 0) {
+        $suggestions += [PSCustomObject]@{
+            Category = "Device Drivers"; Issue = "$($Data.DriverDeviceHealth.ProblemDeviceCount) device(s) reporting errors"
+            Severity = "Moderate"; AutoFixable = $false
+            RepairCommand = ""
+            ManualSteps = "Open Device Manager, right-click problem devices, update or reinstall drivers. Check manufacturer website."
+        }
+    }
+
+    # Service issues
+    $badServices = @($Data.ServiceHealth | Where-Object { $_.Healthy -eq $false })
+    if ($badServices.Count -gt 0) {
+        foreach ($svc in $badServices) {
+            $suggestions += [PSCustomObject]@{
+                Category = "Windows Services"; Issue = "Service '$($svc.DisplayName)' is $($svc.Status)"
+                Severity = "Moderate"; AutoFixable = $true
+                RepairCommand = "net start $($svc.Name)"
+                ManualSteps = "Try starting the service manually. If it fails, check dependencies and event logs."
+            }
+        }
+    }
+
+    # WMI issues
+    if ($Data.WmiHealth.RepositoryStatus -notmatch "consistent") {
+        $suggestions += [PSCustomObject]@{
+            Category = "WMI Repository"; Issue = "WMI repository may be inconsistent"
+            Severity = "Moderate"; AutoFixable = $true
+            RepairCommand = "winmgmt /salvagerepository"
+            ManualSteps = "Try salvage first. If it fails, use winmgmt /resetrepository (resets all WMI data)."
+        }
+    }
+
+    # Windows Update issues
+    if ($Data.WindowsUpdateHealth.RebootPending) {
+        $suggestions += [PSCustomObject]@{
+            Category = "Windows Update"; Issue = "Windows reboot pending for updates"
+            Severity = "Low"; AutoFixable = $false
+            RepairCommand = ""
+            ManualSteps = "Restart the computer to complete pending Windows updates."
+        }
+    }
+
+    return $suggestions
+}
+
+# ============================================================
+# CORRUPTION SCORING (0-100 System Integrity Score)
+# Provides a focused score on Windows file/component integrity
+# ============================================================
+
+function Get-PCPlusCorruptionScore {
+    param($Data)
+
+    $score = 100
+    $details = @()
+
+    # SFC weight: 25 points
+    if ($Data.SFC.Summary -match "FAIL") { $score -= 25; $details += "SFC found unfixable corruption (-25)" }
+    elseif ($Data.SFC.Summary -match "REPAIRED") { $score -= 10; $details += "SFC repaired files (-10)" }
+    elseif ($Data.SFC.Summary -match "WARNING") { $score -= 8; $details += "SFC warning (-8)" }
+
+    # DISM weight: 20 points
+    if ($Data.DISM.CheckHealth -match "WARNING") { $score -= 10; $details += "DISM CheckHealth warning (-10)" }
+    if ($Data.DISM.ScanHealth -match "WARNING") { $score -= 10; $details += "DISM ScanHealth warning (-10)" }
+
+    # File system weight: 20 points
+    foreach ($fs in $Data.FileSystemHealth) {
+        if ($fs.DirtyBit -match "dirty") { $score -= 10; $details += "$($fs.Drive) dirty bit (-10)" }
+        if ($fs.ChkdskSummary -match "WARNING|problems") { $score -= 10; $details += "$($fs.Drive) CHKDSK issues (-10)" }
+    }
+
+    # WMI weight: 10 points
+    if ($Data.WmiHealth.RepositoryStatus -notmatch "consistent") { $score -= 10; $details += "WMI repository inconsistent (-10)" }
+
+    # Event log corruption indicators: 15 points
+    foreach ($e in $Data.EventLogScan) {
+        if ($e.Count -gt 0 -and $e.Category -match "NTFS Corruption") {
+            $score -= 15; $details += "NTFS corruption events: $($e.Count) (-15)"
+            break
+        }
+    }
+
+    # Services: 10 points
+    $badServices = @($Data.ServiceHealth | Where-Object { $_.Healthy -eq $false })
+    if ($badServices.Count -gt 0) {
+        $deduct = [math]::Min(10, $badServices.Count * 2)
+        $score -= $deduct
+        $details += "$($badServices.Count) unhealthy services (-$deduct)"
+    }
+
+    $score = [math]::Max(0, $score)
+    $integrityGrade = if ($score -ge 90) { "Excellent" }
+                      elseif ($score -ge 80) { "Good" }
+                      elseif ($score -ge 70) { "Fair" }
+                      elseif ($score -ge 50) { "Degraded" }
+                      else { "Critical" }
+
+    return [PSCustomObject]@{
+        IntegrityScore = $score
+        IntegrityGrade = $integrityGrade
+        Details = $details
+    }
+}
+
+# ============================================================
+# ROLLBACK SUPPORT & SAFE REPAIR
+# Creates restore point, attempts fixes, logs all changes
+# ============================================================
+
+function Invoke-PCPlusSafeRepair {
+    param($Data, $Suggestions, [string]$LogDir)
+
+    $changeLog = @()
+    $rollbackInfo = @{
+        RestorePointCreated = $false
+        RestorePointName = $null
+        ChangesAttempted = @()
+        ChangesSucceeded = @()
+        ChangesFailed = @()
+        StartTime = Get-Date
+        EndTime = $null
+    }
+
+    # Step 1: Create restore point
+    Write-PCLog "Safe Repair: Creating system restore point..."
+    try {
+        $rpName = "PCPlus360 Safe Repair - $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
+        Checkpoint-Computer -Description $rpName -RestorePointType MODIFY_SETTINGS -ErrorAction Stop
+        $rollbackInfo.RestorePointCreated = $true
+        $rollbackInfo.RestorePointName = $rpName
+        Write-PCLog "Restore point created: $rpName"
+        $changeLog += "[$(Get-Date -Format 'HH:mm:ss')] Created restore point: $rpName"
+    } catch {
+        Write-PCLog "Failed to create restore point: $($_.Exception.Message)" "WARN"
+        $changeLog += "[$(Get-Date -Format 'HH:mm:ss')] FAILED to create restore point: $($_.Exception.Message)"
+    }
+
+    # Step 2: Attempt auto-fixable repairs
+    $autoFixes = @($Suggestions | Where-Object { $_.AutoFixable -eq $true -and $_.RepairCommand })
+    foreach ($fix in $autoFixes) {
+        Write-PCLog "Safe Repair: Attempting fix for '$($fix.Issue)'..."
+        $changeLog += "[$(Get-Date -Format 'HH:mm:ss')] Attempting: $($fix.Category) - $($fix.Issue)"
+        $rollbackInfo.ChangesAttempted += $fix.Issue
+
+        try {
+            # Only run safe commands
+            $cmd = $fix.RepairCommand
+            if ($cmd -match "^(net start|cleanmgr|winmgmt)") {
+                $result = cmd.exe /c "$cmd" 2>&1
+                $rollbackInfo.ChangesSucceeded += $fix.Issue
+                $changeLog += "[$(Get-Date -Format 'HH:mm:ss')] SUCCESS: $($fix.Issue)"
+                Write-PCLog "Safe Repair: Fixed '$($fix.Issue)'"
+            } else {
+                # Skip potentially dangerous commands in automated mode
+                $changeLog += "[$(Get-Date -Format 'HH:mm:ss')] SKIPPED (requires manual): $($fix.Issue) - Command: $cmd"
+                Write-PCLog "Safe Repair: Skipped '$($fix.Issue)' (requires manual execution)" "WARN"
+            }
+        } catch {
+            $rollbackInfo.ChangesFailed += $fix.Issue
+            $changeLog += "[$(Get-Date -Format 'HH:mm:ss')] FAILED: $($fix.Issue) - $($_.Exception.Message)"
+            Write-PCLog "Safe Repair: Failed '$($fix.Issue)': $($_.Exception.Message)" "ERROR"
+        }
+    }
+
+    $rollbackInfo.EndTime = Get-Date
+
+    # Save change log
+    if ($LogDir) {
+        $logPath = Join-Path $LogDir "PCPlus360-SafeRepair-ChangeLog.txt"
+        $changeLog | Set-Content -Path $logPath -Encoding UTF8
+        Write-PCLog "Safe Repair change log saved: $logPath"
+    }
+
+    return [PSCustomObject]@{
+        RestorePointCreated = $rollbackInfo.RestorePointCreated
+        RestorePointName = $rollbackInfo.RestorePointName
+        TotalAttempted = $rollbackInfo.ChangesAttempted.Count
+        TotalSucceeded = $rollbackInfo.ChangesSucceeded.Count
+        TotalFailed = $rollbackInfo.ChangesFailed.Count
+        ChangesAttempted = $rollbackInfo.ChangesAttempted
+        ChangesSucceeded = $rollbackInfo.ChangesSucceeded
+        ChangesFailed = $rollbackInfo.ChangesFailed
+        ChangeLog = $changeLog
+        UndoInstructions = if ($rollbackInfo.RestorePointCreated) { "To undo all changes, use System Restore and select restore point: $($rollbackInfo.RestorePointName)" } else { "No restore point was created. Manual reversal may be needed." }
+    }
+}
+
+# ============================================================
+# JSON OUTPUT FOR REPORTCARD INTEGRATION
+# ============================================================
+
+function Export-WindowsDeepTestJson {
+    param($Data, [string]$OutputFolder)
+    if (-not $OutputFolder) { $OutputFolder = "C:\PCPlus360\Reports" }
+    if (-not (Test-Path $OutputFolder)) { New-Item -Path $OutputFolder -ItemType Directory -Force | Out-Null }
+
+    $ds = Get-Date -Format "yyyyMMdd-HHmmss"
+    $computerSafe = $env:COMPUTERNAME -replace '[^\w\-]', '_'
+    $jsonPath = Join-Path $OutputFolder "PCPlus-WindowsDeepTest-$computerSafe-$ds.json"
+
+    $export = @{
+        ReportType = "PCPlus-WindowsDeepTest"
+        GeneratedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        ComputerName = $env:COMPUTERNAME
+        CustomerName = $Data.System.CustomerName
+        Mode = $Data.System.Mode
+        HealthScore = $Data.Score.Score
+        HealthGrade = $Data.Score.Grade
+        IntegrityScore = if ($Data.CorruptionScore) { $Data.CorruptionScore.IntegrityScore } else { $null }
+        IntegrityGrade = if ($Data.CorruptionScore) { $Data.CorruptionScore.IntegrityGrade } else { $null }
+        SFC = $Data.SFC.Summary
+        DISM = @{ CheckHealth = $Data.DISM.CheckHealth; ScanHealth = $Data.DISM.ScanHealth; RestoreHealth = $Data.DISM.RestoreHealth }
+        ProblemDevices = $Data.DriverDeviceHealth.ProblemDeviceCount
+        RebootPending = $Data.WindowsUpdateHealth.RebootPending
+        RepairSuggestionCount = if ($Data.RepairSuggestions) { $Data.RepairSuggestions.Count } else { 0 }
+        Issues = $Data.Score.Issues
+    }
+
+    $export | ConvertTo-Json -Depth 8 | Set-Content -Path $jsonPath -Encoding UTF8
+    return $jsonPath
+}
+
+# ============================================================
 # HTML Report
 # ============================================================
 
@@ -853,10 +1141,35 @@ function New-PCPlusWindowsHtmlReport {
 
     $scoreColor = if ($Data.Score.Score -ge 80) { "#16a34a" } elseif ($Data.Score.Score -ge 60) { "#f59e0b" } else { "#dc2626" }
 
+    # Corruption/Integrity score colors
+    $intScore = if ($Data.CorruptionScore) { $Data.CorruptionScore.IntegrityScore } else { $Data.Score.Score }
+    $intGrade = if ($Data.CorruptionScore) { $Data.CorruptionScore.IntegrityGrade } else { "N/A" }
+    $intColor = if ($intScore -ge 80) { "#16a34a" } elseif ($intScore -ge 60) { "#f59e0b" } else { "#dc2626" }
+
     $issueHtml = if ($Data.Score.Issues.Count -gt 0) {
         ($Data.Score.Issues | ForEach-Object { "<li>$_</li>" }) -join "`n"
     } else {
         "<li>No major Windows performance or integrity issues detected.</li>"
+    }
+
+    # Build repair suggestions HTML
+    $repairHtml = ""
+    if ($Data.RepairSuggestions -and $Data.RepairSuggestions.Count -gt 0) {
+        $repairRows = foreach ($r in $Data.RepairSuggestions) {
+            $sevClass = switch ($r.Severity) { "Critical" { "fail" } "High" { "fail" } "Moderate" { "warn" } default { "pass" } }
+            $autoIcon = if ($r.AutoFixable) { "&#9889;" } else { "&#128736;" }
+            "<tr><td>$($r.Category)</td><td class='$sevClass'>$($r.Severity)</td><td>$($r.Issue)</td><td>$autoIcon $($r.ManualSteps)</td></tr>"
+        }
+        $repairHtml = @"
+  <div class="card">
+    <h2>Repair Suggestions</h2>
+    <p>$($Data.RepairSuggestions.Count) repair suggestion(s) based on test results:</p>
+    <table>
+      <tr><th>Category</th><th>Severity</th><th>Issue</th><th>Recommended Fix</th></tr>
+      $($repairRows -join "`n")
+    </table>
+  </div>
+"@
     }
 
     $fsRows = foreach ($f in $Data.FileSystemHealth) {
@@ -923,11 +1236,23 @@ td{border-bottom:1px solid #dbe8ef;padding:9px;vertical-align:top}
       <div class="metric"><b>Computer</b><span>$($Data.System.ComputerName)</span></div>
       <div class="metric"><b>Mode</b><span>$($Data.System.Mode)</span></div>
     </div>
-    <div class="score">$($Data.Score.Score)/100</div>
-    <p><span class="badge">$($Data.Score.Grade)</span></p>
+    <div style="display:flex;gap:20px;margin:14px 0;">
+      <div style="text-align:center;flex:1;">
+        <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;">Health Score</div>
+        <div class="score">$($Data.Score.Score)/100</div>
+        <p><span class="badge">$($Data.Score.Grade)</span></p>
+      </div>
+      <div style="text-align:center;flex:1;">
+        <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;">System Integrity</div>
+        <div style="font-size:48px;font-weight:800;color:$intColor;margin:8px 0;">$intScore/100</div>
+        <p><span class="badge" style="background:$(if($intScore -ge 80){'#eafaf1'}elseif($intScore -ge 60){'#fffbeb'}else{'#fef5f5'});color:$intColor;">$intGrade</span></p>
+      </div>
+    </div>
     <h3>Top Findings</h3>
     <ul>$issueHtml</ul>
   </div>
+
+  $repairHtml
 
   <div class="card">
     <h2>Windows Integrity</h2>
@@ -1033,8 +1358,19 @@ $Data.PowerReports = Invoke-PCPlusPowerReports
 $Data.NetworkResponse = Test-PCPlusNetworkResponse
 
 $Data.Score = Get-PCPlusWindowsHealthScore -Data $Data
+$Data.RepairSuggestions = @(Get-PCPlusRepairSuggestions -Data $Data)
+$Data.CorruptionScore = Get-PCPlusCorruptionScore -Data $Data
+
+Write-PCLog "Corruption/Integrity Score: $($Data.CorruptionScore.IntegrityScore)/100 ($($Data.CorruptionScore.IntegrityGrade))"
+Write-PCLog "Repair Suggestions: $($Data.RepairSuggestions.Count) item(s)"
 
 $Data | ConvertTo-Json -Depth 12 | Set-Content -Path $JsonFile -Encoding UTF8
+
+# JSON output for ReportCard integration
+if ($JsonOutput) {
+    $jsonExportPath = Export-WindowsDeepTestJson -Data $Data
+    Write-PCLog "JSON export for ReportCard: $jsonExportPath"
+}
 
 $summary = @"
 PC Plus 360 Deep Windows Performance & Integrity Test

@@ -4,6 +4,212 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ─────────────────────────────────────────────────────────────────────────────
+# STANDALONE PARAMETERS (when run directly, not dot-sourced)
+# Usage: .\PCPlus-Tests.ps1 -JsonOutput -Category "CPU","Memory","Storage"
+# ─────────────────────────────────────────────────────────────────────────────
+# Note: These are used when the script is invoked standalone for ReportCard.
+# When dot-sourced by PCPlus-360.ps1, the parent handles parameters.
+
+if (-not $Global:PCPlus360Loaded) {
+    # Script is being run standalone
+    param(
+        [switch]$JsonOutput,
+        [string[]]$Category,
+        [string]$CustomerName = "Customer",
+        [string]$TechnicianName = "PC Plus Technician"
+    )
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PERFORMANCE SCORE CALCULATOR (0-100 composite score)
+# Maps test results into a normalized performance score for ReportCard
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Get-PerformanceScore {
+    <#
+    .SYNOPSIS
+    Calculates a 0-100 performance score based on all test results.
+    Weights: Storage 20%, CPU 20%, RAM 15%, Thermal 15%, Stability 15%, Network 10%, Battery 5%.
+    #>
+    param($ScanData)
+
+    $score = 100
+    $breakdown = @()
+
+    # --- Storage (20% weight) ---
+    $storageScore = 100
+    if ($ScanData.SystemInfo -and $ScanData.SystemInfo.SMART) {
+        foreach ($d in $ScanData.SystemInfo.SMART) {
+            if ($d.Health -ne "Healthy") { $storageScore -= 30 }
+            if ($d.Wear -and $d.Wear -ne "N/A") {
+                $wearVal = [int]($d.Wear -replace '%','')
+                if ($wearVal -ge 80) { $storageScore -= 25 }
+                elseif ($wearVal -ge 50) { $storageScore -= 10 }
+            }
+        }
+    }
+    if ($ScanData.SystemInfo -and $ScanData.SystemInfo.Disks) {
+        foreach ($d in $ScanData.SystemInfo.Disks) {
+            if ($d.UsedPct -gt 95) { $storageScore -= 25 }
+            elseif ($d.UsedPct -gt 85) { $storageScore -= 10 }
+        }
+    }
+    if ($ScanData.StressResults -and $ScanData.StressResults.Disk -and -not $ScanData.StressResults.Disk.Passed) { $storageScore -= 20 }
+    $storageScore = [math]::Max(0, $storageScore)
+    $breakdown += @{ Component = "Storage"; Score = $storageScore; Weight = 20; Weighted = [math]::Round($storageScore * 0.20) }
+
+    # --- CPU (20% weight) ---
+    $cpuScore = 100
+    if ($ScanData.StressResults -and $ScanData.StressResults.CPU) {
+        if (-not $ScanData.StressResults.CPU.Passed) { $cpuScore -= 40 }
+        if ($ScanData.StressResults.CPU.ThrottleDetected) { $cpuScore -= 25 }
+        if ($ScanData.StressResults.CPU.MaxTemp -ne "N/A" -and $ScanData.StressResults.CPU.MaxTemp -gt 90) { $cpuScore -= 15 }
+    }
+    if ($ScanData.Performance -and $ScanData.Performance.CPUPercent -gt 90) { $cpuScore -= 10 }
+    $cpuScore = [math]::Max(0, $cpuScore)
+    $breakdown += @{ Component = "CPU"; Score = $cpuScore; Weight = 20; Weighted = [math]::Round($cpuScore * 0.20) }
+
+    # --- RAM (15% weight) ---
+    $ramScore = 100
+    if ($ScanData.StressResults -and $ScanData.StressResults.RAM -and -not $ScanData.StressResults.RAM.Passed) { $ramScore -= 50 }
+    if ($ScanData.Performance -and $ScanData.Performance.RAMPercent -gt 90) { $ramScore -= 15 }
+    if ($ScanData.SystemInfo -and $ScanData.SystemInfo.RAMTotal -lt 8) { $ramScore -= 20 }
+    $ramScore = [math]::Max(0, $ramScore)
+    $breakdown += @{ Component = "RAM"; Score = $ramScore; Weight = 15; Weighted = [math]::Round($ramScore * 0.15) }
+
+    # --- Thermal (15% weight) ---
+    $thermalScore = 100
+    if ($ScanData.SystemInfo -and $ScanData.SystemInfo.Temperatures) {
+        foreach ($t in $ScanData.SystemInfo.Temperatures) {
+            if ($t.TempC -gt 85) { $thermalScore -= 30 }
+            elseif ($t.TempC -gt 70) { $thermalScore -= 15 }
+        }
+    }
+    $thermalScore = [math]::Max(0, $thermalScore)
+    $breakdown += @{ Component = "Thermal"; Score = $thermalScore; Weight = 15; Weighted = [math]::Round($thermalScore * 0.15) }
+
+    # --- Stability (15% weight) ---
+    $stabilityScore = 100
+    if ($ScanData.Stability) {
+        if ($ScanData.Stability.TotalBSODs -ge 5) { $stabilityScore -= 40 }
+        elseif ($ScanData.Stability.TotalBSODs -ge 1) { $stabilityScore -= ($ScanData.Stability.TotalBSODs * 10) }
+        if ($ScanData.Stability.TotalUnexpected -ge 3) { $stabilityScore -= 20 }
+        if ($ScanData.Stability.TotalWHEA -ge 3) { $stabilityScore -= 20 }
+    }
+    $stabilityScore = [math]::Max(0, $stabilityScore)
+    $breakdown += @{ Component = "Stability"; Score = $stabilityScore; Weight = 15; Weighted = [math]::Round($stabilityScore * 0.15) }
+
+    # --- Network (10% weight) ---
+    $networkScore = 100
+    if ($ScanData.SpeedTest) {
+        if ($ScanData.SpeedTest.PacketLoss -and $ScanData.SpeedTest.PacketLoss -ne "N/A" -and $ScanData.SpeedTest.PacketLoss -ne "0%") {
+            $lossVal = [int]($ScanData.SpeedTest.PacketLoss -replace '%','')
+            if ($lossVal -ge 10) { $networkScore -= 40 }
+            elseif ($lossVal -ge 5) { $networkScore -= 20 }
+        }
+    }
+    $networkScore = [math]::Max(0, $networkScore)
+    $breakdown += @{ Component = "Network"; Score = $networkScore; Weight = 10; Weighted = [math]::Round($networkScore * 0.10) }
+
+    # --- Battery (5% weight) ---
+    $batteryScore = 100
+    if ($ScanData.Battery -and $ScanData.Battery.Present -and $ScanData.Battery.HealthPct -gt 0) {
+        if ($ScanData.Battery.HealthPct -lt 40) { $batteryScore = 20 }
+        elseif ($ScanData.Battery.HealthPct -lt 60) { $batteryScore = 50 }
+        elseif ($ScanData.Battery.HealthPct -lt 80) { $batteryScore = 70 }
+    }
+    $batteryScore = [math]::Max(0, $batteryScore)
+    $breakdown += @{ Component = "Battery"; Score = $batteryScore; Weight = 5; Weighted = [math]::Round($batteryScore * 0.05) }
+
+    # Calculate composite
+    $compositeScore = 0
+    foreach ($b in $breakdown) { $compositeScore += $b.Weighted }
+    $compositeScore = [math]::Max(0, [math]::Min(100, $compositeScore))
+
+    $grade = if ($compositeScore -ge 90) { "A" }
+             elseif ($compositeScore -ge 80) { "B" }
+             elseif ($compositeScore -ge 70) { "C" }
+             elseif ($compositeScore -ge 60) { "D" }
+             else { "F" }
+
+    $letterGrade = if ($compositeScore -ge 95) { "A+" }
+                   elseif ($compositeScore -ge 90) { "A" }
+                   elseif ($compositeScore -ge 85) { "A-" }
+                   elseif ($compositeScore -ge 80) { "B+" }
+                   elseif ($compositeScore -ge 75) { "B" }
+                   elseif ($compositeScore -ge 70) { "B-" }
+                   elseif ($compositeScore -ge 65) { "C+" }
+                   elseif ($compositeScore -ge 60) { "C" }
+                   elseif ($compositeScore -ge 55) { "C-" }
+                   elseif ($compositeScore -ge 50) { "D" }
+                   else { "F" }
+
+    return @{
+        Score = $compositeScore
+        Grade = $grade
+        LetterGrade = $letterGrade
+        Breakdown = $breakdown
+        Summary = "Performance Score: $compositeScore/100 ($letterGrade)"
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CATEGORY FILTER (for -Category parameter)
+# Returns $true if the test category should run based on -Category filter
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Test-CategoryEnabled {
+    param([string]$TestCategory, [string[]]$EnabledCategories)
+    if (-not $EnabledCategories -or $EnabledCategories.Count -eq 0) { return $true }
+    foreach ($c in $EnabledCategories) {
+        if ($TestCategory -like "*$c*") { return $true }
+    }
+    return $false
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JSON OUTPUT FOR REPORTCARD INTEGRATION
+# Exports scan results as structured JSON to Reports\ folder
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Export-TestResultsJson {
+    param($ScanData, $PerformanceScore, [string]$OutputFolder)
+    if (-not $OutputFolder) { $OutputFolder = "C:\PCPlus360\Reports" }
+    if (-not (Test-Path $OutputFolder)) { New-Item -Path $OutputFolder -ItemType Directory -Force | Out-Null }
+
+    $ds = Get-Date -Format "yyyyMMdd-HHmmss"
+    $computerSafe = $env:COMPUTERNAME -replace '[^\w\-]', '_'
+    $jsonPath = Join-Path $OutputFolder "PCPlus-Tests-$computerSafe-$ds.json"
+
+    $export = @{
+        ReportType = "PCPlus-Tests"
+        GeneratedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        ComputerName = $env:COMPUTERNAME
+        PerformanceScore = $PerformanceScore
+        HardwareScore = $ScanData.HardwareScore
+        SecurityScore = $ScanData.SecurityScore
+        SystemInfo = @{
+            Manufacturer = $ScanData.SystemInfo.Manufacturer
+            Model = $ScanData.SystemInfo.Model
+            Serial = $ScanData.SystemInfo.Serial
+            OS = $ScanData.SystemInfo.OSVersion
+            CPU = $ScanData.SystemInfo.CPUModel
+            RAMTotal = $ScanData.SystemInfo.RAMTotal
+        }
+        StressResults = @{
+            CPU = if ($ScanData.StressResults.CPU) { @{ Passed = $ScanData.StressResults.CPU.Passed; MaxTemp = $ScanData.StressResults.CPU.MaxTemp; Throttle = $ScanData.StressResults.CPU.ThrottleDetected } } else { $null }
+            RAM = if ($ScanData.StressResults.RAM) { @{ Passed = $ScanData.StressResults.RAM.Passed; Errors = $ScanData.StressResults.RAM.Errors } } else { $null }
+            Disk = if ($ScanData.StressResults.Disk) { @{ Passed = $ScanData.StressResults.Disk.Passed; WriteMBps = $ScanData.StressResults.Disk.SeqWriteMBps; ReadMBps = $ScanData.StressResults.Disk.SeqReadMBps } } else { $null }
+            GPU = if ($ScanData.StressResults.GPU) { @{ Passed = $ScanData.StressResults.GPU.Passed; MaxTemp = $ScanData.StressResults.GPU.MaxTemp } } else { $null }
+        }
+        Stability = if ($ScanData.Stability) { @{ Rating = $ScanData.Stability.StabilityRating; BSODs = $ScanData.Stability.TotalBSODs; UnexpectedShutdowns = $ScanData.Stability.TotalUnexpected } } else { $null }
+    }
+
+    $export | ConvertTo-Json -Depth 8 | Set-Content -Path $jsonPath -Encoding UTF8
+    return $jsonPath
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # TOOL DETECTION
 # ─────────────────────────────────────────────────────────────────────────────
 function Find-Tool {

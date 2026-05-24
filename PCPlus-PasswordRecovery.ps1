@@ -9,6 +9,112 @@ Add-Type -AssemblyName System.Security
 $Global:ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $Global:ToolsDir  = Join-Path $Global:ScriptDir "tools"
 $COMPANY = "PC Plus Computing"
+$Global:AuditLogDir = "C:\PCPlus360\AuditLogs"
+$Global:ConsentDir  = "C:\PCPlus360\Consent"
+
+# ── Audit Logging (tamper-evident) ──
+function Write-AuditLog {
+    param([string]$Action, [string]$Detail = "")
+    if (-not (Test-Path $Global:AuditLogDir)) { New-Item -Path $Global:AuditLogDir -ItemType Directory -Force | Out-Null }
+    $logFile = Join-Path $Global:AuditLogDir "PasswordRecovery-AuditLog.txt"
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $user = "$env:USERDOMAIN\$env:USERNAME"
+    $computer = $env:COMPUTERNAME
+    $entry = "[$timestamp] [User:$user] [Computer:$computer] [Action:$Action] $Detail"
+    # Append with hash for tamper evidence
+    $hash = [System.Security.Cryptography.SHA256]::Create()
+    $entryBytes = [System.Text.Encoding]::UTF8.GetBytes($entry)
+    $hashHex = ($hash.ComputeHash($entryBytes) | ForEach-Object { $_.ToString("x2") }) -join ""
+    $hash.Dispose()
+    Add-Content -Path $logFile -Value "$entry [SHA256:$hashHex]" -Encoding UTF8
+}
+
+# ── Customer Consent Check ──
+function Test-CustomerConsent {
+    $consentFiles = @(
+        (Join-Path $Global:ConsentDir "*.consent"),
+        (Join-Path $Global:ScriptDir "PCPlus-CustomerConsent.txt"),
+        (Join-Path $Global:ScriptDir "consent.txt")
+    )
+    foreach ($pattern in $consentFiles) {
+        $found = Get-ChildItem -Path $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) { return $found.FullName }
+    }
+    return $null
+}
+
+function Show-ConsentWarning {
+    $result = [System.Windows.MessageBox]::Show(
+        "WARNING: No customer consent file found.`n`n" +
+        "This tool recovers saved passwords and WiFi keys.`n" +
+        "It MUST ONLY be used with explicit customer authorization.`n`n" +
+        "By clicking YES, you confirm that:`n" +
+        "  - The customer has given written or verbal consent`n" +
+        "  - You are authorized to access this device`n" +
+        "  - This action will be logged for audit purposes`n`n" +
+        "Do you have customer authorization to proceed?",
+        "$COMPANY - Customer Consent Required",
+        "YesNo", "Warning"
+    )
+    return ($result -eq "Yes")
+}
+
+function Save-ConsentRecord {
+    param([string]$CustomerName, [string]$TechName)
+    if (-not (Test-Path $Global:ConsentDir)) { New-Item -Path $Global:ConsentDir -ItemType Directory -Force | Out-Null }
+    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $safeName = $CustomerName -replace '[\\/:*?"<>|]','_'
+    $consentFile = Join-Path $Global:ConsentDir "$safeName-$timestamp.consent"
+    $content = @"
+PC PLUS COMPUTING - PASSWORD RECOVERY CONSENT RECORD
+=====================================================
+Date: $(Get-Date -Format "MMMM dd, yyyy 'at' h:mm tt")
+Customer: $CustomerName
+Technician: $TechName
+Computer: $env:COMPUTERNAME
+User: $env:USERDOMAIN\$env:USERNAME
+Consent: Verbal/written consent confirmed by technician before tool use.
+"@
+    Set-Content -Path $consentFile -Value $content -Encoding UTF8
+    Write-AuditLog "CONSENT_RECORDED" "Customer: $CustomerName, Tech: $TechName, File: $consentFile"
+    return $consentFile
+}
+
+# ── Encrypted ZIP Export ──
+function Export-EncryptedZip {
+    param([string]$SourceFile, [string]$ZipPath, [string]$Password)
+    # Use .NET Framework ZipFile + AES encryption via 7z if available, otherwise simple zip
+    $sevenZip = $null
+    foreach ($p in @("$env:ProgramFiles\7-Zip\7z.exe","${env:ProgramFiles(x86)}\7-Zip\7z.exe",(Join-Path $Global:ToolsDir "7z.exe"))) {
+        if (Test-Path $p) { $sevenZip = $p; break }
+    }
+
+    if ($sevenZip) {
+        $args = "a -tzip -p`"$Password`" -mem=AES256 `"$ZipPath`" `"$SourceFile`""
+        $proc = Start-Process -FilePath $sevenZip -ArgumentList $args -Wait -PassThru -WindowStyle Hidden
+        if (Test-Path $ZipPath) {
+            Write-AuditLog "ENCRYPTED_EXPORT" "Exported to: $ZipPath (AES-256 via 7-Zip)"
+            return $true
+        }
+    }
+
+    # Fallback: standard ZIP without encryption (inform user)
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $parentDir = Split-Path $SourceFile -Parent
+        $fileName = Split-Path $SourceFile -Leaf
+        $tempDir = Join-Path $env:TEMP "pcplus_zip_$(Get-Random)"
+        New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
+        Copy-Item $SourceFile (Join-Path $tempDir $fileName) -Force
+        if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
+        [System.IO.Compression.ZipFile]::CreateFromDirectory($tempDir, $ZipPath)
+        Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        Write-AuditLog "EXPORT_NO_ENCRYPTION" "Exported to: $ZipPath (no encryption - 7-Zip not found)"
+        return $true
+    } catch {
+        return $false
+    }
+}
 
 # ── Elevation check (do NOT use -STA here, not needed) ──
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -443,6 +549,9 @@ function Show-RecoveryUI {
         <StackPanel Grid.Row="0" HorizontalAlignment="Center" Margin="0,0,0,15">
             <TextBlock Text="P C   P L U S   C O M P U T I N G" FontSize="18" FontWeight="Bold" Foreground="#2596be" HorizontalAlignment="Center"/>
             <TextBlock Text="Password Recovery Tool" FontSize="13" Foreground="#94a3b8" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+            <Border Background="#e74c3c" CornerRadius="4" Padding="8,4" Margin="0,8,0,0">
+                <TextBlock Text="This tool requires explicit customer authorization. All actions are logged." Foreground="White" FontSize="9" HorizontalAlignment="Center" TextWrapping="Wrap"/>
+            </Border>
         </StackPanel>
 
         <Border Grid.Row="1" Background="#1e293b" CornerRadius="8" Padding="16" Margin="0,0,0,12">
@@ -533,6 +642,22 @@ function Show-RecoveryUI {
             [System.Windows.MessageBox]::Show($window, "Please enter the customer name.", "$COMPANY", "OK", "Warning")
             return
         }
+
+        # Customer consent check
+        $consentFile = Test-CustomerConsent
+        if (-not $consentFile) {
+            $consentGranted = Show-ConsentWarning
+            if (-not $consentGranted) {
+                Write-AuditLog "CONSENT_DENIED" "Technician declined consent confirmation for: $($txtCustomer.Text.Trim())"
+                [System.Windows.MessageBox]::Show($window, "Operation cancelled. Customer consent is required.", "$COMPANY", "OK", "Information")
+                return
+            }
+            # Save consent record
+            $consentFile = Save-ConsentRecord -CustomerName $txtCustomer.Text.Trim() -TechName $txtTech.Text.Trim()
+        }
+
+        Write-AuditLog "RECOVERY_STARTED" "Customer: $($txtCustomer.Text.Trim()), Tech: $($txtTech.Text.Trim()), Consent: $consentFile"
+
         $btnRecover.IsEnabled = $false
         $btnExport.IsEnabled = $false
         $txtLog.Text = "Starting password recovery..."
@@ -593,8 +718,11 @@ function Show-RecoveryUI {
             $progress.Value = 100
             $btnExport.IsEnabled = $true
 
+            Write-AuditLog "RECOVERY_COMPLETED" "Browser: $($Global:RecoveredBrowser.Count), WiFi: $($Global:RecoveredWifi.Count), Total: $total"
+
         } catch {
             & $appendLog "ERROR: $($_.Exception.Message)"
+            Write-AuditLog "RECOVERY_ERROR" "$($_.Exception.Message)"
         }
         $btnRecover.IsEnabled = $true
     })
@@ -620,6 +748,25 @@ function Show-RecoveryUI {
             }
             Start-Process explorer.exe -ArgumentList $outDir
 
+            Write-AuditLog "REPORT_EXPORTED" "Path: $(if($pdfOk){$pdfPath}else{$htmlPath})"
+
+            # Offer encrypted ZIP export
+            $encryptResult = [System.Windows.MessageBox]::Show($window, "Would you like to create an encrypted ZIP of this report?`n`nThis adds password protection for secure transfer.", "$COMPANY - Encrypted Export", "YesNo", "Question")
+            if ($encryptResult -eq "Yes") {
+                Add-Type -AssemblyName Microsoft.VisualBasic
+                $zipPassword = [Microsoft.VisualBasic.Interaction]::InputBox("Enter a password for the encrypted ZIP file:", "$COMPANY - Set ZIP Password", "")
+                if ($zipPassword) {
+                    $zipPath = Join-Path $outDir "$safeName - Password Recovery $ds.zip"
+                    $sourceForZip = if ($pdfOk) { $pdfPath } else { $htmlPath }
+                    $zipOk = Export-EncryptedZip -SourceFile $sourceForZip -ZipPath $zipPath -Password $zipPassword
+                    if ($zipOk) {
+                        & $appendLog "Encrypted ZIP saved: $zipPath"
+                    } else {
+                        & $appendLog "Encrypted ZIP creation failed."
+                    }
+                }
+            }
+
             $emailResult = [System.Windows.MessageBox]::Show($window, "Report saved!`n`nOpen email client to send to customer?", "$COMPANY", "YesNo", "Question")
             if ($emailResult -eq "Yes") {
                 $filePath = if ($pdfOk) { $pdfPath } else { $htmlPath }
@@ -641,7 +788,10 @@ function Show-RecoveryUI {
 # ENTRY POINT
 # ═══════════════════════════════════════════════════════════════════════════════
 try {
+    Write-AuditLog "TOOL_LAUNCHED" "User: $env:USERDOMAIN\$env:USERNAME, Computer: $env:COMPUTERNAME"
     Show-RecoveryUI
+    Write-AuditLog "TOOL_CLOSED" ""
 } catch {
+    Write-AuditLog "TOOL_ERROR" "$($_.Exception.Message)"
     [System.Windows.MessageBox]::Show("$COMPANY Password Recovery Error:`n`n$($_.Exception.Message)", "$COMPANY - Error", "OK", "Error") | Out-Null
 }

@@ -167,6 +167,174 @@ function Export-ScanCSV {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# JSON OUTPUT FOR REPORTCARD INTEGRATION
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Export-ReportCardJson {
+    param($ScanData, $PerformanceScore, [string]$OutputFolder)
+    if (-not $OutputFolder) { $OutputFolder = "C:\PCPlus360\Reports" }
+    if (-not (Test-Path $OutputFolder)) { New-Item -Path $OutputFolder -ItemType Directory -Force | Out-Null }
+
+    $ds = Get-Date -Format "yyyyMMdd-HHmmss"
+    $computerSafe = $ScanData.SystemInfo.ComputerName -replace '[^\w\-]', '_'
+    $jsonPath = Join-Path $OutputFolder "PCPlus-ReportCard-$computerSafe-$ds.json"
+
+    $export = @{
+        ReportType = "PCPlus-360-ReportCard"
+        GeneratedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        ComputerName = $ScanData.SystemInfo.ComputerName
+        CustomerName = $ScanData.CustomerName
+        HardwareScore = $ScanData.HardwareScore
+        SecurityScore = $ScanData.SecurityScore
+        PerformanceScore = if ($PerformanceScore) { $PerformanceScore.Score } else { $null }
+        PerformanceGrade = if ($PerformanceScore) { $PerformanceScore.LetterGrade } else { $null }
+        SystemInfo = @{
+            Manufacturer = $ScanData.SystemInfo.Manufacturer
+            Model = $ScanData.SystemInfo.Model
+            Serial = $ScanData.SystemInfo.Serial
+            OS = $ScanData.SystemInfo.OSVersion
+            CPU = $ScanData.SystemInfo.CPUModel
+            RAMTotal = $ScanData.SystemInfo.RAMTotal
+        }
+        ScanMode = $ScanData.ScanMode
+    }
+
+    $export | ConvertTo-Json -Depth 8 | Set-Content -Path $jsonPath -Encoding UTF8
+    Write-DiagLog "ReportCard JSON exported: $jsonPath"
+    return $jsonPath
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EXECUTIVE SUMMARY HELPERS
+# Letter grade, SVG risk gauge, business risk assessment, remediation table
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Get-OverallLetterGrade {
+    param([int]$HwScore, [int]$SecScore)
+    $avg = [math]::Round(($HwScore + $SecScore) / 2)
+    $grade = if ($avg -ge 95) { "A+" } elseif ($avg -ge 90) { "A" } elseif ($avg -ge 85) { "A-" }
+             elseif ($avg -ge 80) { "B+" } elseif ($avg -ge 75) { "B" } elseif ($avg -ge 70) { "B-" }
+             elseif ($avg -ge 65) { "C+" } elseif ($avg -ge 60) { "C" } elseif ($avg -ge 55) { "C-" }
+             elseif ($avg -ge 50) { "D" } else { "F" }
+    $color = if ($avg -ge 80) { "#27ae60" } elseif ($avg -ge 60) { "#f39c12" } else { "#e74c3c" }
+    return @{ Score = $avg; Grade = $grade; Color = $color }
+}
+
+function Build-SVGRiskGauge {
+    param([int]$Score)
+    $color = if ($Score -ge 80) { "#27ae60" } elseif ($Score -ge 60) { "#f39c12" } else { "#e74c3c" }
+    $riskLabel = if ($Score -ge 85) { "LOW RISK" } elseif ($Score -ge 70) { "MODERATE" } elseif ($Score -ge 55) { "ELEVATED" } else { "HIGH RISK" }
+    # SVG semi-circle gauge
+    $angle = [math]::Round(180 * $Score / 100)
+    $rad = [math]::Round($angle * [math]::PI / 180, 4)
+    $x = [math]::Round(50 + 40 * [math]::Cos([math]::PI - $rad), 2)
+    $y = [math]::Round(55 - 40 * [math]::Sin([math]::PI - $rad), 2)
+    $largeArc = if ($angle -gt 180) { 1 } else { 0 }
+
+    return @"
+<svg viewBox="0 0 100 65" width="200" height="130" style="display:block;margin:0 auto;">
+  <path d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#e5e7eb" stroke-width="8" stroke-linecap="round"/>
+  <path d="M 10 55 A 40 40 0 $largeArc 1 $x $y" fill="none" stroke="$color" stroke-width="8" stroke-linecap="round"/>
+  <text x="50" y="45" text-anchor="middle" font-size="18" font-weight="bold" fill="$color">$Score</text>
+  <text x="50" y="58" text-anchor="middle" font-size="7" fill="#64748b" font-weight="600">$riskLabel</text>
+</svg>
+"@
+}
+
+function Build-BusinessRiskAssessment {
+    param([int]$HwScore, [int]$SecScore, $SystemInfo, $Stability, $StressResults)
+    $avg = [math]::Round(($HwScore + $SecScore) / 2)
+    $lines = @()
+
+    if ($avg -ge 85) {
+        $lines += "This system is operating in excellent condition with minimal risk to business operations."
+        $lines += "Regular maintenance and monitoring should continue to maintain this status."
+    } elseif ($avg -ge 70) {
+        $lines += "This system shows moderate wear but remains functional for daily business use."
+        $lines += "Addressing the identified issues within 30-60 days will help prevent service disruptions."
+    } elseif ($avg -ge 55) {
+        $lines += "This system presents elevated risk to business continuity with multiple areas requiring attention."
+        $lines += "We recommend prioritizing critical repairs within 14 days to avoid potential data loss or extended downtime."
+    } else {
+        $lines += "This system is at high risk of failure and poses an immediate threat to business operations."
+        $lines += "Critical action is required within 7 days. Consider temporary backup solutions while repairs are underway."
+    }
+
+    # Add specific risk factors
+    if ($Stability -and $Stability.TotalBSODs -ge 3) {
+        $lines += "Frequent Blue Screen events ($($Stability.TotalBSODs) in 90 days) indicate potential hardware instability that could result in unexpected data loss."
+    }
+    if ($SystemInfo -and $SystemInfo.Battery -and $SystemInfo.Battery.Present -and $SystemInfo.Battery.HealthPct -lt 50) {
+        $lines += "Battery health is critically low ($($SystemInfo.Battery.HealthPct)%), which limits mobile use and increases risk of abrupt shutdowns."
+    }
+    if ($StressResults -and $StressResults.CPU -and -not $StressResults.CPU.Passed) {
+        $lines += "CPU stress test failure suggests potential thermal or hardware degradation that may lead to system instability under heavy workloads."
+    }
+    if ($SecScore -lt 50) {
+        $lines += "The low security score exposes the system to malware, ransomware, and unauthorized access. Immediate hardening is strongly recommended."
+    }
+
+    return ($lines -join " ")
+}
+
+function Build-RemediationTable {
+    param($HwIssues, $SecurityFailures)
+    $items = @()
+
+    foreach ($issue in $HwIssues) {
+        $priority = if ($issue -match "FAIL|critical|failing") { "Critical" }
+                    elseif ($issue -match "error|nearly full|throttl") { "High" }
+                    else { "Medium" }
+        $time = switch ($priority) { "Critical" { "1-2 hours" } "High" { "2-4 hours" } default { "1 hour" } }
+        $items += @{ Issue = $issue; Priority = $priority; Status = "Open"; EstTime = $time }
+    }
+
+    foreach ($sec in $SecurityFailures) {
+        $priority = if ($sec.Points -ge 7) { "Critical" } elseif ($sec.Points -ge 3) { "High" } else { "Medium" }
+        $time = switch ($priority) { "Critical" { "30-60 min" } "High" { "15-30 min" } default { "10-15 min" } }
+        $items += @{ Issue = $sec.Check; Priority = $priority; Status = "Open"; EstTime = $time }
+    }
+
+    return $items | Select-Object -First 15
+}
+
+function Build-RecommendedServices {
+    param($HwIssues, $SecurityFailures, $SystemInfo, $StressResults)
+    $services = @()
+
+    # Map findings to PC Plus service offerings
+    $hasStorageIssue = $HwIssues | Where-Object { $_ -match "Disk|SSD|drive|storage" }
+    $hasThermalIssue = $HwIssues | Where-Object { $_ -match "temp|thermal|throttl|overheat" }
+    $hasRamIssue = $HwIssues | Where-Object { $_ -match "RAM|memory" }
+    $hasBatteryIssue = $HwIssues | Where-Object { $_ -match "Battery" }
+    $hasSecurityIssue = $SecurityFailures.Count -gt 3
+
+    if ($hasStorageIssue) {
+        $services += @{ Service = "SSD Upgrade & Data Migration"; Description = "Replace aging/failing drive with fast NVMe SSD and migrate all data."; PriceRange = "$120 - $250" }
+    }
+    if ($hasThermalIssue) {
+        $services += @{ Service = "Thermal Paste & Cooling Service"; Description = "Clean internal fans, replace thermal paste, optimize airflow."; PriceRange = "$60 - $90" }
+    }
+    if ($hasRamIssue) {
+        $services += @{ Service = "RAM Upgrade"; Description = "Install additional or replacement RAM modules for better performance."; PriceRange = "$50 - $120" }
+    }
+    if ($hasBatteryIssue) {
+        $services += @{ Service = "Battery Replacement"; Description = "Replace worn battery to restore portable runtime."; PriceRange = "$60 - $140" }
+    }
+    if ($hasSecurityIssue) {
+        $services += @{ Service = "Security Hardening Package"; Description = "Full security audit remediation, patch management, and protection setup."; PriceRange = "$80 - $150" }
+    }
+    if ($StressResults -and $StressResults.CPU -and -not $StressResults.CPU.Passed) {
+        $services += @{ Service = "Hardware Diagnostics & Repair"; Description = "In-depth hardware testing to isolate and fix failing components."; PriceRange = "$80 - $200" }
+    }
+
+    # Always recommend maintenance
+    $services += @{ Service = "Annual Maintenance Plan"; Description = "Quarterly checkups, priority support, and preventive maintenance."; PriceRange = "$199/year" }
+
+    return $services
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # REPORT GENERATION
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -420,6 +588,46 @@ function Build-HardwareReport {
         $recsHTML += "<li style='margin-bottom:6px;'>$($recommendations[$i])</li>`n"
     }
 
+    # ── NEW: Generate executive summary enhancements ──
+    $securityFailures = @()  # Security failures come from security report; pass empty for HW-only context
+    $riskGaugeSVG = Build-SVGRiskGauge -Score $hwScore
+    $businessRiskText = Build-BusinessRiskAssessment -HwScore $hwScore -SecScore 0 -SystemInfo $SystemInfo -Stability $Stability -StressResults $StressResults
+    $remediationItems = Build-RemediationTable -HwIssues $hwIssues -SecurityFailures $securityFailures
+    $recommendedServices = Build-RecommendedServices -HwIssues $hwIssues -SecurityFailures $securityFailures -SystemInfo $SystemInfo -StressResults $StressResults
+
+    # Build remediation HTML rows
+    $remediationHTML = ""
+    if ($remediationItems.Count -gt 0) {
+        $remediationRows = ($remediationItems | ForEach-Object {
+            $prColor = switch ($_.Priority) { "Critical" { "#dc2626" } "High" { "#f59e0b" } default { "#2596be" } }
+            $prBg = switch ($_.Priority) { "Critical" { "#fef2f2" } "High" { "#fffbeb" } default { "#f0f7fb" } }
+            "<tr><td style='color:$prColor;font-weight:700;'>$($_.Priority)</td><td>$($_.Issue)</td><td style='text-align:center;'><span style='padding:3px 10px;border-radius:12px;background:#fff3cd;color:#856404;font-size:8pt;font-weight:600;'>$($_.Status)</span></td><td style='text-align:center;'>$($_.EstTime)</td></tr>"
+        }) -join "`n"
+        $remediationHTML = @"
+<div class='sub-header' style='margin-top:18px;'>Remediation Tracking</div>
+<table><tr><th>Priority</th><th>Issue</th><th style='text-align:center;'>Status</th><th style='text-align:center;'>Est. Time</th></tr>
+$remediationRows
+</table>
+"@
+    }
+
+    # Build recommended services HTML
+    $servicesHTML = ""
+    if ($recommendedServices.Count -gt 0) {
+        $serviceRows = ($recommendedServices | ForEach-Object {
+            "<tr><td style='font-weight:600;color:#0a1628;'>$($_.Service)</td><td>$($_.Description)</td><td style='text-align:center;font-weight:700;color:#0d4b71;white-space:nowrap;'>$($_.PriceRange)</td></tr>"
+        }) -join "`n"
+        $servicesHTML = @"
+<div class='sub-header' style='margin-top:18px;'>&#128736; Recommended Services</div>
+<div style='padding:10px;background:#f0f7fb;border-left:4px solid #2596be;border-radius:4px;margin-bottom:10px;font-size:9pt;color:#0d4b71;'>
+Based on the diagnostic findings, the following services are recommended to address identified issues and optimize system performance.
+</div>
+<table><tr><th>Service</th><th>Description</th><th style='text-align:center;'>Price Range</th></tr>
+$serviceRows
+</table>
+"@
+    }
+
     # Build category score cards for executive summary
     function Build-MiniDonut($score, $label) {
         $color = if ($score -ge 80) { "#16a34a" } elseif ($score -ge 60) { "#f59e0b" } else { "#dc2626" }
@@ -461,9 +669,18 @@ h1,h2,h3,h4 { margin:0; }
 
 /* Print handling */
 @media print {
-    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; font-size: 9pt; }
     .page-break { page-break-before: always; }
     .no-break { page-break-inside: avoid; }
+    table { page-break-inside: avoid; }
+    .section-header { page-break-after: avoid; }
+    .sub-header { page-break-after: avoid; }
+    .score-cards { page-break-inside: avoid; }
+    .findings-box, .recs-box { page-break-inside: avoid; }
+    .summary-strip { page-break-inside: avoid; }
+    .promo-banner { page-break-inside: avoid; }
+    a { text-decoration: none; color: inherit; }
+    tr { page-break-inside: avoid; }
 }
 .page-break { page-break-before: always; }
 
@@ -657,6 +874,22 @@ $batteryCard
 <h3>&#9881; Top Recommendations</h3>
 <ol>$recsHTML</ol>
 </div>
+
+<!-- Risk Gauge & Business Assessment -->
+<div class="no-break" style="display:flex;align-items:flex-start;gap:24px;margin:18px 0;">
+<div style="text-align:center;min-width:200px;">
+<div style="font-size:9pt;font-weight:700;color:#0d4b71;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Risk Assessment</div>
+$riskGaugeSVG
+</div>
+<div style="flex:1;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px 20px;">
+<div style="font-size:10.5pt;font-weight:700;color:#0d4b71;margin-bottom:8px;">&#128202; Business Risk Assessment</div>
+<div style="font-size:9.5pt;color:#334155;line-height:1.7;">$businessRiskText</div>
+</div>
+</div>
+
+$remediationHTML
+
+$servicesHTML
 
 $issuesHTML
 
@@ -1275,6 +1508,50 @@ function Build-SecurityReport {
     $criticalPatches = ($MissingPatches | Where-Object { $_.Severity -eq "Critical" }).Count
     $importantPatches = ($MissingPatches | Where-Object { $_.Severity -eq "Important" }).Count
 
+    # ── NEW: Generate executive summary enhancements for security report ──
+    $secSecurityFailures = @()
+    foreach ($item in $Scoring.Breakdown) {
+        if (-not $item.Passed) {
+            $secSecurityFailures += @{ Check = $item.Check; Points = $item.Points }
+        }
+    }
+    $secRiskGaugeSVG = Build-SVGRiskGauge -Score $Scoring.Score
+    $secBusinessRiskText = Build-BusinessRiskAssessment -HwScore 0 -SecScore $Scoring.Score -SystemInfo $SystemInfo -Stability $null -StressResults $null
+    $secRemediationItems = Build-RemediationTable -HwIssues @() -SecurityFailures $secSecurityFailures
+    $secRecommendedSvcs = Build-RecommendedServices -HwIssues @() -SecurityFailures $secSecurityFailures -SystemInfo $SystemInfo -StressResults $null
+
+    # Build security remediation HTML rows
+    $secRemediationHTML = ""
+    if ($secRemediationItems.Count -gt 0) {
+        $secRemRows = ($secRemediationItems | ForEach-Object {
+            $prColor = switch ($_.Priority) { "Critical" { "#dc2626" } "High" { "#f59e0b" } default { "#2596be" } }
+            "<tr><td style='color:$prColor;font-weight:700;'>$($_.Priority)</td><td>$($_.Issue)</td><td style='text-align:center;'><span style='padding:3px 10px;border-radius:12px;background:#fff3cd;color:#856404;font-size:8pt;font-weight:600;'>$($_.Status)</span></td><td style='text-align:center;'>$($_.EstTime)</td></tr>"
+        }) -join "`n"
+        $secRemediationHTML = @"
+<div class='sub-header' style='margin-top:18px;'>Remediation Tracking</div>
+<table><tr><th>Priority</th><th>Issue</th><th style='text-align:center;'>Status</th><th style='text-align:center;'>Est. Time</th></tr>
+$secRemRows
+</table>
+"@
+    }
+
+    # Build security recommended services HTML
+    $secServicesHTML = ""
+    if ($secRecommendedSvcs.Count -gt 0) {
+        $secSvcRows = ($secRecommendedSvcs | ForEach-Object {
+            "<tr><td style='font-weight:600;color:#0a1628;'>$($_.Service)</td><td>$($_.Description)</td><td style='text-align:center;font-weight:700;color:#0d4b71;white-space:nowrap;'>$($_.PriceRange)</td></tr>"
+        }) -join "`n"
+        $secServicesHTML = @"
+<div class='sub-header' style='margin-top:18px;'>&#128736; Recommended Services</div>
+<div style='padding:10px;background:#f0f7fb;border-left:4px solid #2596be;border-radius:4px;margin-bottom:10px;font-size:9pt;color:#0d4b71;'>
+Based on the security audit findings, the following services are recommended to harden this system and reduce risk.
+</div>
+<table><tr><th>Service</th><th>Description</th><th style='text-align:center;'>Price Range</th></tr>
+$secSvcRows
+</table>
+"@
+    }
+
 $html = @"
 <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><title>Security Audit Report - $($Params.CustomerName)</title>
 <style>
@@ -1285,9 +1562,18 @@ h1,h2,h3,h4 { margin:0; }
 
 /* Print handling */
 @media print {
-    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; font-size: 9pt; }
     .page-break { page-break-before: always; }
     .no-break { page-break-inside: avoid; }
+    table { page-break-inside: avoid; }
+    .section-header { page-break-after: avoid; }
+    .sub-header { page-break-after: avoid; }
+    .score-cards { page-break-inside: avoid; }
+    .sec-detail-panel { page-break-inside: avoid; }
+    .rec-card { page-break-inside: avoid; }
+    .promo-banner { page-break-inside: avoid; }
+    a { text-decoration: none; color: inherit; }
+    tr { page-break-inside: avoid; }
 }
 .page-break { page-break-before: always; }
 
@@ -1478,6 +1764,22 @@ $recsHTML
 <div style='font-size:9.5pt;color:#334155;margin-top:4px;'>This system meets all security baseline requirements.</div>
 </div>"
 })
+
+<!-- Risk Gauge & Business Assessment -->
+<div class="no-break" style="display:flex;align-items:flex-start;gap:24px;margin:18px 0;">
+<div style="text-align:center;min-width:200px;">
+<div style="font-size:9pt;font-weight:700;color:#0d4b71;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Risk Assessment</div>
+$secRiskGaugeSVG
+</div>
+<div style="flex:1;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px 20px;">
+<div style="font-size:10.5pt;font-weight:700;color:#0d4b71;margin-bottom:8px;">&#128202; Business Risk Assessment</div>
+<div style="font-size:9.5pt;color:#334155;line-height:1.7;">$secBusinessRiskText</div>
+</div>
+</div>
+
+$secRemediationHTML
+
+$secServicesHTML
 
 <!-- SCORE BREAKDOWN -->
 <div class="page-break"></div>

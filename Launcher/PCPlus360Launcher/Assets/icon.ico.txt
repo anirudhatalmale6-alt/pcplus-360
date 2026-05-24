@@ -1,0 +1,4 @@
+PLACEHOLDER: Replace this file with an actual icon.ico file.
+Recommended: 256x256 multi-resolution ICO with 16, 32, 48, 64, 128, 256px sizes.
+Use the PC Plus 360 shield logo as the icon source.
+Once the .ico file is in place, uncomment ApplicationIcon in the .csproj.

@@ -274,11 +274,20 @@ $xaml = @"
                         <Button x:Name="btnUSBHistory" Style="{StaticResource SideNav}"><TextBlock Text="  USB History" FontSize="11.5" Foreground="#a78bfa"/></Button>
                         <Button x:Name="btnNetSnapshot" Style="{StaticResource SideNav}"><TextBlock Text="  Network Snapshot" FontSize="11.5" Foreground="#3bbde0"/></Button>
 
+                        <Button x:Name="btnRansomware" Style="{StaticResource SideNav}"><TextBlock Text="  Ransomware Readiness" FontSize="11.5" Foreground="#dc2626"/></Button>
+                        <Button x:Name="btnCloudBackup" Style="{StaticResource SideNav}"><TextBlock Text="  Cloud Backup Audit" FontSize="11.5" Foreground="#0ea5e9"/></Button>
+
                         <TextBlock Text="  DIAGNOSTICS" FontSize="9" FontWeight="SemiBold" Foreground="#4a7a8a" Margin="0,12,0,4"/>
+                        <Button x:Name="btnHardwareDiag" Style="{StaticResource SideNav}"><TextBlock Text="  Hardware Diagnostic" FontSize="11.5" Foreground="#10b981" FontWeight="SemiBold"/></Button>
                         <Button x:Name="btnNavWearTear" Style="{StaticResource SideNav}"><TextBlock Text="  Wear &amp; Tear Report" FontSize="11.5" Foreground="#e879f9"/></Button>
                         <Button x:Name="btnGamingPerfTest" Style="{StaticResource SideNav}"><TextBlock Text="  Gaming Perf Test" FontSize="11.5" Foreground="#f97316" FontWeight="SemiBold"/></Button>
                         <Button x:Name="btnLCDDisplay" Style="{StaticResource SideNav}"><TextBlock Text="  LCD Display Test" FontSize="11.5" Foreground="#06b6d4" FontWeight="SemiBold"/></Button>
                         <Button x:Name="btnQuickFix" Style="{StaticResource SideNav}"><TextBlock Text="  Quick Fix" FontSize="11.5" Foreground="#f43f5e" FontWeight="SemiBold"/></Button>
+
+                        <TextBlock Text="  WORKFLOW" FontSize="9" FontWeight="SemiBold" Foreground="#4a7a8a" Margin="0,12,0,4"/>
+                        <Button x:Name="btnConsent" Style="{StaticResource SideNav}"><TextBlock Text="  Customer Consent" FontSize="11.5" Foreground="#fbbf24" FontWeight="SemiBold"/></Button>
+                        <Button x:Name="btnReportCard" Style="{StaticResource SideNav}"><TextBlock Text="  Report Card" FontSize="11.5" Foreground="#34d399" FontWeight="SemiBold"/></Button>
+                        <Button x:Name="btnToolsManager" Style="{StaticResource SideNav}"><TextBlock Text="  Portable Tools" FontSize="11.5" Foreground="#818cf8" FontWeight="SemiBold"/></Button>
 
                         <TextBlock Text="  REPORTS" FontSize="9" FontWeight="SemiBold" Foreground="#4a7a8a" Margin="0,12,0,4"/>
                         <Button x:Name="btnHWReport" Style="{StaticResource SideNav}"><TextBlock Text="  Hardware Report" FontSize="11.5" Foreground="#22c55e"/></Button>
@@ -888,6 +897,24 @@ $xaml = @"
     }
     foreach ($btnName in $securityScripts.Keys) {
         $scriptName = $securityScripts[$btnName]
+        $window.FindName($btnName).Add_Click(([ScriptBlock]::Create("
+            `$s = Join-Path `$Global:ScriptDir '$scriptName'
+            if (Test-Path `$s) { Start-Process powershell.exe -ArgumentList `"-NoProfile -ExecutionPolicy Bypass -File ```"`$s```"`" -Verb RunAs }
+            else { [System.Windows.MessageBox]::Show(`$window, '$scriptName not found in toolkit folder.`nMake sure it is in the same directory as PCPlus-360.ps1', 'Not Found', 'OK', 'Warning') }
+        ")))
+    }
+
+    # ── New Roadmap Tool Launchers ──
+    $roadmapScripts = @{
+        "btnRansomware"   = "PCPlus-RansomwareReadiness.ps1"
+        "btnCloudBackup"  = "PCPlus-CloudBackupAudit.ps1"
+        "btnHardwareDiag" = "PCPlus-HardwareDiagnostic.ps1"
+        "btnConsent"      = "PCPlus-CustomerConsent.ps1"
+        "btnReportCard"   = "PCPlus-ReportCard.ps1"
+        "btnToolsManager" = "PCPlus-PortableToolsManager.ps1"
+    }
+    foreach ($btnName in $roadmapScripts.Keys) {
+        $scriptName = $roadmapScripts[$btnName]
         $window.FindName($btnName).Add_Click(([ScriptBlock]::Create("
             `$s = Join-Path `$Global:ScriptDir '$scriptName'
             if (Test-Path `$s) { Start-Process powershell.exe -ArgumentList `"-NoProfile -ExecutionPolicy Bypass -File ```"`$s```"`" -Verb RunAs }

@@ -1324,5 +1324,137 @@ body::before {
   </div>
 </div>
 
+<script>
+// WebView2 Bridge - connects HTML dashboard to C# WPF host
+(function() {
+  var isWebView2 = !!(window.chrome && window.chrome.webview);
+
+  function sendToHost(action, data) {
+    var msg = JSON.stringify(Object.assign({action: action}, data || {}));
+    if (isWebView2) {
+      window.chrome.webview.postMessage(msg);
+    } else {
+      console.log('[Bridge]', msg);
+    }
+  }
+
+  // Window controls
+  document.querySelector('.win-minimize').addEventListener('click', function() { sendToHost('minimize'); });
+  document.querySelector('.win-maximize').addEventListener('click', function() { sendToHost('maximize'); });
+  document.querySelector('.win-close').addEventListener('click', function() { sendToHost('close'); });
+
+  // Quick Action buttons
+  var quickActions = {
+    'Run Quick Scan': 'PCPlus-QuickRiskScore.ps1',
+    'Full Security Audit': 'PCPlus-SecurityAudit.ps1',
+    'Hardware Diagnostics': 'PCPlus-HardwareDiagnostic.ps1',
+    'Ransomware Readiness': 'PCPlus-RansomwareReadiness.ps1',
+    'Backup & Recovery Audit': 'PCPlus-BackupRealityCheck.ps1'
+  };
+  document.querySelectorAll('.qa-btn').forEach(function(btn) {
+    var label = btn.querySelector('.qa-label');
+    if (label && quickActions[label.textContent]) {
+      btn.style.cursor = 'pointer';
+      btn.addEventListener('click', function() {
+        sendToHost('runScript', {script: quickActions[label.textContent]});
+        btn.style.opacity = '0.6';
+        setTimeout(function() { btn.style.opacity = '1'; }, 300);
+      });
+    }
+  });
+
+  // Sidebar navigation
+  var sidebarScripts = {
+    'Dashboard': null,
+    'Quick Scan': 'PCPlus-QuickRiskScore.ps1',
+    'Security Audit': 'PCPlus-SecurityAudit.ps1',
+    'Hardware Health': 'PCPlus-HardwareDiagnostic.ps1',
+    'Backup & Recovery': 'PCPlus-BackupRealityCheck.ps1',
+    'Ransomware Readiness': 'PCPlus-RansomwareReadiness.ps1',
+    'Network Audit': 'PCPlus-NetworkSnapshot.ps1',
+    'Repair Center': 'PCPlus-WindowsDeepTest.ps1',
+    'Reports': 'PCPlus-ReportCard.ps1',
+    'Toolbox': 'PCPlus-PortableToolsManager.ps1',
+    'Settings': null,
+    'About': null
+  };
+  document.querySelectorAll('.sidebar-nav a').forEach(function(link) {
+    var text = link.textContent.trim();
+    if (sidebarScripts[text]) {
+      link.addEventListener('click', function(e) {
+        e.preventDefault();
+        sendToHost('runScript', {script: sidebarScripts[text]});
+      });
+    }
+  });
+
+  // Action Center buttons
+  document.querySelectorAll('.action-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var text = btn.textContent.trim();
+      var scriptMap = {
+        'Review Updates': 'PCPlus-WindowsDeepTest.ps1',
+        'Check Backups': 'PCPlus-BackupRealityCheck.ps1',
+        'Review Settings': 'PCPlus-RDPExposureAudit.ps1',
+        'Review Extensions': 'PCPlus-BrowserRiskAudit.ps1'
+      };
+      if (scriptMap[text]) {
+        sendToHost('runScript', {script: scriptMap[text]});
+      }
+    });
+  });
+
+  // Enter Repair Center button
+  var repairBtn = document.querySelector('.repair-btn');
+  if (repairBtn) {
+    repairBtn.addEventListener('click', function() {
+      sendToHost('runScript', {script: 'PCPlus-WindowsDeepTest.ps1'});
+    });
+  }
+
+  // System info link
+  var detailsLink = document.querySelector('.details-link');
+  if (detailsLink) {
+    detailsLink.addEventListener('click', function(e) {
+      e.preventDefault();
+      sendToHost('runScript', {script: 'PCPlus-Tests.ps1'});
+    });
+  }
+
+  // Receive data from C# host
+  if (isWebView2) {
+    window.chrome.webview.addEventListener('message', function(e) {
+      var data = JSON.parse(e.data);
+      if (data.type === 'systemInfo') updateSystemInfo(data);
+      if (data.type === 'scanResult') updateScores(data);
+      if (data.type === 'statusUpdate') updateStatus(data);
+    });
+    sendToHost('getSystemInfo');
+  }
+
+  function updateSystemInfo(info) {
+    var fields = document.querySelectorAll('.info-val');
+    if (info.deviceName && fields[0]) fields[0].textContent = info.deviceName;
+    if (info.os && fields[1]) fields[1].textContent = info.os;
+    if (info.processor && fields[2]) fields[2].textContent = info.processor;
+    if (info.memory && fields[3]) fields[3].textContent = info.memory;
+    if (info.storage && fields[4]) fields[4].textContent = info.storage;
+    if (info.uptime && fields[5]) fields[5].textContent = info.uptime;
+  }
+
+  function updateScores(result) {
+    if (result.score !== undefined) {
+      var scoreEl = document.querySelector('.score-value');
+      if (scoreEl) scoreEl.textContent = result.score;
+      var gradeEl = document.querySelector('.score-grade');
+      if (gradeEl) gradeEl.textContent = result.grade || '';
+    }
+  }
+
+  function updateStatus(status) {
+    console.log('[Status]', status);
+  }
+})();
+</script>
 </body>
 </html>

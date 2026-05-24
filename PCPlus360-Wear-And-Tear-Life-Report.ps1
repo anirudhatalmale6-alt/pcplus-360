@@ -22,7 +22,8 @@ param(
     [string]$CustomerName = "Customer",
     [string]$TechnicianName = "PC Plus Technician",
     [string]$ToolsDir = "C:\PCPlus360\Tools",
-    [switch]$OpenReport
+    [switch]$OpenReport,
+    [switch]$JsonOutput
 )
 
 $ErrorActionPreference = "Continue"
@@ -469,6 +470,211 @@ function Get-PCPlusOverallWearScore {
     [PSCustomObject]@{Score=$overall;Grade=Get-GradeFromScore $overall;Risk=Get-RiskFromScore $overall;ApproxLife=Get-LifeTextFromScore $overall;ReplacementRecommendation=$replacement;CriticalCount=$critical.Count;HighCount=$high.Count;ModerateCount=$moderate.Count;ComponentScores=$scores;Findings=@($all|Sort-Object Severity,Category)}
 }
 
+# ============================================================
+# LIFECYCLE FORECASTING
+# Estimates remaining useful life based on wear indicators
+# ============================================================
+
+function Get-PCPlusLifecycleForecast {
+    param($Data)
+
+    $forecast = @{
+        EstimatedRemainingMonths = $null
+        ConfidenceLevel = "Low"
+        Components = @()
+        AgingProjection = @()
+        UpgradeRecommendations = @()
+        CostEstimates = @()
+    }
+
+    # --- Storage lifecycle ---
+    foreach ($d in $Data.Storage.Drives) {
+        $remainingMonths = $null
+        $component = @{ Name = "Storage: $($d.Model)"; CurrentScore = $d.Score; RemainingMonths = $null; Risk = "Unknown" }
+
+        if ($d.PowerOnHours -ne $null) {
+            $hoursPerYear = 2920 # ~8 hours/day average
+            $yearsUsed = [math]::Round($d.PowerOnHours / 8760, 1)
+            if ($d.WearPercentUsed -ne $null -and $d.WearPercentUsed -gt 0) {
+                $remainingPercent = [math]::Max(0, 100 - $d.WearPercentUsed)
+                $wearPerYear = if ($yearsUsed -gt 0) { $d.WearPercentUsed / $yearsUsed } else { 10 }
+                $remainingYears = if ($wearPerYear -gt 0) { $remainingPercent / $wearPerYear } else { 5 }
+                $remainingMonths = [math]::Round($remainingYears * 12, 0)
+                $component.RemainingMonths = $remainingMonths
+                $component.Risk = if ($remainingMonths -lt 12) { "Critical" } elseif ($remainingMonths -lt 24) { "High" } elseif ($remainingMonths -lt 48) { "Moderate" } else { "Low" }
+            }
+            elseif ($d.PowerOnHours -ge 40000) {
+                $component.RemainingMonths = 12
+                $component.Risk = "High"
+            }
+            elseif ($d.PowerOnHours -ge 25000) {
+                $component.RemainingMonths = 24
+                $component.Risk = "Moderate"
+            }
+            else {
+                $expectedLife = 50000 # hours for HDD, less for heavy-use SSD
+                $remaining = [math]::Max(0, $expectedLife - $d.PowerOnHours)
+                $component.RemainingMonths = [math]::Round(($remaining / $hoursPerYear) * 12, 0)
+                $component.Risk = "Low"
+            }
+        }
+        $forecast.Components += $component
+
+        # Upgrade recommendation
+        if ($component.Risk -in @("Critical","High") -or $d.Score -lt 60) {
+            $rec = @{
+                Component = "Storage: $($d.Model)"
+                Recommendation = if ($d.SizeGB -and $d.SizeGB -lt 256) { "Replace with 500GB NVMe SSD" } elseif ($d.SizeGB -lt 512) { "Replace with 1TB NVMe SSD" } else { "Replace with equivalent or larger NVMe SSD" }
+                Priority = if ($component.Risk -eq "Critical") { "Immediate" } else { "Within 6 months" }
+                CostLow = 50; CostHigh = 150
+                Reason = "Drive showing $($d.WearPercentUsed)% wear with $($d.PowerOnHours) power-on hours"
+            }
+            $forecast.UpgradeRecommendations += $rec
+            $forecast.CostEstimates += @{ Item = $rec.Recommendation; Low = $rec.CostLow; High = $rec.CostHigh }
+        }
+    }
+
+    # --- Battery lifecycle ---
+    if ($Data.Battery.BatteryDetected -and $Data.Battery.BatteryHealthPercent -ne $null) {
+        $battComponent = @{ Name = "Battery"; CurrentScore = $Data.Battery.Score; RemainingMonths = $null; Risk = "Unknown" }
+        if ($Data.Battery.BatteryHealthPercent -lt 40) {
+            $battComponent.RemainingMonths = 3
+            $battComponent.Risk = "Critical"
+        } elseif ($Data.Battery.BatteryHealthPercent -lt 60) {
+            $battComponent.RemainingMonths = 12
+            $battComponent.Risk = "High"
+        } elseif ($Data.Battery.BatteryHealthPercent -lt 80) {
+            $battComponent.RemainingMonths = 24
+            $battComponent.Risk = "Moderate"
+        } else {
+            $battComponent.RemainingMonths = 48
+            $battComponent.Risk = "Low"
+        }
+        $forecast.Components += $battComponent
+
+        if ($battComponent.Risk -in @("Critical","High")) {
+            $forecast.UpgradeRecommendations += @{
+                Component = "Battery"
+                Recommendation = "Replace laptop battery"
+                Priority = if ($battComponent.Risk -eq "Critical") { "Immediate" } else { "Within 6 months" }
+                CostLow = 40; CostHigh = 120
+                Reason = "Battery health at $($Data.Battery.BatteryHealthPercent)%, $($Data.Battery.CycleCount) cycles"
+            }
+            $forecast.CostEstimates += @{ Item = "Battery replacement"; Low = 40; High = 120 }
+        }
+    }
+
+    # --- RAM upgrade recommendation ---
+    if ($Data.RAM.TotalRAMGB -lt 8) {
+        $forecast.UpgradeRecommendations += @{
+            Component = "RAM"
+            Recommendation = "Upgrade to 16GB RAM"
+            Priority = "Recommended"
+            CostLow = 30; CostHigh = 80
+            Reason = "System has only $($Data.RAM.TotalRAMGB) GB RAM - below recommended 8GB minimum"
+        }
+        $forecast.CostEstimates += @{ Item = "RAM upgrade to 16GB"; Low = 30; High = 80 }
+    } elseif ($Data.RAM.TotalRAMGB -lt 16) {
+        $forecast.UpgradeRecommendations += @{
+            Component = "RAM"
+            Recommendation = "Consider upgrading to 16GB RAM for better multitasking"
+            Priority = "Optional"
+            CostLow = 25; CostHigh = 60
+            Reason = "System has $($Data.RAM.TotalRAMGB) GB RAM - 16GB recommended for modern workloads"
+        }
+        $forecast.CostEstimates += @{ Item = "RAM upgrade to 16GB"; Low = 25; High = 60 }
+    }
+
+    # --- Thermal maintenance ---
+    if ($Data.Thermal.Score -lt 70) {
+        $forecast.UpgradeRecommendations += @{
+            Component = "Cooling System"
+            Recommendation = "Thermal paste replacement and internal cleaning"
+            Priority = "Within 3 months"
+            CostLow = 30; CostHigh = 60
+            Reason = "Thermal wear score is $($Data.Thermal.Score)/100 indicating cooling degradation"
+        }
+        $forecast.CostEstimates += @{ Item = "Thermal paste + cleaning"; Low = 30; High = 60 }
+    }
+
+    # --- System age recommendation ---
+    if ($Data.System.BIOSAgeYears -ne $null -and $Data.System.BIOSAgeYears -ge 8) {
+        $forecast.UpgradeRecommendations += @{
+            Component = "System (Overall)"
+            Recommendation = "Plan full system replacement within 12 months"
+            Priority = "Planning"
+            CostLow = 500; CostHigh = 1500
+            Reason = "System is approximately $($Data.System.BIOSAgeYears) years old - beyond typical useful life"
+        }
+        $forecast.CostEstimates += @{ Item = "New computer (replacement)"; Low = 500; High = 1500 }
+    }
+
+    # --- Aging Projection (6/12/24 months) ---
+    $currentOverall = $Data.Overall.Score
+    # Estimate degradation rate based on current age and score
+    $degradePerMonth = if ($currentOverall -lt 60) { 2.5 } elseif ($currentOverall -lt 75) { 1.5 } elseif ($currentOverall -lt 85) { 1.0 } else { 0.5 }
+
+    $forecast.AgingProjection = @(
+        @{ Months = 6; ProjectedScore = [math]::Max(0, [math]::Round($currentOverall - ($degradePerMonth * 6))); Label = "6 Months" }
+        @{ Months = 12; ProjectedScore = [math]::Max(0, [math]::Round($currentOverall - ($degradePerMonth * 12))); Label = "12 Months" }
+        @{ Months = 24; ProjectedScore = [math]::Max(0, [math]::Round($currentOverall - ($degradePerMonth * 24))); Label = "24 Months" }
+    )
+
+    # Calculate overall remaining months (use shortest critical component)
+    $componentMonths = @($forecast.Components | Where-Object { $_.RemainingMonths -ne $null } | ForEach-Object { $_.RemainingMonths })
+    if ($componentMonths.Count -gt 0) {
+        $forecast.EstimatedRemainingMonths = ($componentMonths | Measure-Object -Minimum).Minimum
+        $forecast.ConfidenceLevel = if ($componentMonths.Count -ge 3) { "Moderate" } else { "Low" }
+    }
+
+    # Total cost estimate
+    $totalLow = ($forecast.CostEstimates | Measure-Object -Property Low -Sum).Sum
+    $totalHigh = ($forecast.CostEstimates | Measure-Object -Property High -Sum).Sum
+    $forecast.TotalCostEstimate = @{ Low = $totalLow; High = $totalHigh }
+
+    return $forecast
+}
+
+# ============================================================
+# JSON OUTPUT FOR REPORTCARD INTEGRATION
+# ============================================================
+
+function Export-WearAndTearJson {
+    param($Data, [string]$OutputFolder)
+    if (-not $OutputFolder) { $OutputFolder = "C:\PCPlus360\Reports" }
+    if (-not (Test-Path $OutputFolder)) { New-Item -Path $OutputFolder -ItemType Directory -Force | Out-Null }
+
+    $ds = Get-Date -Format "yyyyMMdd-HHmmss"
+    $computerSafe = $env:COMPUTERNAME -replace '[^\w\-]', '_'
+    $jsonPath = Join-Path $OutputFolder "PCPlus-WearAndTear-$computerSafe-$ds.json"
+
+    $export = @{
+        ReportType = "PCPlus-WearAndTear"
+        GeneratedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        ComputerName = $env:COMPUTERNAME
+        CustomerName = $Data.System.CustomerName
+        OverallScore = $Data.Overall.Score
+        OverallGrade = $Data.Overall.Grade
+        OverallRisk = $Data.Overall.Risk
+        ApproxLife = $Data.Overall.ApproxLife
+        Recommendation = $Data.Overall.ReplacementRecommendation
+        ComponentScores = @{}
+        Forecast = if ($Data.Forecast) { @{
+            EstimatedRemainingMonths = $Data.Forecast.EstimatedRemainingMonths
+            UpgradeCount = $Data.Forecast.UpgradeRecommendations.Count
+            TotalCostLow = $Data.Forecast.TotalCostEstimate.Low
+            TotalCostHigh = $Data.Forecast.TotalCostEstimate.High
+        }} else { $null }
+    }
+
+    foreach ($c in $Data.Overall.ComponentScores) {
+        $export.ComponentScores[$c.Name] = $c.Score
+    }
+
+    $export | ConvertTo-Json -Depth 8 | Set-Content -Path $jsonPath -Encoding UTF8
+    return $jsonPath
+}
+
 function HtmlEncode { param([string]$Text) if($null -eq $Text){return ""}; $Text.Replace("&","&amp;").Replace("<","&lt;").Replace(">","&gt;").Replace('"',"&quot;") }
 
 function New-PCPlusWearHtmlReport {
@@ -527,6 +733,64 @@ th{background:#0d4b71;color:white;padding:10px;text-align:left}td{border-bottom:
 
 <div class="card"><h2>Component Wear Scores</h2><table><tr><th>Component</th><th>Score</th><th>Grade</th></tr>$($componentRows -join "`n")</table></div>
 <div class="card"><h2>Findings & Recommendations</h2><table><tr><th>Category</th><th>Severity</th><th>Finding</th><th>Recommendation</th></tr>$($findingRows -join "`n")</table></div>
+$(if($Data.Forecast){
+    # Lifecycle Forecast section
+    $forecastColor = if($Data.Forecast.EstimatedRemainingMonths -ge 36){"#16a34a"}elseif($Data.Forecast.EstimatedRemainingMonths -ge 12){"#f59e0b"}else{"#dc2626"}
+    $forecastLabel = if($Data.Forecast.EstimatedRemainingMonths -ge 36){"Healthy"}elseif($Data.Forecast.EstimatedRemainingMonths -ge 18){"Aging"}elseif($Data.Forecast.EstimatedRemainingMonths -ge 6){"Near End-of-Life"}else{"Critical"}
+    $compForecastRows = foreach($c in $Data.Forecast.Components){
+        $rClass = switch($c.Risk){"Critical"{"fail"}"High"{"fail"}"Moderate"{"warn"}default{"pass"}}
+        "<tr><td>$($c.Name)</td><td>$($c.CurrentScore)/100</td><td class='$rClass'>$($c.Risk)</td><td>$(if($c.RemainingMonths){"~$($c.RemainingMonths) months"}else{"N/A"})</td></tr>"
+    }
+    # Aging projection
+    $projRows = foreach($p in $Data.Forecast.AgingProjection){
+        $pColor = if($p.ProjectedScore -ge 80){"pass"}elseif($p.ProjectedScore -ge 60){"warn"}else{"fail"}
+        "<tr><td>$($p.Label)</td><td class='$pColor'>$($p.ProjectedScore)/100</td><td>$(Get-GradeFromScore $p.ProjectedScore)</td><td>$(Get-RiskFromScore $p.ProjectedScore)</td></tr>"
+    }
+    # Upgrade recommendations
+    $upgradeRows = foreach($u in $Data.Forecast.UpgradeRecommendations){
+        $uClass = switch($u.Priority){"Immediate"{"fail"}"Within 3 months"{"fail"}"Within 6 months"{"warn"}default{"pass"}}
+        "<tr><td>$($u.Component)</td><td>$(HtmlEncode $u.Recommendation)</td><td class='$uClass'>$($u.Priority)</td><td>`$$($u.CostLow) - `$$($u.CostHigh) CAD</td><td style='font-size:8pt;color:#64748b;'>$(HtmlEncode $u.Reason)</td></tr>"
+    }
+    # Cost summary
+    $costRows = foreach($ce in $Data.Forecast.CostEstimates){ "<tr><td>$($ce.Item)</td><td>`$$($ce.Low) - `$$($ce.High) CAD</td></tr>" }
+@"
+<div class="card"><h2>Lifecycle Forecast</h2>
+<div style="display:flex;gap:20px;margin-bottom:14px;">
+<div style="text-align:center;flex:1;">
+<div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;">Estimated Remaining Life</div>
+<div style="font-size:42px;font-weight:800;color:$forecastColor;margin:8px 0;">$(if($Data.Forecast.EstimatedRemainingMonths){"~$($Data.Forecast.EstimatedRemainingMonths) mo"}else{"N/A"})</div>
+<div style="font-size:12px;font-weight:600;color:$forecastColor;">$forecastLabel</div>
+<div style="font-size:9px;color:#94a3b8;margin-top:4px;">Confidence: $($Data.Forecast.ConfidenceLevel)</div>
+</div>
+</div>
+<h3>Component Lifecycle Breakdown</h3>
+<table><tr><th>Component</th><th>Current Score</th><th>Risk</th><th>Est. Remaining</th></tr>
+$($compForecastRows -join "`n")</table>
+</div>
+
+<div class="card"><h2>Performance Aging Projection</h2>
+<p>Projected overall wear score based on current degradation rate:</p>
+<table><tr><th>Timeframe</th><th>Projected Score</th><th>Projected Grade</th><th>Projected Risk</th></tr>
+$($projRows -join "`n")</table>
+<div class="notice">These projections assume continued use at current intensity without upgrades or major maintenance. Actual results may vary.</div>
+</div>
+
+$(if($Data.Forecast.UpgradeRecommendations.Count -gt 0){
+@"
+<div class="card"><h2>Upgrade Recommendations</h2>
+<table><tr><th>Component</th><th>Recommendation</th><th>Priority</th><th>Est. Cost</th><th>Reason</th></tr>
+$($upgradeRows -join "`n")</table>
+<h3>Cost Summary</h3>
+<table><tr><th>Item</th><th>Estimated Cost Range</th></tr>
+$($costRows -join "`n")
+<tr style="background:#eaf7fc;font-weight:700;"><td>Total Estimated Investment</td><td>`$$($Data.Forecast.TotalCostEstimate.Low) - `$$($Data.Forecast.TotalCostEstimate.High) CAD</td></tr>
+</table>
+<div class="notice">Cost estimates are approximate ranges for parts and labor at PC Plus Computing. Actual costs depend on specific hardware model, availability, and labor required. Contact us for a precise quote.</div>
+</div>
+"@
+})
+"@
+})
 <div class="card"><h2>Storage Wear</h2><p>SMART deep details require smartctl/CrystalDiskInfo. Smartctl found: $($Data.Storage.SmartCtlFound)</p><table>
 <tr><th>Drive</th><th>Type</th><th>Size</th><th>Power Hours</th><th>Wear Used %</th><th>Temp C</th><th>Pending Sectors</th><th>Score</th><th>Approx Life</th></tr>
 $($driveRows -join "`n")</table><h3>Volumes</h3><table><tr><th>Drive</th><th>File System</th><th>Size</th><th>Free</th><th>Free %</th></tr>$($volumeRows -join "`n")</table></div>
@@ -560,8 +824,17 @@ $Data.GPU=Get-PCPlusGpuWear
 $Data.Reliability=Get-PCPlusWindowsReliabilityWear
 $Data.DeviceWear=Get-PCPlusDeviceWear
 $Data.Overall=Get-PCPlusOverallWearScore -Data $Data
+$Data.Forecast=Get-PCPlusLifecycleForecast -Data $Data
+
+Write-PCLog "Lifecycle Forecast: ~$($Data.Forecast.EstimatedRemainingMonths) months remaining, $($Data.Forecast.UpgradeRecommendations.Count) upgrade(s) recommended"
 
 $Data | ConvertTo-Json -Depth 12 | Set-Content -Path $JsonFile -Encoding UTF8
+
+# JSON output for ReportCard integration
+if ($JsonOutput) {
+    $jsonExportPath = Export-WearAndTearJson -Data $Data
+    Write-PCLog "JSON export for ReportCard: $jsonExportPath"
+}
 
 $topFindings = $Data.Overall.Findings | Select-Object -First 12 | ForEach-Object {
     "- [$($_.Severity)] $($_.Category): $($_.Finding) Recommendation: $($_.Recommendation)"
