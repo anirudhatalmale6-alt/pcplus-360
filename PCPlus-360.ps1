@@ -283,6 +283,7 @@ $xaml = @"
                         <Button x:Name="btnGamingPerfTest" Style="{StaticResource SideNav}"><TextBlock Text="  Gaming Perf Test" FontSize="11.5" Foreground="#f97316" FontWeight="SemiBold"/></Button>
                         <Button x:Name="btnLCDDisplay" Style="{StaticResource SideNav}"><TextBlock Text="  LCD Display Test" FontSize="11.5" Foreground="#06b6d4" FontWeight="SemiBold"/></Button>
                         <Button x:Name="btnQuickFix" Style="{StaticResource SideNav}"><TextBlock Text="  Quick Fix" FontSize="11.5" Foreground="#f43f5e" FontWeight="SemiBold"/></Button>
+                        <Button x:Name="btnRemediation" Style="{StaticResource SideNav}"><TextBlock Text="  Remediation Library" FontSize="11.5" Foreground="#22d3ee" FontWeight="SemiBold"/></Button>
 
                         <TextBlock Text="  WORKFLOW" FontSize="9" FontWeight="SemiBold" Foreground="#4a7a8a" Margin="0,12,0,4"/>
                         <Button x:Name="btnConsent" Style="{StaticResource SideNav}"><TextBlock Text="  Customer Consent" FontSize="11.5" Foreground="#fbbf24" FontWeight="SemiBold"/></Button>
@@ -652,7 +653,29 @@ $xaml = @"
         }
     }
 
-    $tools = Get-ToolStatus
+    $tools = @{ CrystalDiskInfo=$null; HWiNFO=$null; CPUZ=$null; GPUZ=$null; HWMonitor=$null; BatteryInfoView=$null }
+    try {
+        $toolsDir = Join-Path $Global:ScriptDir "Tools"
+        if (Test-Path $toolsDir) {
+            $exeMap = @{
+                CrystalDiskInfo = @("DiskInfo64.exe","DiskInfo32.exe","CrystalDiskInfo.exe")
+                HWiNFO          = @("HWiNFO64.exe","HWiNFO32.exe","HWiNFO.exe")
+                CPUZ            = @("cpuz_x64.exe","cpuz_x32.exe","cpuz.exe")
+                GPUZ            = @("GPU-Z.exe","gpuz.exe")
+                HWMonitor       = @("HWMonitor_x64.exe","HWMonitor.exe","LibreHardwareMonitor.exe")
+                BatteryInfoView = @("BatteryInfoView.exe")
+            }
+            foreach ($key in $exeMap.Keys) {
+                foreach ($exe in $exeMap[$key]) {
+                    $found = Get-ChildItem -Path $toolsDir -Filter $exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+                    if ($found) { $tools[$key] = $found.FullName; break }
+                }
+            }
+            Write-DebugLog "Portable tools scan: $(($tools.Keys | Where-Object { $tools[$_] }).Count) found"
+        }
+    } catch {
+        Write-DebugLog "Portable tools scan skipped: $($_.Exception.Message)"
+    }
 
     $txtPct = $window.FindName("txtPct")
 
@@ -917,6 +940,7 @@ $xaml = @"
         "btnConsent"      = "PCPlus-CustomerConsent.ps1"
         "btnReportCard"   = "PCPlus-ReportCard.ps1"
         "btnToolsManager" = "PCPlus-PortableToolsManager.ps1"
+        "btnRemediation"  = "PCPlus-RemediationLibrary.ps1"
     }
     foreach ($btnName in $roadmapScripts.Keys) {
         $scriptName = $roadmapScripts[$btnName]
