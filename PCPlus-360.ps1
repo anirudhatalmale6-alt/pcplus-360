@@ -657,15 +657,16 @@ $xaml = @"
     $tools = @{ CrystalDiskInfo=$null; HWiNFO=$null; CPUZ=$null; GPUZ=$null; HWMonitor=$null; BatteryInfoView=$null }
     try {
         $exeMap = @{
-            CrystalDiskInfo = @("DiskInfo64.exe","DiskInfo32.exe","CrystalDiskInfo.exe","CrystalDiskInfo8.exe","CrystalDiskInfo9.exe")
+            CrystalDiskInfo = @("DiskInfo64.exe","DiskInfo32.exe","CrystalDiskInfo.exe","CrystalDiskInfo*.exe")
             HWiNFO          = @("HWiNFO64.exe","HWiNFO32.exe","HWiNFO.exe")
-            CPUZ            = @("cpuz_x64.exe","cpuz_x32.exe","cpuz.exe","cpu-z.exe")
-            GPUZ            = @("GPU-Z.exe","gpuz.exe","GPU-Z.*.exe")
-            HWMonitor       = @("HWMonitor_x64.exe","HWMonitor.exe","HWMonitor_x32.exe","LibreHardwareMonitor.exe")
+            CPUZ            = @("cpuz_x64.exe","cpuz_x32.exe","cpuz.exe","cpu-z*.exe")
+            GPUZ            = @("GPU-Z*.exe","gpuz.exe")
+            HWMonitor       = @("HWMonitor*.exe","LibreHardwareMonitor.exe","OpenHardwareMonitor.exe")
             BatteryInfoView = @("BatteryInfoView.exe")
         }
         $searchDirs = @(
             (Join-Path $Global:ScriptDir "Tools"),
+            (Join-Path $Global:ScriptDir "tools"),
             $Global:ScriptDir,
             (Split-Path $Global:ScriptDir -Parent),
             "$env:ProgramFiles\CrystalDiskInfo",
@@ -688,7 +689,8 @@ $xaml = @"
                 if ($tools[$key]) { break }
                 if (-not (Test-Path $dir)) { continue }
                 foreach ($exe in $exeMap[$key]) {
-                    $found = Get-ChildItem -Path $dir -Filter $exe -Recurse -Depth 3 -ErrorAction SilentlyContinue | Select-Object -First 1
+                    $found = Get-ChildItem -Path $dir -Filter $exe -Recurse -Depth 3 -ErrorAction SilentlyContinue |
+                        Where-Object { $_.Name -notlike '*.paf.exe' } | Select-Object -First 1
                     if ($found) { $tools[$key] = $found.FullName; break }
                 }
             }
