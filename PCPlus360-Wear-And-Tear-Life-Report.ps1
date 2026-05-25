@@ -333,7 +333,7 @@ function Get-PCPlusThermalWear {
 
     $thermalEvents=@()
     try {
-        $thermalEvents = @(Get-WinEvent -FilterHashtable @{LogName='System'; StartTime=(Get-Date).AddDays(-90)} -ErrorAction SilentlyContinue |
+        $thermalEvents = @(Get-WinEvent -FilterHashtable @{LogName='System'; StartTime=(Get-Date).AddDays(-90)} -MaxEvents 2000 -ErrorAction SilentlyContinue |
             Where-Object { $_.Message -match "thermal|overheat|temperature|throttl" } |
             Select-Object TimeCreated,ProviderName,Id,LevelDisplayName,Message -First 20)
     } catch {}
@@ -375,7 +375,7 @@ function Get-PCPlusGpuWear {
     $score=100; $findings=@()
     $gpuEvents=@()
     try {
-        $gpuEvents=@(Get-WinEvent -FilterHashtable @{LogName='System';StartTime=(Get-Date).AddDays(-90)} -ErrorAction SilentlyContinue |
+        $gpuEvents=@(Get-WinEvent -FilterHashtable @{LogName='System';StartTime=(Get-Date).AddDays(-90)} -MaxEvents 2000 -ErrorAction SilentlyContinue |
             Where-Object { $_.Message -match "display driver|nvlddmkm|amdkmdag|igfx|video hardware|LiveKernelEvent" } |
             Select-Object TimeCreated,ProviderName,Id,LevelDisplayName,Message -First 30)
     } catch {}
@@ -437,7 +437,7 @@ function Get-PCPlusDeviceWear {
     }
     if($netWarn.Count -gt 0){$score-=10; $findings += New-Finding "Network Hardware" "Moderate" ($netWarn -join "; ") "Check cable, switch port, Wi-Fi signal, or adapter driver."}
     $usbEvents=@()
-    try{$usbEvents=@(Get-WinEvent -FilterHashtable @{LogName='System';StartTime=(Get-Date).AddDays(-90)} -ErrorAction SilentlyContinue | Where-Object{$_.Message -match "USB|device not recognized|device descriptor|reset.*port"} | Select-Object TimeCreated,ProviderName,Id,LevelDisplayName,Message -First 20)}catch{}
+    try{$usbEvents=@(Get-WinEvent -FilterHashtable @{LogName='System';StartTime=(Get-Date).AddDays(-90)} -MaxEvents 2000 -ErrorAction SilentlyContinue | Where-Object{$_.Message -match "USB|device not recognized|device descriptor|reset.*port"} | Select-Object TimeCreated,ProviderName,Id,LevelDisplayName,Message -First 20)}catch{}
     if($usbEvents.Count -gt 0){$score-=10; $findings += New-Finding "USB/Port Wear" "Moderate" "$($usbEvents.Count) USB/port-related event(s) found." "Check USB ports, hubs, cables, external drives, and power delivery."}
     if($score -lt 0){$score=0}
     [PSCustomObject]@{ProblemDeviceCount=$problem.Count;ProblemDevices=@($problem|Select-Object Class,FriendlyName,InstanceId,Status,Problem);NetworkAdapters=@($net|Select-Object Name,InterfaceDescription,Status,LinkSpeed,MacAddress);NetworkStats=$netStats;USBEvents=$usbEvents;Score=$score;Grade=Get-GradeFromScore $score;Risk=Get-RiskFromScore $score;ApproxLife=Get-LifeTextFromScore $score;Findings=$findings}

@@ -908,24 +908,27 @@ $xaml = @"
     })
 
     # ── New Security Tool Launchers ──
+    # Scripts that use WinForms need -STA flag or their windows close immediately
     $securityScripts = @{
-        "btnQuickRisk"    = "PCPlus-QuickRiskScore.ps1"
-        "btnBrowserAudit" = "PCPlus-BrowserRiskAudit.ps1"
-        "btnStartupAudit" = "PCPlus-StartupThreatAudit.ps1"
-        "btnBitLocker"    = "PCPlus-BitLockerAudit.ps1"
-        "btnRDPAudit"     = "PCPlus-RDPExposureAudit.ps1"
-        "btnScamAudit"    = "PCPlus-ScamProtectionAudit.ps1"
-        "btnBackupCheck"  = "PCPlus-BackupRealityCheck.ps1"
-        "btnUSBHistory"   = "PCPlus-USBDeviceHistory.ps1"
-        "btnNetSnapshot"  = "PCPlus-NetworkSnapshot.ps1"
+        "btnQuickRisk"    = @{ Script = "PCPlus-QuickRiskScore.ps1";    STA = $true }
+        "btnBrowserAudit" = @{ Script = "PCPlus-BrowserRiskAudit.ps1";  STA = $false }
+        "btnStartupAudit" = @{ Script = "PCPlus-StartupThreatAudit.ps1"; STA = $false }
+        "btnBitLocker"    = @{ Script = "PCPlus-BitLockerAudit.ps1";    STA = $false }
+        "btnRDPAudit"     = @{ Script = "PCPlus-RDPExposureAudit.ps1";  STA = $false }
+        "btnScamAudit"    = @{ Script = "PCPlus-ScamProtectionAudit.ps1"; STA = $false }
+        "btnBackupCheck"  = @{ Script = "PCPlus-BackupRealityCheck.ps1"; STA = $false }
+        "btnUSBHistory"   = @{ Script = "PCPlus-USBDeviceHistory.ps1";  STA = $false }
+        "btnNetSnapshot"  = @{ Script = "PCPlus-NetworkSnapshot.ps1";   STA = $false }
     }
     foreach ($btnName in $securityScripts.Keys) {
-        $scriptName = $securityScripts[$btnName]
+        $info = $securityScripts[$btnName]
+        $scriptName = $info.Script
+        $staFlag = if ($info.STA) { "-STA " } else { "" }
         $btn = $window.FindName($btnName)
         if ($btn) {
             $btn.Add_Click(([ScriptBlock]::Create("
                 `$s = Join-Path `$Global:ScriptDir '$scriptName'
-                if (Test-Path `$s) { Start-Process powershell.exe -ArgumentList `"-NoProfile -ExecutionPolicy Bypass -File ```"`$s```"`" -Verb RunAs }
+                if (Test-Path `$s) { Start-Process powershell.exe -ArgumentList `"${staFlag}-NoProfile -ExecutionPolicy Bypass -File ```"`$s```"`" -Verb RunAs }
                 else { [System.Windows.MessageBox]::Show(`$window, '$scriptName not found in toolkit folder.`nMake sure it is in the same directory as PCPlus-360.ps1', 'Not Found', 'OK', 'Warning') }
             ")))
         } else {
@@ -933,24 +936,26 @@ $xaml = @"
         }
     }
 
-    # ── New Roadmap Tool Launchers ──
+    # ── New Roadmap Tool Launchers (all use WinForms = need -STA) ──
     $roadmapScripts = @{
-        "btnRansomware"   = "PCPlus-RansomwareReadiness.ps1"
-        "btnCloudBackup"  = "PCPlus-CloudBackupAudit.ps1"
-        "btnHardwareDiag" = "PCPlus-HardwareDiagnostic.ps1"
-        "btnConsent"      = "PCPlus-CustomerConsent.ps1"
-        "btnReportCard"   = "PCPlus-ReportCard.ps1"
-        "btnToolsManager" = "PCPlus-PortableToolsManager.ps1"
-        "btnRemediation"  = "PCPlus-RemediationLibrary.ps1"
-        "btnDesktopBadge" = "PCPlus-DesktopBadge.ps1"
+        "btnRansomware"   = @{ Script = "PCPlus-RansomwareReadiness.ps1"; STA = $true }
+        "btnCloudBackup"  = @{ Script = "PCPlus-CloudBackupAudit.ps1";   STA = $true }
+        "btnHardwareDiag" = @{ Script = "PCPlus-HardwareDiagnostic.ps1"; STA = $true }
+        "btnConsent"      = @{ Script = "PCPlus-CustomerConsent.ps1";    STA = $true }
+        "btnReportCard"   = @{ Script = "PCPlus-ReportCard.ps1";         STA = $true }
+        "btnToolsManager" = @{ Script = "PCPlus-PortableToolsManager.ps1"; STA = $true }
+        "btnRemediation"  = @{ Script = "PCPlus-RemediationLibrary.ps1"; STA = $true }
+        "btnDesktopBadge" = @{ Script = "PCPlus-DesktopBadge.ps1";       STA = $false }
     }
     foreach ($btnName in $roadmapScripts.Keys) {
-        $scriptName = $roadmapScripts[$btnName]
+        $info = $roadmapScripts[$btnName]
+        $scriptName = $info.Script
+        $staFlag = if ($info.STA) { "-STA " } else { "" }
         $btn = $window.FindName($btnName)
         if ($btn) {
             $btn.Add_Click(([ScriptBlock]::Create("
                 `$s = Join-Path `$Global:ScriptDir '$scriptName'
-                if (Test-Path `$s) { Start-Process powershell.exe -ArgumentList `"-NoProfile -ExecutionPolicy Bypass -File ```"`$s```"`" -Verb RunAs }
+                if (Test-Path `$s) { Start-Process powershell.exe -ArgumentList `"${staFlag}-NoProfile -ExecutionPolicy Bypass -File ```"`$s```"`" -Verb RunAs }
                 else { [System.Windows.MessageBox]::Show(`$window, '$scriptName not found in toolkit folder.`nMake sure it is in the same directory as PCPlus-360.ps1', 'Not Found', 'OK', 'Warning') }
             ")))
         } else {

@@ -248,7 +248,7 @@ function Get-PCPlusDisplayEvents {
     $events = @()
 
     try {
-        $events = @(Get-WinEvent -FilterHashtable @{LogName='System'; StartTime=$start} -ErrorAction SilentlyContinue |
+        $events = @(Get-WinEvent -FilterHashtable @{LogName='System'; StartTime=$start} -MaxEvents 2000 -ErrorAction SilentlyContinue |
             Where-Object {
                 $_.Message -match "display driver|nvlddmkm|amdkmdag|igfx|video hardware|LiveKernelEvent|monitor|display|graphics|TDR|stopped responding|recovered"
             } |
@@ -271,7 +271,7 @@ function Get-PCPlusThermalCorrelation {
 
     $thermalEvents=@()
     try {
-        $thermalEvents = @(Get-WinEvent -FilterHashtable @{LogName='System'; StartTime=(Get-Date).AddDays(-180)} -ErrorAction SilentlyContinue |
+        $thermalEvents = @(Get-WinEvent -FilterHashtable @{LogName='System'; StartTime=(Get-Date).AddDays(-180)} -MaxEvents 2000 -ErrorAction SilentlyContinue |
             Where-Object { $_.Message -match "thermal|overheat|temperature|throttl" } |
             Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message -First 40)
     } catch {}

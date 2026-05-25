@@ -40,7 +40,7 @@ function Test-IsAdmin {
 
 if (-not (Test-IsAdmin)) {
     try {
-        $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Definition)`""
+        $arguments = "-STA -NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Definition)`""
         Start-Process powershell.exe -ArgumentList $arguments -Verb RunAs
     } catch {
         [System.Windows.Forms.MessageBox]::Show(
@@ -1256,8 +1256,9 @@ function Show-DiagnosticUI {
     $form.BackColor = [System.Drawing.ColorTranslator]::FromHtml($COLOR_NAVY)
     $form.ForeColor = [System.Drawing.Color]::White
     $form.Font = New-Object System.Drawing.Font("Segoe UI", 9)
-    $form.FormBorderStyle = "FixedSingle"
-    $form.MaximizeBox = $false
+    $form.FormBorderStyle = "Sizable"
+    $form.MaximizeBox = $true
+    $form.MinimumSize = New-Object System.Drawing.Size(780, 700)
 
     $yPos = 15
 
@@ -1393,6 +1394,8 @@ function Show-DiagnosticUI {
     $listView.FullRowSelect = $true
     $listView.GridLines = $true
     $listView.HeaderStyle = "Nonclickable"
+    $listView.Scrollable = $true
+    $listView.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Bottom -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
 
     [void]$listView.Columns.Add("Category", 110)
     [void]$listView.Columns.Add("Test", 200)

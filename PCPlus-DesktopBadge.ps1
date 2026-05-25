@@ -444,7 +444,6 @@ function New-DesktopBadge {
         $lines += @{ Prefix = "Customer:"; Value = $CustomerName }
     }
 
-    $lines += @{ Prefix = "Status:";   Value = "Protected by PC Plus" }
     $lines += @{ Prefix = "Web:";      Value = $Website }
 
     # ── Create fonts ──
@@ -831,8 +830,17 @@ if ($Remove) {
     Remove-DesktopBadge
     if (-not $Silent) {
         Write-Host ""
-        Write-Host "PC Plus Desktop Badge has been removed." -ForegroundColor Green
-        Write-Host "Your original wallpaper has been restored." -ForegroundColor Gray
+        Write-Host "========================================" -ForegroundColor Cyan
+        Write-Host "  REMOVE COMPLETE" -ForegroundColor Green
+        Write-Host "========================================" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "  PC Plus Desktop Badge has been removed." -ForegroundColor Green
+        Write-Host "  Original wallpaper restored." -ForegroundColor Gray
+        Write-Host "  Scheduled tasks unregistered." -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "  To reinstall later:" -ForegroundColor Yellow
+        Write-Host "    .\PCPlus-DesktopBadge.ps1" -ForegroundColor White
+        Write-Host ""
     }
 } else {
     Write-DebugLog "Mode: Install / Refresh"
@@ -843,18 +851,31 @@ if ($Remove) {
 
         if (-not $Silent) {
             Write-Host ""
-            Write-Host "PC Plus Desktop Badge installed successfully!" -ForegroundColor Green
+            Write-Host "========================================" -ForegroundColor Cyan
+            Write-Host "  INSTALL COMPLETE" -ForegroundColor Green
+            Write-Host "========================================" -ForegroundColor Cyan
+            Write-Host ""
+            Write-Host "  PC Plus Desktop Badge is now active." -ForegroundColor Green
+            Write-Host ""
             Write-Host "  Badge file: $BadgeWallpaper" -ForegroundColor Gray
             Write-Host "  Backup:     $BackupFile" -ForegroundColor Gray
+            Write-Host "  Log:        $LogFile" -ForegroundColor Gray
             Write-Host ""
-            Write-Host "To remove: Run this script with -Remove" -ForegroundColor Yellow
-            Write-Host "  .\PCPlus-DesktopBadge.ps1 -Remove" -ForegroundColor Yellow
+            Write-Host "  To remove the badge and restore wallpaper:" -ForegroundColor Yellow
+            Write-Host "    .\PCPlus-DesktopBadge.ps1 -Remove" -ForegroundColor White
+            Write-Host ""
         }
     } else {
         if (-not $Silent) {
             Write-Host ""
-            Write-Host "Failed to create desktop badge. Check log at:" -ForegroundColor Red
-            Write-Host "  $LogFile" -ForegroundColor Gray
+            Write-Host "========================================" -ForegroundColor Cyan
+            Write-Host "  INSTALL FAILED" -ForegroundColor Red
+            Write-Host "========================================" -ForegroundColor Cyan
+            Write-Host ""
+            Write-Host "  Could not create the desktop badge." -ForegroundColor Red
+            Write-Host "  Check the log for details:" -ForegroundColor Gray
+            Write-Host "    $LogFile" -ForegroundColor White
+            Write-Host ""
         }
     }
 }

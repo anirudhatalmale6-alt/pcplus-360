@@ -35,9 +35,18 @@ if (-not (Test-IsAdmin)) {
         Write-Host "  ERROR: This tool requires Administrator privileges." -ForegroundColor Red
         Write-Host "  Please right-click and select 'Run as Administrator'." -ForegroundColor Yellow
         Write-Host ""
-        Read-Host "Press Enter to exit"
+        Read-Host "  Press Enter to exit"
     }
     exit
+}
+
+trap {
+    Write-Host ""
+    Write-Host "  UNEXPECTED ERROR: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "  Line: $($_.InvocationInfo.ScriptLineNumber)" -ForegroundColor DarkGray
+    Write-Host ""
+    Read-Host "  Press Enter to exit"
+    break
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1028,4 +1037,5 @@ Write-Host ""
 try { Start-Process $reportFile } catch { }
 
 Write-Host "  Press Enter to exit..." -ForegroundColor DarkGray
+Read-Host
 Read-Host

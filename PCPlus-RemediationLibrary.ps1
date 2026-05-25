@@ -1584,7 +1584,7 @@ function Show-RemediationUI {
             $btn.Add_Click({
                 param($sender, $e)
                 Show-Category $sender.Tag
-            }.GetNewClosure())
+            })
 
             $pnlCategoryButtons.Children.Add($btn) | Out-Null
             $Global:SidebarButtons[$catName] = $btn
@@ -1726,6 +1726,12 @@ function Show-RemediationUI {
 
         $btnSave.Content = if ($Mode -eq "Edit") { "Save Changes" } else { "Add Command" }
 
+        # Capture function references so .GetNewClosure() can find them
+        $fnSaveCommandsToJson = ${function:Save-CommandsToJson}
+        $fnBuildCategoriesFromCommandList = ${function:Build-CategoriesFromCommandList}
+        $fnBuildSidebarButtons = ${function:Build-SidebarButtons}
+        $fnShowCategory = ${function:Show-Category}
+
         # Populate category dropdown
         $existingCats = @($Global:Categories.Keys)
         foreach ($cat in $existingCats) {
@@ -1840,12 +1846,12 @@ function Show-RemediationUI {
             }
 
             # Save to JSON
-            Save-CommandsToJson $Global:CommandList
+            & $fnSaveCommandsToJson $Global:CommandList
 
             # Rebuild categories and UI
-            $Global:Categories = Build-CategoriesFromCommandList
-            Build-SidebarButtons
-            Show-Category $category
+            $Global:Categories = & $fnBuildCategoriesFromCommandList
+            & $fnBuildSidebarButtons
+            & $fnShowCategory $category
 
             $dlgResult.Saved = $true
             $dlg.Close()
@@ -1998,7 +2004,7 @@ function Show-RemediationUI {
                 param($sender, $e)
                 $editCmd = $sender.Tag
                 Show-CommandDialog -Mode "Edit" -ExistingCmd $editCmd
-            }.GetNewClosure())
+            })
 
             $topRow.Children.Add($btnEdit) | Out-Null
 
@@ -2206,7 +2212,7 @@ function Show-RemediationUI {
                         $ts.Runspace.Dispose()
                         $Global:IsRunning = $false
                     }
-                }.GetNewClosure())
+                })
 
                 $timer.Start()
             })

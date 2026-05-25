@@ -40,7 +40,7 @@ function Test-IsAdmin {
 
 if (-not (Test-IsAdmin)) {
     try {
-        $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Definition)`""
+        $arguments = "-STA -NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Definition)`""
         Start-Process powershell.exe -ArgumentList $arguments -Verb RunAs
     } catch {
         [System.Windows.Forms.MessageBox]::Show(
