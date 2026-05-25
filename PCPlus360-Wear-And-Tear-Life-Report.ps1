@@ -1,4 +1,4 @@
-<#
+﻿<#
 PC Plus 360 - Wear & Tear + Approximate Hardware Life Report
 Company: PC Plus Computing | pcpluscomputing.com | 604-760-1662
 

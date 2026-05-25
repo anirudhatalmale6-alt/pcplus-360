@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$CustomerName = "Customer",
     [string]$TechnicianName = "PC Plus Technician",
     [string]$NirSoftDir = "",
@@ -1091,12 +1091,12 @@ function Show-NirSoftGUI {
     # Main Form
     $form = New-Object System.Windows.Forms.Form
     $form.Text = "PC Plus 360 - NirSoft Portable Tools Suite"
-    $form.Size = New-Object System.Drawing.Size(920, 720)
+    $form.Size = New-Object System.Drawing.Size(820, 680)
     $form.StartPosition = "CenterScreen"
     $form.BackColor = $colNavy
     $form.ForeColor = $colText
     $form.Font = $fontNormal
-    $form.MinimumSize = New-Object System.Drawing.Size(800, 600)
+    $form.MinimumSize = New-Object System.Drawing.Size(700, 500)
     $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::Sizable
 
     # ---- Header Panel ----
@@ -1174,7 +1174,7 @@ function Show-NirSoftGUI {
     $txtLog.ForeColor = $colTextDim
     $txtLog.BorderStyle = [System.Windows.Forms.BorderStyle]::None
     $txtLog.Location = New-Object System.Drawing.Point(16, 54)
-    $txtLog.Size = New-Object System.Drawing.Size(870, 105)
+    $txtLog.Size = New-Object System.Drawing.Size(770, 105)
     $txtLog.Anchor = [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right -bor [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Bottom
     $panelBottom.Controls.Add($txtLog)
 
@@ -1199,7 +1199,7 @@ function Show-NirSoftGUI {
     $categories = @($allDefs | Select-Object -ExpandProperty Category -Unique)
 
     $yPos = 8
-    $panelWidth = 860
+    $panelWidth = 740
 
     foreach ($cat in $categories) {
         # Category header
@@ -1208,7 +1208,7 @@ function Show-NirSoftGUI {
         $lblCat.Font = $fontCategory
         $lblCat.ForeColor = $colAccent
         $lblCat.AutoSize = $false
-        $lblCat.Size = New-Object System.Drawing.Size($panelWidth, 24)
+        $lblCat.Size = New-Object System.Drawing.Size(($panelWidth), 24)
         $lblCat.Location = New-Object System.Drawing.Point(0, $yPos)
         $lblCat.BackColor = $colHeaderBg
         $lblCat.Padding = New-Object System.Windows.Forms.Padding(8, 3, 0, 0)
@@ -1252,7 +1252,7 @@ function Show-NirSoftGUI {
             $lblDesc.Font = $fontSmall
             $lblDesc.ForeColor = $colTextDim
             $lblDesc.AutoSize = $false
-            $lblDesc.Size = New-Object System.Drawing.Size(360, 20)
+            $lblDesc.Size = New-Object System.Drawing.Size(300, 20)
             $lblDesc.Location = New-Object System.Drawing.Point(215, 7)
             $rowPanel.Controls.Add($lblDesc)
 
@@ -1261,7 +1261,7 @@ function Show-NirSoftGUI {
             $btnLaunch.Text = "Launch"
             $btnLaunch.Font = $fontSmall
             $btnLaunch.Size = New-Object System.Drawing.Size(65, 24)
-            $btnLaunch.Location = New-Object System.Drawing.Point(600, 4)
+            $btnLaunch.Location = New-Object System.Drawing.Point(525, 4)
             $btnLaunch.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
             $btnLaunch.FlatAppearance.BorderColor = $colAccent
             $btnLaunch.FlatAppearance.BorderSize = 1
@@ -1288,7 +1288,7 @@ function Show-NirSoftGUI {
             $btnExport.Text = "Export"
             $btnExport.Font = $fontSmall
             $btnExport.Size = New-Object System.Drawing.Size(65, 24)
-            $btnExport.Location = New-Object System.Drawing.Point(675, 4)
+            $btnExport.Location = New-Object System.Drawing.Point(600, 4)
             $btnExport.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
             $btnExport.FlatAppearance.BorderColor = $colGreen
             $btnExport.FlatAppearance.BorderSize = 1
@@ -1324,7 +1324,7 @@ function Show-NirSoftGUI {
                 $lblPriv.ForeColor = [System.Drawing.Color]::FromArgb(245, 158, 11)
                 $lblPriv.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 10)
                 $lblPriv.AutoSize = $true
-                $lblPriv.Location = New-Object System.Drawing.Point(752, 9)
+                $lblPriv.Location = New-Object System.Drawing.Point(675, 9)
                 $rowPanel.Controls.Add($lblPriv)
             }
 

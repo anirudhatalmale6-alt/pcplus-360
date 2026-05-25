@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     PC Plus Computing 360 Hardware & Security Diagnostic Suite
 .DESCRIPTION
@@ -7,7 +7,7 @@
     Runs from USB drive with no installation required.
 .NOTES
     Company:  PC Plus Computing
-    Version:  3.0.0
+    Version:  3.5.0
     Requires: PowerShell 5.1+, Windows 10/11, Administrator privileges
 #>
 
@@ -666,6 +666,8 @@ $xaml = @"
         }
         $searchDirs = @(
             (Join-Path $Global:ScriptDir "Tools"),
+            $Global:ScriptDir,
+            (Split-Path $Global:ScriptDir -Parent),
             "$env:ProgramFiles\CrystalDiskInfo",
             "${env:ProgramFiles(x86)}\CrystalDiskInfo",
             "$env:ProgramFiles\HWiNFO64",
@@ -674,8 +676,12 @@ $xaml = @"
             "${env:ProgramFiles(x86)}\CPUID\CPU-Z",
             "$env:ProgramFiles\CPUID\HWMonitor",
             "${env:ProgramFiles(x86)}\CPUID\HWMonitor",
+            "$env:ProgramFiles\GPU-Z",
+            "${env:ProgramFiles(x86)}\GPU-Z",
             "$env:ProgramFiles\NirSoft",
-            "$env:LOCALAPPDATA\Programs"
+            "$env:LOCALAPPDATA\Programs",
+            "$env:USERPROFILE\Desktop",
+            "$env:USERPROFILE\Downloads"
         )
         foreach ($key in $exeMap.Keys) {
             foreach ($dir in $searchDirs) {

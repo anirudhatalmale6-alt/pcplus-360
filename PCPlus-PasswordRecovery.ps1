@@ -1,4 +1,4 @@
-# ═══════════════════════════════════════════════════════════════════════════════
+﻿# ═══════════════════════════════════════════════════════════════════════════════
 # PC Plus Computing - Password Recovery Tool
 # Recovers saved browser passwords and WiFi keys for customer service
 # MUST be run as the user who saved the passwords (DPAPI is user-bound)
@@ -601,7 +601,24 @@ function Show-RecoveryUI {
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
             <Button x:Name="btnRecover" Grid.Column="0" Content="&#128275;  RECOVER PASSWORDS" Height="42" Margin="0,0,6,0" FontSize="12" FontWeight="Bold" Background="#2596be" Foreground="White" BorderThickness="0" Cursor="Hand"/>
-            <Button x:Name="btnExport" Grid.Column="1" Content="&#128196;  EXPORT REPORT" Height="42" Margin="6,0,0,0" FontSize="12" FontWeight="Bold" Background="#27ae60" Foreground="White" BorderThickness="0" Cursor="Hand" IsEnabled="False"/>
+            <Button x:Name="btnExport" Grid.Column="1" Height="42" Margin="6,0,0,0" FontSize="12" FontWeight="Bold" BorderThickness="0" Cursor="Hand" IsEnabled="False">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="#27ae60" CornerRadius="4" Padding="10,5">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="bd" Property="Opacity" Value="0.35"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#2ecc71"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Button.Template>
+                <TextBlock Text="&#128196;  EXPORT REPORT" Foreground="White" FontWeight="Bold"/>
+            </Button>
         </Grid>
     </Grid>
 </Window>

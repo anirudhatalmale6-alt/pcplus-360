@@ -1,4 +1,4 @@
-<# 
+﻿<# 
 PC Plus 360 - Advanced Physical RAM Isolation Test
 Author: PC Plus Computing
 Purpose:

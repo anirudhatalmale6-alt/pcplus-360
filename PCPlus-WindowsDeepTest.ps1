@@ -1,4 +1,4 @@
-<#
+﻿<#
 PC Plus 360 - Deep Windows Performance & Integrity Test
 Company: PC Plus Computing
 Website: pcpluscomputing.com

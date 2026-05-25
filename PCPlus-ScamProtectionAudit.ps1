@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     PC Plus Computing - Scam Software & Fake Support Tool Detection
 .DESCRIPTION

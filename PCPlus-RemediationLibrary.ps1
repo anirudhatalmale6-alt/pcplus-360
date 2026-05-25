@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$ReadOnly,
     [switch]$NoRestorePoint,
     [string]$LogPath

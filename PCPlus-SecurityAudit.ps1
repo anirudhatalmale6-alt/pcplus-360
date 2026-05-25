@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     PC Plus Computing - Hardware & Security Audit Tool
 .DESCRIPTION

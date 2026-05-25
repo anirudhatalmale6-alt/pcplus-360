@@ -1,4 +1,4 @@
-# PCPlus-Reports.ps1 - Report generation, scan history, and data export
+﻿# PCPlus-Reports.ps1 - Report generation, scan history, and data export
 # This file is dot-sourced by PCPlus-360.ps1
 # Edit this file to change report formats without affecting tests or UI
 # ─────────────────────────────────────────────────────────────────────────────

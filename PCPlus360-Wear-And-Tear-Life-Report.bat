@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 :: PC Plus Computing - Wear & Tear Life Report Launcher
 echo.
 echo ============================================================

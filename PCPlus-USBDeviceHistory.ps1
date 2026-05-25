@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     PC Plus Computing - USB Device History & Forensic Analysis
 .DESCRIPTION

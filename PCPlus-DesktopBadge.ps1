@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$Remove,
     [switch]$Silent,
     [string]$CustomerName,

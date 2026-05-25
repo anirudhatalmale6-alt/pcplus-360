@@ -1,4 +1,4 @@
-<#
+﻿<#
 PC Plus 360 - NirSoft Diagnostic Integration Script
 Company: PC Plus Computing
 Website: pcpluscomputing.com

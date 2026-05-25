@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 :: PC Plus Computing - Advanced RAM Isolation Test Launcher
 echo.
 echo ============================================================

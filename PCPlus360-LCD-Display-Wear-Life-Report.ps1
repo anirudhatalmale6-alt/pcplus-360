@@ -1,4 +1,4 @@
-<#
+﻿<#
 PC Plus 360 - LCD / Display Wear & Approximate Life Report
 Company: PC Plus Computing
 Website: pcpluscomputing.com

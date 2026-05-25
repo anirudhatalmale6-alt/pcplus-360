@@ -1,2 +1,2 @@
-@echo off
+﻿@echo off
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0PCPlus-USBDeviceHistory.ps1"

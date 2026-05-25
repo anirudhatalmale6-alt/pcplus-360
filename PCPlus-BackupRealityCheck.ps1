@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     PC Plus Computing - Backup Reality Check & Ransomware Recovery Readiness
 .DESCRIPTION

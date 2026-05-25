@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     PC Plus Computing - RDP Exposure & Brute-Force Risk Analysis

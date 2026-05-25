@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     PC Plus Computing 360 - Cloud Backup & Sync Service Audit Tool
 .DESCRIPTION

@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 :: PC Plus Computing - Deep Windows Performance & Integrity Test
 echo.
 echo ============================================================

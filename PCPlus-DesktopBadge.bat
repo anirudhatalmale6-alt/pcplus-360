@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 :: PC Plus Computing - Desktop Badge (BGInfo-style) Launcher
 :: Applies a branded info overlay to the customer's desktop wallpaper
 ::

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     PC Plus 360 - Customer Machine Cleanup / Uninstall
 .DESCRIPTION

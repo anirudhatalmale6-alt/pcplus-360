@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     PC Plus Computing - Quick Risk Score (60-Second Health & Security Scanner)
 .DESCRIPTION

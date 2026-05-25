@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 :: PC Plus Computing - NirSoft Portable Tools Suite
 echo.
 echo ============================================================

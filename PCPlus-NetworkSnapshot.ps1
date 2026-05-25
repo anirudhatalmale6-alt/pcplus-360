@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     PC Plus Computing - Network Visibility & Troubleshooting Snapshot
 .DESCRIPTION

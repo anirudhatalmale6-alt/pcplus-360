@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     PC Plus Computing 360 - Ransomware Readiness Assessment & Simulation Toolkit
 .DESCRIPTION

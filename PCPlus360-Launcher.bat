@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 :: PC Plus Computing 360 - Dashboard Launcher
 :: Launches the WebView2 dashboard (the new UI)
 ::

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     PC Plus Computing - Windows 10/11 Debloat & Lockdown Tool
 .DESCRIPTION

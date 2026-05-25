@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     PC Plus Computing - Browser Security & Extension Risk Audit
 .DESCRIPTION

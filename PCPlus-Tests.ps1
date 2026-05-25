@@ -1,4 +1,4 @@
-# PCPlus-Tests.ps1 - Diagnostic functions, stress tests, and scoring
+﻿# PCPlus-Tests.ps1 - Diagnostic functions, stress tests, and scoring
 # This file is dot-sourced by PCPlus-360.ps1
 # Edit this file to add/remove/update tests without affecting the UI
 # ─────────────────────────────────────────────────────────────────────────────

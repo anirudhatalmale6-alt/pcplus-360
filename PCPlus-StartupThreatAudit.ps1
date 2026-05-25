@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     PC Plus 360 - Startup Persistence & Malware Auto-Start Auditing Tool
 .DESCRIPTION
