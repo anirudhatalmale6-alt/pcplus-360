@@ -219,7 +219,7 @@ $xaml = @"
 
                 <Border DockPanel.Dock="Bottom" Padding="14,8" BorderBrush="#0d4b71" BorderThickness="0,1,0,0">
                     <StackPanel>
-                        <TextBlock x:Name="lblVersion" Text="v3.0.0" FontSize="10" Foreground="#2596be" FontFamily="Consolas"/>
+                        <TextBlock x:Name="lblVersion" Text="v3.5.0" FontSize="10" Foreground="#2596be" FontFamily="Consolas"/>
                         <TextBlock Text="604-760-1662 | 236-500-2700" FontSize="8.5" Foreground="#4a7a8a" Margin="0,2,0,0"/>
                         <TextBlock Text="pcpluscomputing.com" FontSize="8.5" Foreground="#3a6a7a"/>
                         <Button x:Name="btnCheckUpdate" Cursor="Hand" Background="Transparent" BorderThickness="0" HorizontalAlignment="Left" Margin="0,4,0,0" Padding="0">
@@ -926,7 +926,7 @@ $xaml = @"
     $securityScripts = @{
         "btnQuickRisk"    = @{ Script = "PCPlus-QuickRiskScore.ps1";    STA = $true }
         "btnBrowserAudit" = @{ Script = "PCPlus-BrowserRiskAudit.ps1";  STA = $false }
-        "btnStartupAudit" = @{ Script = "PCPlus-StartupThreatAudit.ps1"; STA = $false }
+        # btnStartupAudit handled separately with -NoExit
         "btnBitLocker"    = @{ Script = "PCPlus-BitLockerAudit.ps1";    STA = $false }
         "btnRDPAudit"     = @{ Script = "PCPlus-RDPExposureAudit.ps1";  STA = $false }
         "btnScamAudit"    = @{ Script = "PCPlus-ScamProtectionAudit.ps1"; STA = $false }
@@ -988,6 +988,15 @@ $xaml = @"
             Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs
         } elseif ($result -eq "No") {
             Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$s`" -Remove" -Verb RunAs
+        }
+    })
+
+    $window.FindName("btnStartupAudit").Add_Click({
+        $s = Join-Path $Global:ScriptDir "PCPlus-StartupThreatAudit.ps1"
+        if (Test-Path $s) {
+            Start-Process powershell.exe -ArgumentList "-NoExit -NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs
+        } else {
+            [System.Windows.MessageBox]::Show($window, "PCPlus-StartupThreatAudit.ps1 not found.", "Not Found", "OK", "Warning")
         }
     })
 

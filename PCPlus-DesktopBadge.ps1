@@ -443,6 +443,7 @@ function New-DesktopBadge {
         $lines += @{ Prefix = "Customer:"; Value = $CustomerName }
     }
 
+    $lines += @{ Prefix = "Status:";   Value = "Protected by PC Plus Computing" }
     $lines += @{ Prefix = "Web:";      Value = $Website }
 
     # ── Create fonts ──
