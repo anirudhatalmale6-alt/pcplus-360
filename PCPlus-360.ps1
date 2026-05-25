@@ -656,24 +656,38 @@ $xaml = @"
 
     $tools = @{ CrystalDiskInfo=$null; HWiNFO=$null; CPUZ=$null; GPUZ=$null; HWMonitor=$null; BatteryInfoView=$null }
     try {
-        $toolsDir = Join-Path $Global:ScriptDir "Tools"
-        if (Test-Path $toolsDir) {
-            $exeMap = @{
-                CrystalDiskInfo = @("DiskInfo64.exe","DiskInfo32.exe","CrystalDiskInfo.exe")
-                HWiNFO          = @("HWiNFO64.exe","HWiNFO32.exe","HWiNFO.exe")
-                CPUZ            = @("cpuz_x64.exe","cpuz_x32.exe","cpuz.exe")
-                GPUZ            = @("GPU-Z.exe","gpuz.exe")
-                HWMonitor       = @("HWMonitor_x64.exe","HWMonitor.exe","LibreHardwareMonitor.exe")
-                BatteryInfoView = @("BatteryInfoView.exe")
-            }
-            foreach ($key in $exeMap.Keys) {
+        $exeMap = @{
+            CrystalDiskInfo = @("DiskInfo64.exe","DiskInfo32.exe","CrystalDiskInfo.exe")
+            HWiNFO          = @("HWiNFO64.exe","HWiNFO32.exe","HWiNFO.exe")
+            CPUZ            = @("cpuz_x64.exe","cpuz_x32.exe","cpuz.exe")
+            GPUZ            = @("GPU-Z.exe","gpuz.exe")
+            HWMonitor       = @("HWMonitor_x64.exe","HWMonitor.exe","LibreHardwareMonitor.exe")
+            BatteryInfoView = @("BatteryInfoView.exe")
+        }
+        $searchDirs = @(
+            (Join-Path $Global:ScriptDir "Tools"),
+            "$env:ProgramFiles\CrystalDiskInfo",
+            "${env:ProgramFiles(x86)}\CrystalDiskInfo",
+            "$env:ProgramFiles\HWiNFO64",
+            "${env:ProgramFiles(x86)}\HWiNFO32",
+            "$env:ProgramFiles\CPUID\CPU-Z",
+            "${env:ProgramFiles(x86)}\CPUID\CPU-Z",
+            "$env:ProgramFiles\CPUID\HWMonitor",
+            "${env:ProgramFiles(x86)}\CPUID\HWMonitor",
+            "$env:ProgramFiles\NirSoft",
+            "$env:LOCALAPPDATA\Programs"
+        )
+        foreach ($key in $exeMap.Keys) {
+            foreach ($dir in $searchDirs) {
+                if ($tools[$key]) { break }
+                if (-not (Test-Path $dir)) { continue }
                 foreach ($exe in $exeMap[$key]) {
-                    $found = Get-ChildItem -Path $toolsDir -Filter $exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+                    $found = Get-ChildItem -Path $dir -Filter $exe -Recurse -Depth 3 -ErrorAction SilentlyContinue | Select-Object -First 1
                     if ($found) { $tools[$key] = $found.FullName; break }
                 }
             }
-            Write-DebugLog "Portable tools scan: $(($tools.Keys | Where-Object { $tools[$_] }).Count) found"
         }
+        Write-DebugLog "Portable tools scan: $(($tools.Keys | Where-Object { $tools[$_] }).Count) found"
     } catch {
         Write-DebugLog "Portable tools scan skipped: $($_.Exception.Message)"
     }
@@ -945,7 +959,7 @@ $xaml = @"
         "btnReportCard"   = @{ Script = "PCPlus-ReportCard.ps1";         STA = $true }
         "btnToolsManager" = @{ Script = "PCPlus-PortableToolsManager.ps1"; STA = $true }
         "btnRemediation"  = @{ Script = "PCPlus-RemediationLibrary.ps1"; STA = $true }
-        "btnDesktopBadge" = @{ Script = "PCPlus-DesktopBadge.ps1";       STA = $false }
+        # btnDesktopBadge handled separately with Install/Remove dialog
     }
     foreach ($btnName in $roadmapScripts.Keys) {
         $info = $roadmapScripts[$btnName]
@@ -962,6 +976,20 @@ $xaml = @"
             Write-DebugLog "Button $btnName not found in XAML - skipping handler"
         }
     }
+
+    $window.FindName("btnDesktopBadge").Add_Click({
+        $s = Join-Path $Global:ScriptDir "PCPlus-DesktopBadge.ps1"
+        if (-not (Test-Path $s)) {
+            [System.Windows.MessageBox]::Show($window, "PCPlus-DesktopBadge.ps1 not found.", "Not Found", "OK", "Warning")
+            return
+        }
+        $result = [System.Windows.MessageBox]::Show($window, "Install or Remove the Desktop Badge?`n`nInstall: Adds PC Plus branding overlay to the desktop wallpaper.`nRemove: Restores the original wallpaper.", "Desktop Badge", "YesNoCancel", "Question")
+        if ($result -eq "Yes") {
+            Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs
+        } elseif ($result -eq "No") {
+            Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$s`" -Remove" -Verb RunAs
+        }
+    })
 
     $window.FindName("btnNavWearTear").Add_Click({
         $p = Get-Params; if (-not $p) { return }
