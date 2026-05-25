@@ -63,9 +63,11 @@ if ([string]::IsNullOrEmpty($ScriptDir)) { $ScriptDir = Get-Location }
 
 if ([string]::IsNullOrEmpty($NirSoftDir)) {
     $fixedDir = "C:\PCPlus360\Tools\NirSoft"
-    $usbDir = Join-Path $ScriptDir "tools\nirsoft"
+    $usbNirDir = Join-Path $ScriptDir "tools\nirsoft"
+    $usbToolsDir = Join-Path $ScriptDir "Tools"
     if (Test-Path $fixedDir) { $NirSoftDir = $fixedDir }
-    elseif (Test-Path $usbDir) { $NirSoftDir = $usbDir }
+    elseif (Test-Path $usbNirDir) { $NirSoftDir = $usbNirDir }
+    elseif (Test-Path $usbToolsDir) { $NirSoftDir = $usbToolsDir }
     else { $NirSoftDir = $fixedDir }
 }
 
@@ -105,6 +107,8 @@ function Get-ToolPath {
     param([string]$ExeName)
     $path = Join-Path $NirSoftDir $ExeName
     if (Test-Path $path) { return $path }
+    $found = Get-ChildItem -Path $NirSoftDir -Filter $ExeName -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($found) { return $found.FullName }
     return $null
 }
 
