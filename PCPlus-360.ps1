@@ -657,11 +657,11 @@ $xaml = @"
     $tools = @{ CrystalDiskInfo=$null; HWiNFO=$null; CPUZ=$null; GPUZ=$null; HWMonitor=$null; BatteryInfoView=$null }
     try {
         $exeMap = @{
-            CrystalDiskInfo = @("DiskInfo64.exe","DiskInfo32.exe","CrystalDiskInfo.exe")
+            CrystalDiskInfo = @("DiskInfo64.exe","DiskInfo32.exe","CrystalDiskInfo.exe","CrystalDiskInfo8.exe","CrystalDiskInfo9.exe")
             HWiNFO          = @("HWiNFO64.exe","HWiNFO32.exe","HWiNFO.exe")
-            CPUZ            = @("cpuz_x64.exe","cpuz_x32.exe","cpuz.exe")
-            GPUZ            = @("GPU-Z.exe","gpuz.exe")
-            HWMonitor       = @("HWMonitor_x64.exe","HWMonitor.exe","LibreHardwareMonitor.exe")
+            CPUZ            = @("cpuz_x64.exe","cpuz_x32.exe","cpuz.exe","cpu-z.exe")
+            GPUZ            = @("GPU-Z.exe","gpuz.exe","GPU-Z.*.exe")
+            HWMonitor       = @("HWMonitor_x64.exe","HWMonitor.exe","HWMonitor_x32.exe","LibreHardwareMonitor.exe")
             BatteryInfoView = @("BatteryInfoView.exe")
         }
         $searchDirs = @(
