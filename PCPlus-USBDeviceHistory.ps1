@@ -39,6 +39,15 @@ if (-not (Test-IsAdmin)) {
     exit
 }
 
+trap {
+    Write-Host ""
+    Write-Host "  UNEXPECTED ERROR: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "  Line: $($_.InvocationInfo.ScriptLineNumber)" -ForegroundColor DarkGray
+    Write-Host ""
+    Read-Host "  Press Enter to exit"
+    break
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # BRANDING
 # ─────────────────────────────────────────────────────────────────────────────
