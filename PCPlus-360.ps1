@@ -883,7 +883,7 @@ $xaml = @"
     # Sidebar tool nav buttons
     $window.FindName("btnNavNirSoft").Add_Click({
         $s = Join-Path $Global:ScriptDir "PCPlus-NirSoftSuite.ps1"
-        if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
+        if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-STA -NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
         else { [System.Windows.MessageBox]::Show($window, "PCPlus-NirSoftSuite.ps1 not found in $Global:ScriptDir", "Not Found", "OK", "Warning") }
     })
     $window.FindName("btnNavPassRecovery").Add_Click({
@@ -1278,7 +1278,7 @@ $xaml = @"
             }
             if ($chkNirSoft.IsChecked) {
                 $s = Join-Path $Global:ScriptDir "PCPlus-NirSoftSuite.ps1"
-                if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
+                if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-STA -NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
                 else { Set-Status "PCPlus-NirSoftSuite.ps1 not found" 0 }
             }
 

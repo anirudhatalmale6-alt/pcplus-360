@@ -1012,11 +1012,11 @@ Write-Host ("=" * 78) -ForegroundColor Cyan
 Write-Host ""
 
 $totalEntries = $AllFindings.Count
-$countSafe     = ($AllFindings | Where-Object { $_.Risk -eq $RISK_SAFE     }).Count
-$countLow      = ($AllFindings | Where-Object { $_.Risk -eq $RISK_LOW      }).Count
-$countMedium   = ($AllFindings | Where-Object { $_.Risk -eq $RISK_MEDIUM   }).Count
-$countHigh     = ($AllFindings | Where-Object { $_.Risk -eq $RISK_HIGH     }).Count
-$countCritical = ($AllFindings | Where-Object { $_.Risk -eq $RISK_CRITICAL }).Count
+$countSafe     = @($AllFindings | Where-Object { $_.Risk -eq $RISK_SAFE     }).Count
+$countLow      = @($AllFindings | Where-Object { $_.Risk -eq $RISK_LOW      }).Count
+$countMedium   = @($AllFindings | Where-Object { $_.Risk -eq $RISK_MEDIUM   }).Count
+$countHigh     = @($AllFindings | Where-Object { $_.Risk -eq $RISK_HIGH     }).Count
+$countCritical = @($AllFindings | Where-Object { $_.Risk -eq $RISK_CRITICAL }).Count
 
 Write-Host "  Total entries scanned:  $totalEntries" -ForegroundColor White
 Write-Host "  Scan duration:          $([Math]::Round($duration, 1)) seconds" -ForegroundColor White
@@ -1043,7 +1043,7 @@ if ($countMedium -gt 0) {
     [void]$recommendations.Add("$countMedium MEDIUM RISK entries found. Consider verifying legitimacy of unsigned programs.")
 }
 
-$criticalFindings = $AllFindings | Where-Object { $_.Risk -eq $RISK_CRITICAL }
+$criticalFindings = @($AllFindings | Where-Object { $_.Risk -eq $RISK_CRITICAL })
 if ($criticalFindings.Count -gt 0) {
     [void]$recommendations.Add("Run a full antivirus scan with an up-to-date scanner (Malwarebytes, Windows Defender).")
     [void]$recommendations.Add("Consider booting from a rescue disk for offline scanning if rootkit is suspected.")

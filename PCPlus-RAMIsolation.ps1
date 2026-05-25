@@ -38,6 +38,15 @@ param(
 
 $ErrorActionPreference = "Continue"
 
+trap {
+    Write-Host ""
+    Write-Host "  UNEXPECTED ERROR: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "  Line: $($_.InvocationInfo.ScriptLineNumber)" -ForegroundColor DarkGray
+    Write-Host ""
+    Read-Host "  Press Enter to exit"
+    break
+}
+
 # ------------------------------
 # Global Paths
 # ------------------------------
@@ -203,7 +212,7 @@ function Invoke-MemoryStressTest {
                 foreach ($block in $allocated) {
                     try {
                         $fillByte = [byte]$pattern
-                        $chunk = [byte[]]::new(4096)
+                        $chunk = New-Object byte[] 4096
                         for ($i = 0; $i -lt 4096; $i++) { $chunk[$i] = $fillByte }
                         for ($i = 0; $i -lt $block.Length; $i += 4096) {
                             $len = [math]::Min(4096, $block.Length - $i)
@@ -937,3 +946,5 @@ if ($JsonOutput) {
     }
     $reportCardData | ConvertTo-Json -Depth 4
 }
+
+Read-Host "  Press Enter to exit"

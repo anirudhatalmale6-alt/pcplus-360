@@ -270,7 +270,7 @@ function Get-ChromiumExtensions {
         # Find the latest version subfolder
         $versionFolders = @()
         try { $versionFolders = Get-ChildItem -Path $extFolder.FullName -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending } catch {}
-        if ($versionFolders.Count -eq 0) { continue }
+        if (@($versionFolders).Count -eq 0) { continue }
 
         $manifestPath = Join-Path $versionFolders[0].FullName "manifest.json"
         if (-not (Test-Path $manifestPath)) { continue }
@@ -410,7 +410,7 @@ function Get-FirefoxAddons {
         }
 
         # Fallback to addons.json
-        if ($addonList.Count -eq 0 -and (Test-Path $addonsJsonPath)) {
+        if (@($addonList).Count -eq 0 -and (Test-Path $addonsJsonPath)) {
             try {
                 $addonsData = Get-Content -Path $addonsJsonPath -Raw -ErrorAction Stop | ConvertFrom-Json
                 if ($addonsData.addons) { $addonList = $addonsData.addons }
@@ -869,7 +869,7 @@ function Test-DownloadsFolderRisk {
 
     $allFiles = @()
     try {
-        $allFiles = Get-ChildItem -Path $downloadsPath -File -Recurse -Depth 2 -ErrorAction SilentlyContinue
+        $allFiles = @(Get-ChildItem -Path $downloadsPath -File -Recurse -Depth 2 -ErrorAction SilentlyContinue)
     } catch {}
 
     Write-Info "Total files in Downloads:" "$($allFiles.Count)"
