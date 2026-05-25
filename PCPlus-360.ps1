@@ -560,22 +560,11 @@ $xaml = @"
                         <TextBlock x:Name="txtStatus" Grid.Column="0" Text="Ready. Enter customer info and select a diagnostic mode." FontSize="12" FontWeight="SemiBold" Foreground="#1a2b3c"/>
                         <TextBlock x:Name="txtPct" Grid.Column="1" Text="" FontSize="12" FontWeight="Bold" Foreground="#2596be"/>
                     </Grid>
-                    <ProgressBar x:Name="progressBar" Grid.Row="1" Height="14" Background="#d8e8f0" Foreground="#2596be" Value="0" Maximum="100" BorderThickness="0">
-                        <ProgressBar.Resources>
-                            <Style TargetType="ProgressBar">
-                                <Setter Property="Template">
-                                    <Setter.Value>
-                                        <ControlTemplate TargetType="ProgressBar">
-                                            <Grid x:Name="PART_Track">
-                                                <Border Background="{TemplateBinding Background}" CornerRadius="7"/>
-                                                <Border x:Name="PART_Indicator" HorizontalAlignment="Left" Background="{TemplateBinding Foreground}" CornerRadius="7"/>
-                                            </Grid>
-                                        </ControlTemplate>
-                                    </Setter.Value>
-                                </Setter>
-                            </Style>
-                        </ProgressBar.Resources>
-                    </ProgressBar>
+                    <Grid Grid.Row="1" Height="14">
+                        <Border Background="#d8e8f0" CornerRadius="7"/>
+                        <Border x:Name="progressFill" HorizontalAlignment="Left" Background="#2596be" CornerRadius="7" Width="0"/>
+                    </Grid>
+                    <ProgressBar x:Name="progressBar" Grid.Row="1" Height="14" Value="0" Maximum="100" Visibility="Collapsed"/>
                 </Grid>
             </Border>
         </Grid>
@@ -701,12 +690,20 @@ $xaml = @"
     }
 
     $txtPct = $window.FindName("txtPct")
+    $progressFill = $window.FindName("progressFill")
 
     function Set-Status { param([string]$Msg, [int]$Pct = -1)
         $txtStatus.Text = $Msg
-        if ($Pct -ge 0) {
+        if ($null -ne $Pct -and $Pct -ge 0) {
+            if ($Pct -gt 100) { $Pct = 100 }
             $progressBar.Value = $Pct
             if ($txtPct) { $txtPct.Text = "$Pct%" }
+            if ($progressFill -and $progressFill.Parent) {
+                $trackWidth = $progressFill.Parent.ActualWidth
+                if ($trackWidth -gt 0) {
+                    $progressFill.Width = [Math]::Max(0, ($Pct / 100.0) * $trackWidth)
+                }
+            }
         }
         $window.Title = "PC Plus 360 - $Msg"
         Write-DebugLog "STATUS: $Msg ($Pct%)"
@@ -925,7 +922,7 @@ $xaml = @"
     })
     $window.FindName("btnNavRAMIso").Add_Click({
         $s = Join-Path $Global:ScriptDir "PCPlus-RAMIsolation.ps1"
-        if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
+        if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-NoExit -NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
         else { [System.Windows.MessageBox]::Show($window, "PCPlus-RAMIsolation.ps1 not found in $Global:ScriptDir", "Not Found", "OK", "Warning") }
     })
 
@@ -1313,7 +1310,7 @@ $xaml = @"
             if ($chkRAMIso.IsChecked) {
                 $s = Join-Path $Global:ScriptDir "PCPlus360-Advanced-RAM-Isolation-Test.ps1"
                 if (-not (Test-Path $s)) { $s = Join-Path $Global:ScriptDir "PCPlus-RAMIsolation.ps1" }
-                if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
+                if (Test-Path $s) { Start-Process powershell.exe -ArgumentList "-NoExit -NoProfile -ExecutionPolicy Bypass -File `"$s`"" -Verb RunAs }
                 else { Set-Status "RAM Isolation script not found" 0 }
             }
             if ($chkPassRecovery.IsChecked) {
