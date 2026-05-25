@@ -797,8 +797,9 @@ try {
     }
 
     # Find the most recent backup of any kind
-    if ($ba.AllBackupDates.Count -gt 0) {
-        $sorted = $ba.AllBackupDates | Sort-Object { $_.Date } -Descending
+    $validDates = @($ba.AllBackupDates | Where-Object { $null -ne $_.Date })
+    if ($validDates.Count -gt 0) {
+        $sorted = $validDates | Sort-Object { $_.Date } -Descending
         $newest = $sorted[0]
         $ba.MostRecentBackupDate = $newest.Date
         $ba.DaysOld = Get-DaysAgo $newest.Date
@@ -1080,8 +1081,19 @@ $recList
 </body></html>
 "@
 
-Set-Content -Path $HtmlFile -Value $html -Encoding UTF8
-Write-Check "HTML Report" $HtmlFile "PASS"
+try {
+    Set-Content -Path $HtmlFile -Value $html -Encoding UTF8 -ErrorAction Stop
+    Write-Check "HTML Report" $HtmlFile "PASS"
+} catch {
+    $altFile = $HtmlFile -replace '\.html$', "-$(Get-Random -Maximum 9999).html"
+    try {
+        Set-Content -Path $altFile -Value $html -Encoding UTF8 -ErrorAction Stop
+        Write-Check "HTML Report" $altFile "PASS"
+        $HtmlFile = $altFile
+    } catch {
+        Write-Check "HTML Report" "Could not save: $($_.Exception.Message)" "FAIL"
+    }
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SUMMARY

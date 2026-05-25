@@ -27,7 +27,6 @@ param(
     [switch]$OpenReport
 )
 
-Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Continue'
 
 # ─────────────────────────────────────────────────────────────────────────────

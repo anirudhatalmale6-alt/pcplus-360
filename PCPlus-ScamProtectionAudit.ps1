@@ -14,7 +14,6 @@
 #>
 
 #Requires -Version 5.1
-Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Continue'
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1037,5 +1036,4 @@ Write-Host ""
 try { Start-Process $reportFile } catch { }
 
 Write-Host "  Press Enter to exit..." -ForegroundColor DarkGray
-Read-Host
 Read-Host

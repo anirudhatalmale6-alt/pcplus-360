@@ -15,7 +15,6 @@
     Requires: PowerShell 5.1+, Windows 10/11, Administrator privileges
 #>
 
-Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Continue'
 
 # ─────────────────────────────────────────────────────────────────────────────
