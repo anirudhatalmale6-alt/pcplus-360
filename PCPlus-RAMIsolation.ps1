@@ -196,7 +196,7 @@ function Invoke-MemoryStressTest {
                 $result.BlocksAllocated++
             } catch {
                 $result.AllocationFailures++
-                $result.Notes += "Allocation failed at block $i: $($_.Exception.Message)"
+                $result.Notes += "Allocation failed at block ${i}: $($_.Exception.Message)"
                 break
             }
         }

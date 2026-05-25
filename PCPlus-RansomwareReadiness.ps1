@@ -582,7 +582,7 @@ function Test-OfficeMacroSettings {
                 # 1 = Enable all, 2 = Disable with notification (default), 3 = Disable except signed, 4 = Disable all
                 switch ($vbaWarn) {
                     1 {
-                        [void]$macroIssues.Add("$app $ver: Macros ENABLED without warning")
+                        [void]$macroIssues.Add("$app ${ver}: Macros ENABLED without warning")
                         $Log.AppendText("   [FAIL] $app (Office $ver): Macros enabled without any warning`r`n")
                     }
                     2 {
