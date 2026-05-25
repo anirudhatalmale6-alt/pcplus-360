@@ -1263,10 +1263,9 @@ function Show-NirSoftGUI {
             $btnLaunch.Size = New-Object System.Drawing.Size(65, 24)
             $btnLaunch.Location = New-Object System.Drawing.Point(525, 4)
             $btnLaunch.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-            $btnLaunch.FlatAppearance.BorderColor = $colAccent
-            $btnLaunch.FlatAppearance.BorderSize = 1
-            $btnLaunch.BackColor = $colNavy
-            $btnLaunch.ForeColor = $colAccent
+            $btnLaunch.FlatAppearance.BorderSize = 0
+            $btnLaunch.BackColor = $colAccent
+            $btnLaunch.ForeColor = [System.Drawing.Color]::White
             $btnLaunch.Enabled = $isFound
             $btnLaunch.Cursor = [System.Windows.Forms.Cursors]::Hand
             $btnLaunch.Tag = $toolPath
@@ -1290,10 +1289,9 @@ function Show-NirSoftGUI {
             $btnExport.Size = New-Object System.Drawing.Size(65, 24)
             $btnExport.Location = New-Object System.Drawing.Point(600, 4)
             $btnExport.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-            $btnExport.FlatAppearance.BorderColor = $colGreen
-            $btnExport.FlatAppearance.BorderSize = 1
-            $btnExport.BackColor = $colNavy
-            $btnExport.ForeColor = $colGreen
+            $btnExport.FlatAppearance.BorderSize = 0
+            $btnExport.BackColor = $colGreen
+            $btnExport.ForeColor = [System.Drawing.Color]::White
             $btnExport.Enabled = $isFound
             $btnExport.Cursor = [System.Windows.Forms.Cursors]::Hand
             $btnExport.Tag = @{ ToolName = $toolDef.ToolName; ExeName = $toolDef.ExeName; Base = $toolDef.ToolName }
