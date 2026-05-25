@@ -560,13 +560,13 @@ $xaml = @"
                         <TextBlock x:Name="txtStatus" Grid.Column="0" Text="Ready. Enter customer info and select a diagnostic mode." FontSize="12" FontWeight="SemiBold" Foreground="#1a2b3c"/>
                         <TextBlock x:Name="txtPct" Grid.Column="1" Text="" FontSize="12" FontWeight="Bold" Foreground="#2596be"/>
                     </Grid>
-                    <ProgressBar x:Name="progressBar" Grid.Row="1" Height="14" Background="#d8e8f0" Foreground="#2596be" Value="0" BorderThickness="0">
+                    <ProgressBar x:Name="progressBar" Grid.Row="1" Height="14" Background="#d8e8f0" Foreground="#2596be" Value="0" Maximum="100" BorderThickness="0">
                         <ProgressBar.Resources>
                             <Style TargetType="ProgressBar">
                                 <Setter Property="Template">
                                     <Setter.Value>
                                         <ControlTemplate TargetType="ProgressBar">
-                                            <Grid>
+                                            <Grid x:Name="PART_Track">
                                                 <Border Background="{TemplateBinding Background}" CornerRadius="7"/>
                                                 <Border x:Name="PART_Indicator" HorizontalAlignment="Left" Background="{TemplateBinding Foreground}" CornerRadius="7"/>
                                             </Grid>
