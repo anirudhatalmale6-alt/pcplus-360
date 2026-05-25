@@ -1,0 +1,222 @@
+{
+  "version": "1.0.0",
+  "description": "PC Plus 360 Portable Tools Manifest - Organized by Category",
+  "categories": [
+    {
+      "name": "System Information",
+      "icon": "monitor",
+      "color": "#2596be",
+      "tools": [
+        { "name": "CPU-Z", "exe": "cpu-z_2.20-en.exe", "description": "Detailed CPU, motherboard, memory, and SPD information" },
+        { "name": "GPU-Z", "exe": "GPU-Z.2.69.0.exe", "description": "Graphics card and GPU information utility" },
+        { "name": "HWiNFO64", "exe": "HWiNFO64.exe", "description": "Comprehensive hardware analysis and monitoring" },
+        { "name": "CrystalDiskInfo", "exe": "CrystalDiskInfoPortable_9.9.1.paf.exe", "description": "Disk health monitoring via S.M.A.R.T." },
+        { "name": "Coreinfo", "exe": "Coreinfo64.exe", "description": "CPU topology, cache, and feature information" },
+        { "name": "PsInfo", "exe": "PsInfo64.exe", "description": "Local or remote system information" },
+        { "name": "Clockres", "exe": "Clockres64.exe", "description": "System clock resolution display" },
+        { "name": "BGInfo", "exe": "Bginfo64.exe", "description": "Desktop background system info display" },
+        { "name": "BluetoothView", "exe": "BluetoothView.exe", "description": "Monitor Bluetooth activity and devices" },
+        { "name": "DevManView", "exe": "DevManView.exe", "description": "Alternative Device Manager viewer" },
+        { "name": "DriverView", "exe": "DriverView.exe", "description": "List all loaded kernel drivers" },
+        { "name": "WifiInfoView", "exe": "WifiInfoView.exe", "description": "WiFi network information and signal strength" }
+      ]
+    },
+    {
+      "name": "Security & Malware",
+      "icon": "shield",
+      "color": "#e74c3c",
+      "tools": [
+        { "name": "AdwCleaner", "exe": "adwcleaner.exe", "description": "Malwarebytes adware and PUP removal tool" },
+        { "name": "Autoruns", "exe": "Autoruns64.exe", "description": "Comprehensive auto-start entry manager" },
+        { "name": "Autorunsc (CLI)", "exe": "autorunsc64.exe", "description": "Command-line autostart entry scanner" },
+        { "name": "Sigcheck", "exe": "sigcheck64.exe", "description": "File version and signature verification" },
+        { "name": "Sysmon", "exe": "Sysmon64.exe", "description": "System activity monitor and logger" },
+        { "name": "Velociraptor", "exe": "Velociraptor-windows-amd64-latest.exe", "description": "Endpoint forensics and incident response" },
+        { "name": "YARA", "exe": "yara64.exe", "description": "Pattern matching for malware identification" },
+        { "name": "YARA Compiler", "exe": "yarac64.exe", "description": "Compile YARA rules" },
+        { "name": "AccessChk", "exe": "accesschk64.exe", "description": "View access rights for files, registry, services" },
+        { "name": "AccessEnum", "exe": "AccessEnum.exe", "description": "Security permission scanner for files/registry" },
+        { "name": "ShareEnum", "exe": "ShareEnum64.exe", "description": "Scan network shares and permissions" },
+        { "name": "EFSDump", "exe": "efsdump.exe", "description": "View EFS encrypted file information" }
+      ]
+    },
+    {
+      "name": "Network & Connectivity",
+      "icon": "network",
+      "color": "#3498db",
+      "tools": [
+        { "name": "Wireshark", "exe": "WiresharkPortable64_4.4.7.paf.exe", "description": "Network protocol analyzer (packet capture)" },
+        { "name": "Nmap", "exe": "NmapPortable_7.95.paf.exe", "description": "Network discovery and security auditing" },
+        { "name": "TCPView", "exe": "tcpview64.exe", "description": "Active TCP/UDP connections viewer" },
+        { "name": "CurrPorts", "exe": "cports.exe", "description": "Network connections and listening ports" },
+        { "name": "DNSQuerySniffer", "exe": "DNSQuerySniffer.exe", "description": "Monitor DNS queries on network" },
+        { "name": "PsPing", "exe": "psping64.exe", "description": "Network latency and bandwidth testing" },
+        { "name": "TCPVCon (CLI)", "exe": "tcpvcon64.exe", "description": "Command-line TCP/UDP connection viewer" },
+        { "name": "NetworkInterfacesView", "exe": "NetworkInterfacesView.exe", "description": "All network interfaces and statistics" },
+        { "name": "NetworkTrafficView", "exe": "NetworkTrafficView.exe", "description": "Network traffic statistics per process" },
+        { "name": "SmartSniff", "exe": "smsniff.exe", "description": "TCP/IP packet sniffer and analyzer" },
+        { "name": "WebSiteSniffer", "exe": "WebSiteSniffer.exe", "description": "Capture and view website files" },
+        { "name": "WirelessNetView", "exe": "WirelessNetView.exe", "description": "Nearby wireless network monitor" },
+        { "name": "Whois", "exe": "whois64.exe", "description": "Domain/IP WHOIS lookup utility" },
+        { "name": "PortMon", "exe": "portmon.exe", "description": "Serial and parallel port activity monitor" }
+      ]
+    },
+    {
+      "name": "Process & Memory",
+      "icon": "cpu",
+      "color": "#9b59b6",
+      "tools": [
+        { "name": "Process Explorer", "exe": "procexp64.exe", "description": "Advanced Task Manager replacement" },
+        { "name": "Process Monitor", "exe": "Procmon64.exe", "description": "Real-time file/registry/process activity" },
+        { "name": "RAMMap", "exe": "RAMMap64.exe", "description": "Physical memory usage analysis" },
+        { "name": "VMMap", "exe": "vmmap64.exe", "description": "Virtual and physical memory analysis" },
+        { "name": "Handle", "exe": "handle64.exe", "description": "View open file handles by process" },
+        { "name": "ListDLLs", "exe": "Listdlls64.exe", "description": "List loaded DLLs for processes" },
+        { "name": "PsList", "exe": "pslist64.exe", "description": "Process list and statistics" },
+        { "name": "PsKill", "exe": "pskill64.exe", "description": "Kill processes by name or PID" },
+        { "name": "PsSuspend", "exe": "pssuspend64.exe", "description": "Suspend/resume processes" },
+        { "name": "ProcDump", "exe": "procdump64.exe", "description": "Process crash dump generation" },
+        { "name": "CPU Stress", "exe": "CPUSTRES64.EXE", "description": "CPU load stress testing tool" },
+        { "name": "TestLimit", "exe": "Testlimit64.exe", "description": "Test system resource limits" },
+        { "name": "WhatIsHang", "exe": "WhatIsHang.exe", "description": "Detect hung software processes" },
+        { "name": "AppCrashView", "exe": "AppCrashView.exe", "description": "View Windows application crash reports" },
+        { "name": "WinCrashReport", "exe": "WinCrashReport.exe", "description": "Windows crash report viewer" }
+      ]
+    },
+    {
+      "name": "Disk & Storage",
+      "icon": "hdd",
+      "color": "#f39c12",
+      "tools": [
+        { "name": "DiskView", "exe": "DiskView64.exe", "description": "Graphical disk sector viewer" },
+        { "name": "Rufus", "exe": "rufus-latest.exe", "description": "Bootable USB drive creator" },
+        { "name": "Disk2VHD", "exe": "disk2vhd64.exe", "description": "Physical disk to VHD converter" },
+        { "name": "DiskMon", "exe": "Diskmon64.exe", "description": "Real-time disk activity monitor" },
+        { "name": "HD Tune", "exe": "hdtune_255.exe", "description": "Hard disk utility and benchmark" },
+        { "name": "Contig", "exe": "Contig64.exe", "description": "Single-file defragmenter" },
+        { "name": "SDelete", "exe": "sdelete64.exe", "description": "Secure file and free space deletion" },
+        { "name": "DiskExt", "exe": "diskext64.exe", "description": "Disk volume extent information" },
+        { "name": "DU (Disk Usage)", "exe": "du64.exe", "description": "Directory disk space usage" },
+        { "name": "NTFSInfo", "exe": "ntfsinfo64.exe", "description": "NTFS volume information" },
+        { "name": "VolumeId", "exe": "Volumeid64.exe", "description": "Change disk volume ID" },
+        { "name": "CacheSet", "exe": "Cacheset64.exe", "description": "Control file system cache size" },
+        { "name": "ImageUSB", "exe": "imageUSB.exe", "description": "Write images to USB drives" },
+        { "name": "PendMoves", "exe": "pendmoves64.exe", "description": "View pending file move/delete operations" },
+        { "name": "MoveFile", "exe": "movefile64.exe", "description": "Schedule file move/delete on reboot" },
+        { "name": "SmartMonTools", "exe": "smartmontools_latest.exe", "description": "S.M.A.R.T. disk monitoring" },
+        { "name": "Drive Power Manager", "exe": "DrivePowerManager_setup_110.exe", "description": "Hard drive power management" }
+      ]
+    },
+    {
+      "name": "Data Recovery & Forensics",
+      "icon": "recovery",
+      "color": "#27ae60",
+      "tools": [
+        { "name": "PhotoRec", "exe": "photorec_win.exe", "description": "File recovery (photos, videos, documents)" },
+        { "name": "QPhotoRec (GUI)", "exe": "qphotorec_win.exe", "description": "PhotoRec graphical interface" },
+        { "name": "TestDisk", "exe": "testdisk_win.exe", "description": "Partition recovery and disk repair" },
+        { "name": "File Identify", "exe": "fidentify_win.exe", "description": "Identify file types by content" },
+        { "name": "MemTest86", "exe": "memtest86-usb.zip", "description": "Memory testing (bootable USB image)" },
+        { "name": "LastActivityView", "exe": "LastActivityView.exe", "description": "View recent user activity timeline" },
+        { "name": "ExecutedProgramsList", "exe": "ExecutedProgramsList.exe", "description": "List previously executed programs" },
+        { "name": "UserAssistView", "exe": "UserAssistView.exe", "description": "View UserAssist registry data" },
+        { "name": "ShellBagsView", "exe": "ShellBagsView.exe", "description": "View folder access history (ShellBags)" },
+        { "name": "JumpListsView", "exe": "JumpListsView.exe", "description": "View Windows Jump Lists data" },
+        { "name": "RecentFilesView", "exe": "RecentFilesView.exe", "description": "View recently accessed files" },
+        { "name": "MUICacheView", "exe": "MUICacheView.exe", "description": "View MUI cache (program names)" }
+      ]
+    },
+    {
+      "name": "Registry & File System",
+      "icon": "registry",
+      "color": "#1abc9c",
+      "tools": [
+        { "name": "Registrar Home", "exe": "RegistrarHomeV9.exe", "description": "Advanced registry editor" },
+        { "name": "RegJump", "exe": "regjump.exe", "description": "Jump to registry path in Regedit" },
+        { "name": "RegDelNull", "exe": "RegDelNull64.exe", "description": "Delete registry keys with null characters" },
+        { "name": "Streams", "exe": "streams64.exe", "description": "View NTFS alternate data streams" },
+        { "name": "Junction", "exe": "junction64.exe", "description": "Create/delete NTFS junctions" },
+        { "name": "FindLinks", "exe": "FindLinks64.exe", "description": "Find NTFS hard links" },
+        { "name": "SearchMyFiles", "exe": "SearchMyFiles.exe", "description": "Advanced file search utility" },
+        { "name": "FolderChangesView", "exe": "FolderChangesView.exe", "description": "Monitor folder changes in real-time" },
+        { "name": "Strings", "exe": "strings64.exe", "description": "Extract text strings from files" },
+        { "name": "OpenedFilesView", "exe": "OpenedFilesView.exe", "description": "View currently opened files" },
+        { "name": "PsFile", "exe": "psfile64.exe", "description": "View remotely opened files" },
+        { "name": "Sync", "exe": "sync64.exe", "description": "Flush file system cache to disk" },
+        { "name": "LDMDump", "exe": "ldmdump.exe", "description": "Logical Disk Manager information" }
+      ]
+    },
+    {
+      "name": "Browser & Internet",
+      "icon": "browser",
+      "color": "#e67e22",
+      "tools": [
+        { "name": "BrowsingHistoryView", "exe": "BrowsingHistoryView.exe", "description": "View browsing history (all browsers)" },
+        { "name": "ChromeCacheView", "exe": "ChromeCacheView.exe", "description": "View Chrome browser cache contents" },
+        { "name": "EdgeCookiesView", "exe": "EdgeCookiesView.exe", "description": "View Microsoft Edge cookies" },
+        { "name": "BrowserDownloadsView", "exe": "BrowserDownloadsView.exe", "description": "View download history (all browsers)" },
+        { "name": "MozillaCacheView", "exe": "MozillaCacheView.exe", "description": "View Firefox cache contents" },
+        { "name": "VideoCacheView", "exe": "VideoCacheView.exe", "description": "Extract cached video files" }
+      ]
+    },
+    {
+      "name": "Hardware Stress Testing",
+      "icon": "thermometer",
+      "color": "#c0392b",
+      "tools": [
+        { "name": "OCCT", "exe": "OCCT.exe", "description": "CPU/GPU/RAM/PSU stress testing and monitoring" },
+        { "name": "Prime95", "exe": "prime95.exe", "description": "CPU stress testing and stability checker" },
+        { "name": "OpenHardwareMonitor", "exe": "OpenHardwareMonitor.exe", "description": "Hardware temperature and fan monitoring" },
+        { "name": "LibreHardwareMonitor", "exe": "LibreHardwareMonitor.exe", "description": "Advanced hardware sensor monitoring" },
+        { "name": "NotMyFault", "exe": "notmyfault64.exe", "description": "Crash/hang system for testing (advanced)" },
+        { "name": "BlueScreenView", "exe": "BlueScreenView.exe", "description": "Analyze BSOD minidump files" }
+      ]
+    },
+    {
+      "name": "Active Directory",
+      "icon": "directory",
+      "color": "#8e44ad",
+      "tools": [
+        { "name": "AD Explorer", "exe": "ADExplorer64.exe", "description": "Active Directory viewer and editor" },
+        { "name": "AD Insight", "exe": "ADInsight64.exe", "description": "Real-time AD LDAP monitoring" },
+        { "name": "AD Restore", "exe": "adrestore64.exe", "description": "Restore tombstoned AD objects" },
+        { "name": "PsGetSid", "exe": "PsGetsid64.exe", "description": "Translate SIDs to names and vice versa" },
+        { "name": "PsLoggedOn", "exe": "PsLoggedon64.exe", "description": "Show logged-on users" },
+        { "name": "LogonSessions", "exe": "logonsessions64.exe", "description": "List active logon sessions" },
+        { "name": "PsLogList", "exe": "psloglist64.exe", "description": "Event log dump utility" }
+      ]
+    },
+    {
+      "name": "Remote & Administration",
+      "icon": "remote",
+      "color": "#2980b9",
+      "tools": [
+        { "name": "RDCMan", "exe": "RDCMan.exe", "description": "Remote Desktop Connection Manager" },
+        { "name": "PsExec", "exe": "PsExec64.exe", "description": "Execute processes on remote systems" },
+        { "name": "ShellRunas", "exe": "ShellRunas.exe", "description": "Run commands as another user" },
+        { "name": "LiveKD", "exe": "livekd64.exe", "description": "Live kernel debugging" },
+        { "name": "PsService", "exe": "PsService64.exe", "description": "Service control and information" },
+        { "name": "PsShutdown", "exe": "psshutdown64.exe", "description": "Shutdown/restart local or remote" },
+        { "name": "PsPassword", "exe": "pspasswd64.exe", "description": "Change passwords on local/remote systems" },
+        { "name": "Autologon", "exe": "Autologon64.exe", "description": "Enable/disable automatic logon" },
+        { "name": "DebugView", "exe": "dbgview64.exe", "description": "View debug output from applications" },
+        { "name": "LoadOrder", "exe": "LoadOrd64.exe", "description": "View driver/service load order" },
+        { "name": "Ctrl2Cap", "exe": "ctrl2cap.exe", "description": "Swap Ctrl and Caps Lock keys" }
+      ]
+    },
+    {
+      "name": "Event Logs & Monitoring",
+      "icon": "log",
+      "color": "#16a085",
+      "tools": [
+        { "name": "FullEventLogView", "exe": "FullEventLogView.exe", "description": "Enhanced Windows Event Log viewer" },
+        { "name": "USBDeview", "exe": "USBDeview.exe", "description": "USB device connection history" },
+        { "name": "USBLogView", "exe": "USBLogView.exe", "description": "USB device plug/unplug logging" },
+        { "name": "Hex2Dec", "exe": "hex2dec64.exe", "description": "Hex to decimal converter" },
+        { "name": "ZoomIt", "exe": "ZoomIt64.exe", "description": "Screen zoom and annotation tool" },
+        { "name": "Desktops", "exe": "Desktops64.exe", "description": "Virtual desktop manager" },
+        { "name": "RU (Registry Utility)", "exe": "ru64.exe", "description": "Registry command-line utility" }
+      ]
+    }
+  ]
+}

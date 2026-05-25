@@ -39,7 +39,7 @@ function Test-IsAdmin {
 
 if (-not (Test-IsAdmin)) {
     try {
-        $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Definition)`""
+        $arguments = "-STA -NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Definition)`""
         Start-Process powershell.exe -ArgumentList $arguments -Verb RunAs
     } catch {
         [System.Windows.Forms.MessageBox]::Show(
@@ -432,6 +432,27 @@ function Get-ToolStatus {
     }
 }
 
+function Get-CategoryLookup {
+    # Load the categorized manifest for proper category assignment
+    $catManifest = Join-Path $ScriptDir "tools-manifest.json"
+    $lookup = @{}
+    if (Test-Path $catManifest) {
+        try {
+            $catData = Get-Content $catManifest -Raw | ConvertFrom-Json
+            foreach ($cat in $catData.categories) {
+                foreach ($tool in $cat.tools) {
+                    $lookup[$tool.exe.ToLower()] = @{
+                        Category    = $cat.name
+                        Name        = $tool.name
+                        Description = $tool.description
+                    }
+                }
+            }
+        } catch { }
+    }
+    return $lookup
+}
+
 function Find-UnregisteredTools {
     # Scan Tools folder for EXEs not in the manifest and auto-add them
     $knownExes = @{}
@@ -439,6 +460,7 @@ function Find-UnregisteredTools {
         $knownExes[$t.executable.ToLower()] = $true
     }
 
+    $catLookup = Get-CategoryLookup
     $newTools = [System.Collections.ArrayList]::new()
     $allExes = Get-ChildItem -Path $ToolsDir -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue
 
@@ -450,12 +472,23 @@ function Find-UnregisteredTools {
 
         $ver = Get-FileVersionFromExe $exe.FullName
         $desc = ""
-        try {
-            $fi = $exe.VersionInfo
-            if ($fi.FileDescription) { $desc = $fi.FileDescription }
-            elseif ($fi.ProductName) { $desc = $fi.ProductName }
-        } catch {}
-        if (-not $desc) { $desc = "Auto-detected portable tool" }
+        $category = "Auto-Detected"
+        $displayName = $exe.BaseName
+
+        # Check categorized manifest first
+        if ($catLookup.ContainsKey($exeName)) {
+            $catInfo = $catLookup[$exeName]
+            $category = $catInfo.Category
+            $displayName = $catInfo.Name
+            $desc = $catInfo.Description
+        } else {
+            try {
+                $fi = $exe.VersionInfo
+                if ($fi.FileDescription) { $desc = $fi.FileDescription }
+                elseif ($fi.ProductName) { $desc = $fi.ProductName }
+            } catch {}
+            if (-not $desc) { $desc = "Portable tool" }
+        }
 
         $relDir = $exe.DirectoryName
         $extractTo = if ($relDir -eq $ToolsDir) { $exe.BaseName } else {
@@ -465,10 +498,10 @@ function Find-UnregisteredTools {
         }
 
         $toolEntry = @{
-            id          = "auto_" + $exe.BaseName.ToLower() -replace '[^a-z0-9]', '_'
-            name        = $exe.BaseName
+            id          = "auto_" + ($exe.BaseName.ToLower() -replace '[^a-z0-9]', '_')
+            name        = $displayName
             description = $desc
-            category    = "Auto-Detected"
+            category    = $category
             downloadUrl = ""
             fileName    = $exe.Name
             executable  = $exe.Name
