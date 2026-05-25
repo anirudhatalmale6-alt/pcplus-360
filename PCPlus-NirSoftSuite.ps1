@@ -1,3 +1,13 @@
+param(
+    [string]$CustomerName = "Customer",
+    [string]$TechnicianName = "PC Plus Technician",
+    [string]$NirSoftDir = "",
+    [switch]$IncludeBrowserHistory,
+    [switch]$IncludeLastActivity,
+    [switch]$OpenReport,
+    [switch]$NoGUI
+)
+
 <#
 PC Plus 360 - NirSoft Portable Tools Suite
 Company: PC Plus Computing
@@ -14,45 +24,45 @@ Place NirSoft EXE files in EITHER location:
   1. C:\PCPlus360\Tools\NirSoft (preferred for fixed installations)
   2. tools\nirsoft\ next to this script (for USB portable use)
 
-Recommended tools:
-- BlueScreenView.exe       (BSOD crash analysis)
-- CurrPorts.exe            (active network connections)
-- USBDeview.exe            (USB device history)
-- BatteryInfoView.exe      (battery health)
-- WhatInStartup.exe        (startup items)
-- InstalledDriversList.exe (driver audit)
-- DriverView.exe           (loaded kernel drivers)
-- WinCrashReport.exe       (application crashes)
-- WifiInfoView.exe         (Wi-Fi analysis)
-- WirelessNetView.exe      (nearby Wi-Fi networks)
-- FullEventLogView.exe     (enhanced event logs)
-- OpenedFilesView.exe      (locked files)
-- ProduKey.exe             (license key recovery)
-- DNSDataView.exe          (DNS cache analysis)
-- ProcessActivityView.exe  (process history)
-- FolderChangesView.exe    (file system changes)
-
-Privacy:
-By default avoids browser history, password recovery, email/account extraction.
-Use -IncludeBrowserHistory and -IncludeLastActivity flags only with customer consent.
-
 Run as Administrator:
-PowerShell.exe -ExecutionPolicy Bypass -File .\PCPlus-NirSoftSuite.ps1
+PowerShell.exe -STA -ExecutionPolicy Bypass -File .\PCPlus-NirSoftSuite.ps1
+
+Console-only mode:
+PowerShell.exe -STA -ExecutionPolicy Bypass -File .\PCPlus-NirSoftSuite.ps1 -NoGUI
 
 Optional:
-PowerShell.exe -ExecutionPolicy Bypass -File .\PCPlus-NirSoftSuite.ps1 -CustomerName "John" -TechnicianName "Paul"
+PowerShell.exe -STA -ExecutionPolicy Bypass -File .\PCPlus-NirSoftSuite.ps1 -CustomerName "John" -TechnicianName "Paul"
 #>
 
-param(
-    [string]$CustomerName = "Customer",
-    [string]$TechnicianName = "PC Plus Technician",
-    [string]$NirSoftDir = "",
-    [switch]$IncludeBrowserHistory,
-    [switch]$IncludeLastActivity,
-    [switch]$OpenReport
-)
-
 $ErrorActionPreference = "Continue"
+
+# ============================================================
+# Self-Elevation (with -STA flag)
+# ============================================================
+
+function Test-IsAdmin {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+if (-not (Test-IsAdmin)) {
+    $scriptPath = $MyInvocation.MyCommand.Definition
+    $argList = "-STA -ExecutionPolicy Bypass -File `"$scriptPath`""
+    if ($CustomerName -ne "Customer") { $argList += " -CustomerName `"$CustomerName`"" }
+    if ($TechnicianName -ne "PC Plus Technician") { $argList += " -TechnicianName `"$TechnicianName`"" }
+    if ($NirSoftDir) { $argList += " -NirSoftDir `"$NirSoftDir`"" }
+    if ($IncludeBrowserHistory) { $argList += " -IncludeBrowserHistory" }
+    if ($IncludeLastActivity) { $argList += " -IncludeLastActivity" }
+    if ($OpenReport) { $argList += " -OpenReport" }
+    if ($NoGUI) { $argList += " -NoGUI" }
+    try {
+        Start-Process PowerShell.exe -ArgumentList $argList -Verb RunAs
+    } catch {
+        Write-Host "Failed to elevate. Please run as Administrator." -ForegroundColor Red
+    }
+    exit
+}
 
 # ============================================================
 # Paths - check both fixed and USB-relative locations
@@ -93,14 +103,8 @@ $CsvFile  = Join-Path $ReportDir "PCPlus360-NirSoft-Summary.csv"
 function Write-PCLog {
     param([string]$Message, [string]$Level = "INFO")
     $line = "[{0}] [{1}] {2}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Level, $Message
-    Write-Host $line
-    Add-Content -Path $LogFile -Value $line
-}
-
-function Test-IsAdmin {
-    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $script:SuppressConsole) { Write-Host $line }
+    Add-Content -Path $LogFile -Value $line -ErrorAction SilentlyContinue
 }
 
 function Get-ToolPath {
@@ -138,8 +142,8 @@ function Invoke-NirSoftExport {
     try {
         Write-PCLog "Running $ToolName export."
 
-        $args = "$ExtraArgs $ExportSwitch `"$csv`""
-        $p = Start-Process -FilePath $exe -ArgumentList $args -Wait -PassThru -WindowStyle Hidden
+        $procArgs = "$ExtraArgs $ExportSwitch `"$csv`""
+        $p = Start-Process -FilePath $exe -ArgumentList $procArgs -Wait -PassThru -WindowStyle Hidden
 
         $txtArgs = "$ExtraArgs /stext `"$txt`""
         Start-Process -FilePath $exe -ArgumentList $txtArgs -Wait -WindowStyle Hidden | Out-Null
@@ -437,6 +441,17 @@ function Analyze-BrowserDownloadsView {
         DownloadCount = $rows.Count
         AllRows = @($rows)
         Summary = "$($rows.Count) browser download record(s)."
+    }
+}
+
+# Generic analyzer for new tools without dedicated functions
+function Analyze-Generic {
+    param([string]$CsvPath, [string]$ToolName)
+    $rows = Import-CsvSafe $CsvPath
+    [PSCustomObject]@{
+        RowCount = $rows.Count
+        AllRows = @($rows)
+        Summary = "$($rows.Count) $ToolName record(s) exported."
     }
 }
 
@@ -814,132 +829,128 @@ tr:hover{background:#eaf7fc}
 }
 
 # ============================================================
-# Main
+# Full Diagnostic Run (used by both GUI and console modes)
 # ============================================================
 
-Write-Host ""
-Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host "  PC PLUS 360 - NIRSOFT PORTABLE TOOLS SUITE" -ForegroundColor Cyan
-Write-Host "  PC Plus Computing | pcpluscomputing.com" -ForegroundColor Cyan
-Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host ""
+function Invoke-FullDiagnostic {
+    param(
+        [scriptblock]$ProgressCallback = $null
+    )
 
-Write-PCLog "PC Plus 360 NirSoft Diagnostic started."
-Write-PCLog "NirSoft directory: $NirSoftDir"
+    $script:SuppressConsole = $true
 
-if (-not (Test-Path $NirSoftDir)) {
-    New-Item -ItemType Directory -Path $NirSoftDir -Force | Out-Null
-    Write-PCLog "NirSoft directory created: $NirSoftDir" "WARN"
-    Write-Host "NirSoft directory created at: $NirSoftDir" -ForegroundColor Yellow
-    Write-Host "Place NirSoft EXE files there and run again." -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "Recommended tools to download from nirsoft.net:" -ForegroundColor Cyan
-    Write-Host "  BlueScreenView.exe, CurrPorts.exe, USBDeview.exe," -ForegroundColor White
-    Write-Host "  BatteryInfoView.exe, WhatInStartup.exe, InstalledDriversList.exe," -ForegroundColor White
-    Write-Host "  DriverView.exe, WinCrashReport.exe, WifiInfoView.exe," -ForegroundColor White
-    Write-Host "  WirelessNetView.exe, FullEventLogView.exe, OpenedFilesView.exe," -ForegroundColor White
-    Write-Host "  ProduKey.exe, DNSDataView.exe" -ForegroundColor White
-    Read-Host "Press Enter to exit"
-    exit
-}
+    if (-not (Test-Path $NirSoftDir)) {
+        New-Item -ItemType Directory -Path $NirSoftDir -Force | Out-Null
+    }
 
-if (-not (Test-IsAdmin)) {
-    Write-PCLog "Not running as Administrator. Some outputs may be limited." "WARN"
-}
+    if ($ProgressCallback) { & $ProgressCallback "Gathering system information..." }
+    $System = Get-SystemInfo
 
-$System = Get-SystemInfo
+    # Build full tool definitions (safe tools)
+    $allTools = @(
+        @{ToolName="BlueScreenView";       ExeName="BlueScreenView.exe";       Base="BlueScreenView"},
+        @{ToolName="CurrPorts";            ExeName="CurrPorts.exe";            Base="CurrPorts"},
+        @{ToolName="WhatInStartup";        ExeName="WhatInStartup.exe";        Base="WhatInStartup"},
+        @{ToolName="USBDeview";            ExeName="USBDeview.exe";            Base="USBDeview"},
+        @{ToolName="BatteryInfoView";      ExeName="BatteryInfoView.exe";      Base="BatteryInfoView"},
+        @{ToolName="DriverView";           ExeName="DriverView.exe";           Base="DriverView"},
+        @{ToolName="InstalledDriversList"; ExeName="InstalledDriversList.exe"; Base="InstalledDriversList"},
+        @{ToolName="WinCrashReport";       ExeName="WinCrashReport.exe";       Base="WinCrashReport"},
+        @{ToolName="WifiInfoView";         ExeName="WifiInfoView.exe";         Base="WifiInfoView"},
+        @{ToolName="WirelessNetView";      ExeName="WirelessNetView.exe";      Base="WirelessNetView"},
+        @{ToolName="FullEventLogView";     ExeName="FullEventLogView.exe";     Base="FullEventLogView"},
+        @{ToolName="OpenedFilesView";      ExeName="OpenedFilesView.exe";      Base="OpenedFilesView"},
+        @{ToolName="ProduKey";             ExeName="ProduKey.exe";             Base="ProduKey"},
+        @{ToolName="DNSDataView";          ExeName="DNSDataView.exe";          Base="DNSDataView"},
+        @{ToolName="ProcessActivityView";  ExeName="ProcessActivityView.exe";  Base="ProcessActivityView"},
+        @{ToolName="FolderChangesView";    ExeName="FolderChangesView.exe";    Base="FolderChangesView"},
+        @{ToolName="AppCrashView";         ExeName="AppCrashView.exe";         Base="AppCrashView"},
+        @{ToolName="NetworkInterfacesView";ExeName="NetworkInterfacesView.exe";Base="NetworkInterfacesView"},
+        @{ToolName="NetworkTrafficView";   ExeName="NetworkTrafficView.exe";   Base="NetworkTrafficView"},
+        @{ToolName="DevManView";           ExeName="DevManView.exe";           Base="DevManView"},
+        @{ToolName="USBLogView";           ExeName="USBLogView.exe";           Base="USBLogView"},
+        @{ToolName="JumpListsView";        ExeName="JumpListsView.exe";        Base="JumpListsView"},
+        @{ToolName="RecentFilesView";      ExeName="RecentFilesView.exe";      Base="RecentFilesView"},
+        @{ToolName="ExecutedProgramsList";  ExeName="ExecutedProgramsList.exe"; Base="ExecutedProgramsList"},
+        @{ToolName="UserAssistView";       ExeName="UserAssistView.exe";       Base="UserAssistView"},
+        @{ToolName="MUICacheView";         ExeName="MUICacheView.exe";         Base="MUICacheView"},
+        @{ToolName="ShellBagsView";        ExeName="ShellBagsView.exe";        Base="ShellBagsView"},
+        @{ToolName="SearchMyFiles";        ExeName="SearchMyFiles.exe";        Base="SearchMyFiles"},
+        @{ToolName="VideoCacheView";       ExeName="VideoCacheView.exe";       Base="VideoCacheView"}
+    )
 
-# Safe tools (auto-run, no privacy concern)
-$ToolDefinitions = @(
-    @{ToolName="BlueScreenView";       ExeName="BlueScreenView.exe";       Base="BlueScreenView"},
-    @{ToolName="CurrPorts";            ExeName="CurrPorts.exe";            Base="CurrPorts"},
-    @{ToolName="WhatInStartup";        ExeName="WhatInStartup.exe";        Base="WhatInStartup"},
-    @{ToolName="USBDeview";            ExeName="USBDeview.exe";            Base="USBDeview"},
-    @{ToolName="BatteryInfoView";      ExeName="BatteryInfoView.exe";      Base="BatteryInfoView"},
-    @{ToolName="DriverView";           ExeName="DriverView.exe";           Base="DriverView"},
-    @{ToolName="InstalledDriversList"; ExeName="InstalledDriversList.exe"; Base="InstalledDriversList"},
-    @{ToolName="WinCrashReport";       ExeName="WinCrashReport.exe";       Base="WinCrashReport"},
-    @{ToolName="WifiInfoView";         ExeName="WifiInfoView.exe";         Base="WifiInfoView"},
-    @{ToolName="WirelessNetView";      ExeName="WirelessNetView.exe";      Base="WirelessNetView"},
-    @{ToolName="FullEventLogView";     ExeName="FullEventLogView.exe";     Base="FullEventLogView"},
-    @{ToolName="OpenedFilesView";      ExeName="OpenedFilesView.exe";      Base="OpenedFilesView"},
-    @{ToolName="ProduKey";             ExeName="ProduKey.exe";             Base="ProduKey"},
-    @{ToolName="DNSDataView";          ExeName="DNSDataView.exe";          Base="DNSDataView"},
-    @{ToolName="ProcessActivityView";  ExeName="ProcessActivityView.exe";  Base="ProcessActivityView"},
-    @{ToolName="FolderChangesView";    ExeName="FolderChangesView.exe";    Base="FolderChangesView"}
-)
+    # Privacy-sensitive tools (require opt-in)
+    if ($IncludeLastActivity) {
+        $allTools += @{ToolName="LastActivityView"; ExeName="LastActivityView.exe"; Base="LastActivityView"}
+    }
+    if ($IncludeBrowserHistory) {
+        $allTools += @{ToolName="BrowserDownloadsView"; ExeName="BrowserDownloadsView.exe"; Base="BrowserDownloadsView"}
+        $allTools += @{ToolName="BrowsingHistoryView"; ExeName="BrowsingHistoryView.exe"; Base="BrowsingHistoryView"}
+        $allTools += @{ToolName="ChromeCacheView"; ExeName="ChromeCacheView.exe"; Base="ChromeCacheView"}
+        $allTools += @{ToolName="EdgeCookiesView"; ExeName="EdgeCookiesView.exe"; Base="EdgeCookiesView"}
+    }
 
-# Privacy-sensitive tools (require opt-in)
-if ($IncludeLastActivity) {
-    $ToolDefinitions += @{ToolName="LastActivityView"; ExeName="LastActivityView.exe"; Base="LastActivityView"}
-}
-if ($IncludeBrowserHistory) {
-    $ToolDefinitions += @{ToolName="BrowserDownloadsView"; ExeName="BrowserDownloadsView.exe"; Base="BrowserDownloadsView"}
-}
+    $ToolRuns = @()
+    $total = $allTools.Count
+    $idx = 0
+    foreach ($tool in $allTools) {
+        $idx++
+        if ($ProgressCallback) { & $ProgressCallback "[$idx/$total] Exporting $($tool.ToolName)..." }
+        $ToolRuns += Invoke-NirSoftExport -ToolName $tool.ToolName -ExeName $tool.ExeName -ExportBaseName $tool.Base
+    }
 
-$available = @($ToolDefinitions | Where-Object { Get-ToolPath $_.ExeName })
-$missingTools = @($ToolDefinitions | Where-Object { -not (Get-ToolPath $_.ExeName) })
+    if ($ProgressCallback) { & $ProgressCallback "Analyzing results..." }
 
-Write-Host "Available: $($available.Count) / $($ToolDefinitions.Count) tools" -ForegroundColor Green
-if ($missingTools.Count -gt 0) {
-    Write-Host "Missing: $($missingTools.Count) tool(s)" -ForegroundColor Yellow
-    foreach ($m in $missingTools) { Write-Host "  - $($m.ExeName)" -ForegroundColor DarkYellow }
-}
-Write-Host ""
+    # Build path map for analysis
+    $PathMap = @{}
+    foreach ($r in $ToolRuns) { $PathMap[$r.ToolName] = $r.CsvPath }
 
-$ToolRuns = @()
-foreach ($tool in $ToolDefinitions) {
-    $ToolRuns += Invoke-NirSoftExport -ToolName $tool.ToolName -ExeName $tool.ExeName -ExportBaseName $tool.Base
-}
+    # Run analysis on each tool's output
+    $Analysis = [PSCustomObject]@{
+        BlueScreenView       = Analyze-BlueScreenView      -CsvPath $PathMap["BlueScreenView"]
+        CurrPorts            = Analyze-CurrPorts            -CsvPath $PathMap["CurrPorts"]
+        WhatInStartup        = Analyze-WhatInStartup        -CsvPath $PathMap["WhatInStartup"]
+        USBDeview            = Analyze-USBDeview            -CsvPath $PathMap["USBDeview"]
+        BatteryInfoView      = Analyze-BatteryInfoView      -CsvPath $PathMap["BatteryInfoView"]
+        DriverView           = Analyze-DriverView           -CsvPath $PathMap["DriverView"]
+        InstalledDriversList = Analyze-InstalledDriversList  -CsvPath $PathMap["InstalledDriversList"]
+        WinCrashReport       = Analyze-WinCrashReport       -CsvPath $PathMap["WinCrashReport"]
+        WifiInfoView         = Analyze-WifiInfoView         -CsvPath $PathMap["WifiInfoView"]
+        WirelessNetView      = Analyze-WirelessNetView      -CsvPath $PathMap["WirelessNetView"]
+        FullEventLogView     = Analyze-FullEventLogView     -CsvPath $PathMap["FullEventLogView"]
+        OpenedFilesView      = Analyze-OpenedFilesView      -CsvPath $PathMap["OpenedFilesView"]
+        ProduKey             = Analyze-ProduKey              -CsvPath $PathMap["ProduKey"]
+        DNSDataView          = Analyze-DNSDataView           -CsvPath $PathMap["DNSDataView"]
+        ProcessActivityView  = Analyze-ProcessActivityView   -CsvPath $PathMap["ProcessActivityView"]
+        FolderChangesView    = Analyze-FolderChangesView     -CsvPath $PathMap["FolderChangesView"]
+    }
 
-# Build path map for analysis
-$PathMap = @{}
-foreach ($r in $ToolRuns) { $PathMap[$r.ToolName] = $r.CsvPath }
+    if ($IncludeLastActivity -and $PathMap["LastActivityView"]) {
+        $Analysis | Add-Member -MemberType NoteProperty -Name "LastActivityView" -Value (Analyze-LastActivityView -CsvPath $PathMap["LastActivityView"])
+    }
+    if ($IncludeBrowserHistory -and $PathMap["BrowserDownloadsView"]) {
+        $Analysis | Add-Member -MemberType NoteProperty -Name "BrowserDownloadsView" -Value (Analyze-BrowserDownloadsView -CsvPath $PathMap["BrowserDownloadsView"])
+    }
 
-# Run analysis on each tool's output
-$Analysis = [PSCustomObject]@{
-    BlueScreenView       = Analyze-BlueScreenView      -CsvPath $PathMap["BlueScreenView"]
-    CurrPorts            = Analyze-CurrPorts            -CsvPath $PathMap["CurrPorts"]
-    WhatInStartup        = Analyze-WhatInStartup        -CsvPath $PathMap["WhatInStartup"]
-    USBDeview            = Analyze-USBDeview            -CsvPath $PathMap["USBDeview"]
-    BatteryInfoView      = Analyze-BatteryInfoView      -CsvPath $PathMap["BatteryInfoView"]
-    DriverView           = Analyze-DriverView           -CsvPath $PathMap["DriverView"]
-    InstalledDriversList = Analyze-InstalledDriversList  -CsvPath $PathMap["InstalledDriversList"]
-    WinCrashReport       = Analyze-WinCrashReport       -CsvPath $PathMap["WinCrashReport"]
-    WifiInfoView         = Analyze-WifiInfoView         -CsvPath $PathMap["WifiInfoView"]
-    WirelessNetView      = Analyze-WirelessNetView      -CsvPath $PathMap["WirelessNetView"]
-    FullEventLogView     = Analyze-FullEventLogView     -CsvPath $PathMap["FullEventLogView"]
-    OpenedFilesView      = Analyze-OpenedFilesView      -CsvPath $PathMap["OpenedFilesView"]
-    ProduKey             = Analyze-ProduKey              -CsvPath $PathMap["ProduKey"]
-    DNSDataView          = Analyze-DNSDataView           -CsvPath $PathMap["DNSDataView"]
-    ProcessActivityView  = Analyze-ProcessActivityView   -CsvPath $PathMap["ProcessActivityView"]
-    FolderChangesView    = Analyze-FolderChangesView     -CsvPath $PathMap["FolderChangesView"]
-}
+    if ($ProgressCallback) { & $ProgressCallback "Calculating health score..." }
+    $Score = Get-PCPlusNirSoftScore -Analysis $Analysis
 
-if ($IncludeLastActivity -and $PathMap["LastActivityView"]) {
-    $Analysis | Add-Member -MemberType NoteProperty -Name "LastActivityView" -Value (Analyze-LastActivityView -CsvPath $PathMap["LastActivityView"])
-}
-if ($IncludeBrowserHistory -and $PathMap["BrowserDownloadsView"]) {
-    $Analysis | Add-Member -MemberType NoteProperty -Name "BrowserDownloadsView" -Value (Analyze-BrowserDownloadsView -CsvPath $PathMap["BrowserDownloadsView"])
-}
+    $Data = [PSCustomObject]@{
+        System = $System
+        NirSoftDir = $NirSoftDir
+        ReportDir = $ReportDir
+        ExportDir = $ExportDir
+        ToolRuns = $ToolRuns
+        Analysis = $Analysis
+        Score = $Score
+    }
 
-$Score = Get-PCPlusNirSoftScore -Analysis $Analysis
+    # JSON export
+    if ($ProgressCallback) { & $ProgressCallback "Generating reports..." }
+    $Data | ConvertTo-Json -Depth 12 | Set-Content -Path $JsonFile -Encoding UTF8
 
-$Data = [PSCustomObject]@{
-    System = $System
-    NirSoftDir = $NirSoftDir
-    ReportDir = $ReportDir
-    ExportDir = $ExportDir
-    ToolRuns = $ToolRuns
-    Analysis = $Analysis
-    Score = $Score
-}
-
-# JSON export
-$Data | ConvertTo-Json -Depth 12 | Set-Content -Path $JsonFile -Encoding UTF8
-
-# TXT summary
-$summary = @"
+    # TXT summary
+    $summary = @"
 PC Plus 360 NirSoft Diagnostic Summary
 
 Customer: $CustomerName
@@ -963,60 +974,667 @@ HTML: $HtmlFile
 JSON: $JsonFile
 Exports: $ExportDir
 "@
-Set-Content -Path $TxtFile -Value $summary -Encoding UTF8
+    Set-Content -Path $TxtFile -Value $summary -Encoding UTF8
 
-# CSV summary
-[PSCustomObject]@{
-    ComputerName = $System.ComputerName
-    CustomerName = $CustomerName
-    Score = $Score.Score
-    Grade = $Score.Grade
-    BlueScreens = $Analysis.BlueScreenView.CrashCount
-    AppCrashes = $Analysis.WinCrashReport.AppCrashCount
-    StartupEnabled = $Analysis.WhatInStartup.StartupEnabled
-    ExternalConnections = $Analysis.CurrPorts.ExternalConnectionCount
-    UnsignedDrivers = $Analysis.InstalledDriversList.UnsignedDriverCount
-    ProblemDrivers = $Analysis.InstalledDriversList.ProblemDriverCount
-    EventLogErrors = $Analysis.FullEventLogView.ErrorOrCriticalCount
-    USBHistory = $Analysis.USBDeview.TotalUsbHistory
-    ReportDate = Get-Date
-} | Export-Csv -Path $CsvFile -NoTypeInformation
+    # CSV summary
+    [PSCustomObject]@{
+        ComputerName = $System.ComputerName
+        CustomerName = $CustomerName
+        Score = $Score.Score
+        Grade = $Score.Grade
+        BlueScreens = $Analysis.BlueScreenView.CrashCount
+        AppCrashes = $Analysis.WinCrashReport.AppCrashCount
+        StartupEnabled = $Analysis.WhatInStartup.StartupEnabled
+        ExternalConnections = $Analysis.CurrPorts.ExternalConnectionCount
+        UnsignedDrivers = $Analysis.InstalledDriversList.UnsignedDriverCount
+        ProblemDrivers = $Analysis.InstalledDriversList.ProblemDriverCount
+        EventLogErrors = $Analysis.FullEventLogView.ErrorOrCriticalCount
+        USBHistory = $Analysis.USBDeview.TotalUsbHistory
+        ReportDate = Get-Date
+    } | Export-Csv -Path $CsvFile -NoTypeInformation
 
-# HTML report
-New-PCPlusHtmlReport -Data $Data
+    # HTML report
+    New-PCPlusHtmlReport -Data $Data
 
-Write-Host ""
-Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host "  PC Plus 360 NirSoft Diagnostic Completed" -ForegroundColor Cyan
-Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host "Score: $($Score.Score)/100 (Grade: $($Score.Grade))" -ForegroundColor $(if ($Score.Score -ge 80) { "Green" } elseif ($Score.Score -ge 60) { "Yellow" } else { "Red" })
-Write-Host ""
-Write-Host "Report Folder: $ReportDir" -ForegroundColor White
-Write-Host "HTML Report:   $HtmlFile" -ForegroundColor White
-Write-Host "JSON Raw Data: $JsonFile" -ForegroundColor White
-Write-Host "TXT Summary:   $TxtFile" -ForegroundColor White
-Write-Host "CSV Summary:   $CsvFile" -ForegroundColor White
-Write-Host "Exports:       $ExportDir" -ForegroundColor White
-Write-Host "Log File:      $LogFile" -ForegroundColor White
+    if ($ProgressCallback) { & $ProgressCallback "Diagnostic complete! Score: $($Score.Score)/100 ($($Score.Grade))" }
 
-if ($Score.Issues.Count -gt 0) {
+    $script:SuppressConsole = $false
+    return $Data
+}
+
+# ============================================================
+# Tool Definitions with Categories & Descriptions (for GUI)
+# ============================================================
+
+function Get-AllToolDefinitions {
+    return @(
+        # System & Crash Analysis
+        [PSCustomObject]@{ Category="System & Crash Analysis"; ToolName="BlueScreenView"; ExeName="BlueScreenView.exe"; Description="Analyze BSOD minidump crash files"; Privacy=$false }
+        [PSCustomObject]@{ Category="System & Crash Analysis"; ToolName="WinCrashReport"; ExeName="WinCrashReport.exe"; Description="Windows Error Reporting crash logs"; Privacy=$false }
+        [PSCustomObject]@{ Category="System & Crash Analysis"; ToolName="AppCrashView"; ExeName="AppCrashView.exe"; Description="Application crash event viewer"; Privacy=$false }
+
+        # Network & Connectivity
+        [PSCustomObject]@{ Category="Network & Connectivity"; ToolName="CurrPorts"; ExeName="CurrPorts.exe"; Description="Active TCP/UDP network connections"; Privacy=$false }
+        [PSCustomObject]@{ Category="Network & Connectivity"; ToolName="WifiInfoView"; ExeName="WifiInfoView.exe"; Description="Connected Wi-Fi adapter details"; Privacy=$false }
+        [PSCustomObject]@{ Category="Network & Connectivity"; ToolName="WirelessNetView"; ExeName="WirelessNetView.exe"; Description="Scan nearby wireless networks"; Privacy=$false }
+        [PSCustomObject]@{ Category="Network & Connectivity"; ToolName="DNSDataView"; ExeName="DNSDataView.exe"; Description="DNS resolver cache entries"; Privacy=$false }
+        [PSCustomObject]@{ Category="Network & Connectivity"; ToolName="NetworkInterfacesView"; ExeName="NetworkInterfacesView.exe"; Description="All network adapters and statistics"; Privacy=$false }
+        [PSCustomObject]@{ Category="Network & Connectivity"; ToolName="NetworkTrafficView"; ExeName="NetworkTrafficView.exe"; Description="Network traffic per-process breakdown"; Privacy=$false }
+
+        # Hardware & Drivers
+        [PSCustomObject]@{ Category="Hardware & Drivers"; ToolName="DriverView"; ExeName="DriverView.exe"; Description="Currently loaded kernel-mode drivers"; Privacy=$false }
+        [PSCustomObject]@{ Category="Hardware & Drivers"; ToolName="InstalledDriversList"; ExeName="InstalledDriversList.exe"; Description="All installed driver packages audit"; Privacy=$false }
+        [PSCustomObject]@{ Category="Hardware & Drivers"; ToolName="BatteryInfoView"; ExeName="BatteryInfoView.exe"; Description="Battery health, wear level, capacity"; Privacy=$false }
+        [PSCustomObject]@{ Category="Hardware & Drivers"; ToolName="DevManView"; ExeName="DevManView.exe"; Description="Device Manager alternative with details"; Privacy=$false }
+
+        # Startup & Security
+        [PSCustomObject]@{ Category="Startup & Security"; ToolName="WhatInStartup"; ExeName="WhatInStartup.exe"; Description="All auto-start programs and services"; Privacy=$false }
+        [PSCustomObject]@{ Category="Startup & Security"; ToolName="ProduKey"; ExeName="ProduKey.exe"; Description="Recover Windows/Office product keys"; Privacy=$false }
+
+        # USB & Storage
+        [PSCustomObject]@{ Category="USB & Storage"; ToolName="USBDeview"; ExeName="USBDeview.exe"; Description="Complete USB device connection history"; Privacy=$false }
+        [PSCustomObject]@{ Category="USB & Storage"; ToolName="USBLogView"; ExeName="USBLogView.exe"; Description="USB connect/disconnect event log"; Privacy=$false }
+
+        # Browser & History (privacy-sensitive)
+        [PSCustomObject]@{ Category="Browser & History"; ToolName="BrowsingHistoryView"; ExeName="BrowsingHistoryView.exe"; Description="Multi-browser URL history [PRIVACY]"; Privacy=$true }
+        [PSCustomObject]@{ Category="Browser & History"; ToolName="ChromeCacheView"; ExeName="ChromeCacheView.exe"; Description="Chrome browser cache contents [PRIVACY]"; Privacy=$true }
+        [PSCustomObject]@{ Category="Browser & History"; ToolName="EdgeCookiesView"; ExeName="EdgeCookiesView.exe"; Description="Microsoft Edge cookies viewer [PRIVACY]"; Privacy=$true }
+        [PSCustomObject]@{ Category="Browser & History"; ToolName="BrowserDownloadsView"; ExeName="BrowserDownloadsView.exe"; Description="All browser download records [PRIVACY]"; Privacy=$true }
+
+        # System Activity
+        [PSCustomObject]@{ Category="System Activity"; ToolName="LastActivityView"; ExeName="LastActivityView.exe"; Description="Recent user activity timeline [PRIVACY]"; Privacy=$true }
+        [PSCustomObject]@{ Category="System Activity"; ToolName="ExecutedProgramsList"; ExeName="ExecutedProgramsList.exe"; Description="Programs executed on this PC"; Privacy=$false }
+        [PSCustomObject]@{ Category="System Activity"; ToolName="OpenedFilesView"; ExeName="OpenedFilesView.exe"; Description="Currently locked/opened file handles"; Privacy=$false }
+        [PSCustomObject]@{ Category="System Activity"; ToolName="FolderChangesView"; ExeName="FolderChangesView.exe"; Description="Real-time file system change monitor"; Privacy=$false }
+        [PSCustomObject]@{ Category="System Activity"; ToolName="FullEventLogView"; ExeName="FullEventLogView.exe"; Description="Enhanced Windows Event Log viewer"; Privacy=$false }
+        [PSCustomObject]@{ Category="System Activity"; ToolName="JumpListsView"; ExeName="JumpListsView.exe"; Description="Taskbar jump list recent items"; Privacy=$false }
+        [PSCustomObject]@{ Category="System Activity"; ToolName="RecentFilesView"; ExeName="RecentFilesView.exe"; Description="Recently opened files list"; Privacy=$false }
+        [PSCustomObject]@{ Category="System Activity"; ToolName="UserAssistView"; ExeName="UserAssistView.exe"; Description="UserAssist registry run count data"; Privacy=$false }
+        [PSCustomObject]@{ Category="System Activity"; ToolName="MUICacheView"; ExeName="MUICacheView.exe"; Description="MUI cache application name entries"; Privacy=$false }
+        [PSCustomObject]@{ Category="System Activity"; ToolName="ShellBagsView"; ExeName="ShellBagsView.exe"; Description="Explorer folder access history"; Privacy=$false }
+
+        # Forensics & Search
+        [PSCustomObject]@{ Category="Forensics & Search"; ToolName="ProcessActivityView"; ExeName="ProcessActivityView.exe"; Description="Process creation/termination log"; Privacy=$false }
+        [PSCustomObject]@{ Category="Forensics & Search"; ToolName="SearchMyFiles"; ExeName="SearchMyFiles.exe"; Description="Advanced file search by attributes"; Privacy=$false }
+        [PSCustomObject]@{ Category="Forensics & Search"; ToolName="VideoCacheView"; ExeName="VideoCacheView.exe"; Description="Browser video cache extractor"; Privacy=$true }
+    )
+}
+
+# ============================================================
+# WinForms GUI
+# ============================================================
+
+function Show-NirSoftGUI {
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
+
+    # Colors
+    $colNavy       = [System.Drawing.Color]::FromArgb(10, 22, 40)       # #0a1628
+    $colNavyLight  = [System.Drawing.Color]::FromArgb(16, 32, 56)       # slightly lighter for panels
+    $colAccent     = [System.Drawing.Color]::FromArgb(37, 150, 190)     # #2596be
+    $colGreen      = [System.Drawing.Color]::FromArgb(39, 174, 96)      # #27ae60
+    $colRed        = [System.Drawing.Color]::FromArgb(231, 76, 60)      # #e74c3c
+    $colText       = [System.Drawing.Color]::FromArgb(220, 230, 240)
+    $colTextDim    = [System.Drawing.Color]::FromArgb(140, 160, 180)
+    $colRowAlt     = [System.Drawing.Color]::FromArgb(14, 28, 48)
+    $colHeaderBg   = [System.Drawing.Color]::FromArgb(20, 40, 65)
+
+    # Fonts
+    $fontTitle     = New-Object System.Drawing.Font("Segoe UI", 16, [System.Drawing.FontStyle]::Bold)
+    $fontSubtitle  = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Regular)
+    $fontCategory  = New-Object System.Drawing.Font("Segoe UI Semibold", 10, [System.Drawing.FontStyle]::Bold)
+    $fontNormal    = New-Object System.Drawing.Font("Segoe UI", 9)
+    $fontSmall     = New-Object System.Drawing.Font("Segoe UI", 8)
+    $fontLog       = New-Object System.Drawing.Font("Consolas", 8.5)
+    $fontBtn       = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+
+    # Main Form
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = "PC Plus 360 - NirSoft Portable Tools Suite"
+    $form.Size = New-Object System.Drawing.Size(920, 720)
+    $form.StartPosition = "CenterScreen"
+    $form.BackColor = $colNavy
+    $form.ForeColor = $colText
+    $form.Font = $fontNormal
+    $form.MinimumSize = New-Object System.Drawing.Size(800, 600)
+    $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::Sizable
+
+    # ---- Header Panel ----
+    $panelHeader = New-Object System.Windows.Forms.Panel
+    $panelHeader.Dock = [System.Windows.Forms.DockStyle]::Top
+    $panelHeader.Height = 70
+    $panelHeader.BackColor = $colNavyLight
+    $panelHeader.Padding = New-Object System.Windows.Forms.Padding(16, 8, 16, 8)
+    $form.Controls.Add($panelHeader)
+
+    $lblTitle = New-Object System.Windows.Forms.Label
+    $lblTitle.Text = "PC Plus 360 - NirSoft Portable Tools Suite"
+    $lblTitle.Font = $fontTitle
+    $lblTitle.ForeColor = $colAccent
+    $lblTitle.AutoSize = $true
+    $lblTitle.Location = New-Object System.Drawing.Point(16, 10)
+    $panelHeader.Controls.Add($lblTitle)
+
+    $lblContact = New-Object System.Windows.Forms.Label
+    $lblContact.Text = "PC Plus Computing  |  604-760-1662  |  236-500-2700  |  pcpluscomputing.com"
+    $lblContact.Font = $fontSubtitle
+    $lblContact.ForeColor = $colTextDim
+    $lblContact.AutoSize = $true
+    $lblContact.Location = New-Object System.Drawing.Point(16, 42)
+    $panelHeader.Controls.Add($lblContact)
+
+    # ---- Bottom Panel ----
+    $panelBottom = New-Object System.Windows.Forms.Panel
+    $panelBottom.Dock = [System.Windows.Forms.DockStyle]::Bottom
+    $panelBottom.Height = 170
+    $panelBottom.BackColor = $colNavyLight
+    $panelBottom.Padding = New-Object System.Windows.Forms.Padding(16, 8, 16, 8)
+    $form.Controls.Add($panelBottom)
+
+    # Buttons in bottom panel
+    $btnRunAll = New-Object System.Windows.Forms.Button
+    $btnRunAll.Text = "Run Full Diagnostic"
+    $btnRunAll.Font = $fontBtn
+    $btnRunAll.Size = New-Object System.Drawing.Size(180, 36)
+    $btnRunAll.Location = New-Object System.Drawing.Point(16, 10)
+    $btnRunAll.BackColor = $colGreen
+    $btnRunAll.ForeColor = [System.Drawing.Color]::White
+    $btnRunAll.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+    $btnRunAll.FlatAppearance.BorderSize = 0
+    $btnRunAll.Cursor = [System.Windows.Forms.Cursors]::Hand
+    $panelBottom.Controls.Add($btnRunAll)
+
+    $btnOpenReports = New-Object System.Windows.Forms.Button
+    $btnOpenReports.Text = "Open Reports Folder"
+    $btnOpenReports.Font = $fontBtn
+    $btnOpenReports.Size = New-Object System.Drawing.Size(180, 36)
+    $btnOpenReports.Location = New-Object System.Drawing.Point(210, 10)
+    $btnOpenReports.BackColor = $colAccent
+    $btnOpenReports.ForeColor = [System.Drawing.Color]::White
+    $btnOpenReports.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+    $btnOpenReports.FlatAppearance.BorderSize = 0
+    $btnOpenReports.Cursor = [System.Windows.Forms.Cursors]::Hand
+    $panelBottom.Controls.Add($btnOpenReports)
+
+    $lblNirDir = New-Object System.Windows.Forms.Label
+    $lblNirDir.Text = "Tools: $NirSoftDir"
+    $lblNirDir.Font = $fontSmall
+    $lblNirDir.ForeColor = $colTextDim
+    $lblNirDir.AutoSize = $true
+    $lblNirDir.Location = New-Object System.Drawing.Point(410, 18)
+    $panelBottom.Controls.Add($lblNirDir)
+
+    # Log text box
+    $txtLog = New-Object System.Windows.Forms.TextBox
+    $txtLog.Multiline = $true
+    $txtLog.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
+    $txtLog.ReadOnly = $true
+    $txtLog.Font = $fontLog
+    $txtLog.BackColor = [System.Drawing.Color]::FromArgb(6, 14, 28)
+    $txtLog.ForeColor = $colTextDim
+    $txtLog.BorderStyle = [System.Windows.Forms.BorderStyle]::None
+    $txtLog.Location = New-Object System.Drawing.Point(16, 54)
+    $txtLog.Size = New-Object System.Drawing.Size(870, 105)
+    $txtLog.Anchor = [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right -bor [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Bottom
+    $panelBottom.Controls.Add($txtLog)
+
+    # ---- Main Scrollable Panel (tool list) ----
+    $panelMain = New-Object System.Windows.Forms.Panel
+    $panelMain.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $panelMain.AutoScroll = $true
+    $panelMain.Padding = New-Object System.Windows.Forms.Padding(16, 8, 16, 8)
+    $form.Controls.Add($panelMain)
+
+    # Helper to log messages
+    $script:LogToGUI = {
+        param([string]$msg)
+        $txtLog.AppendText("[$(Get-Date -Format 'HH:mm:ss')] $msg`r`n")
+        $txtLog.SelectionStart = $txtLog.TextLength
+        $txtLog.ScrollToCaret()
+        [System.Windows.Forms.Application]::DoEvents()
+    }
+
+    # Build tool entries in the panel
+    $allDefs = Get-AllToolDefinitions
+    $categories = @($allDefs | Select-Object -ExpandProperty Category -Unique)
+
+    $yPos = 8
+    $panelWidth = 860
+
+    foreach ($cat in $categories) {
+        # Category header
+        $lblCat = New-Object System.Windows.Forms.Label
+        $lblCat.Text = $cat.ToUpper()
+        $lblCat.Font = $fontCategory
+        $lblCat.ForeColor = $colAccent
+        $lblCat.AutoSize = $false
+        $lblCat.Size = New-Object System.Drawing.Size($panelWidth, 24)
+        $lblCat.Location = New-Object System.Drawing.Point(0, $yPos)
+        $lblCat.BackColor = $colHeaderBg
+        $lblCat.Padding = New-Object System.Windows.Forms.Padding(8, 3, 0, 0)
+        $panelMain.Controls.Add($lblCat)
+        $yPos += 28
+
+        $toolsInCat = @($allDefs | Where-Object { $_.Category -eq $cat })
+        foreach ($toolDef in $toolsInCat) {
+            $toolPath = Get-ToolPath $toolDef.ExeName
+            $isFound = ($null -ne $toolPath)
+
+            # Row panel
+            $rowPanel = New-Object System.Windows.Forms.Panel
+            $rowPanel.Size = New-Object System.Drawing.Size($panelWidth, 32)
+            $rowPanel.Location = New-Object System.Drawing.Point(0, $yPos)
+            $rowPanel.BackColor = if (($yPos / 32) % 2 -eq 0) { $colNavy } else { $colRowAlt }
+            $panelMain.Controls.Add($rowPanel)
+
+            # Status dot
+            $lblDot = New-Object System.Windows.Forms.Label
+            $lblDot.Text = [char]0x25CF  # filled circle
+            $lblDot.Font = New-Object System.Drawing.Font("Segoe UI", 11)
+            $lblDot.ForeColor = if ($isFound) { $colGreen } else { $colRed }
+            $lblDot.AutoSize = $true
+            $lblDot.Location = New-Object System.Drawing.Point(10, 5)
+            $rowPanel.Controls.Add($lblDot)
+
+            # Tool name
+            $lblName = New-Object System.Windows.Forms.Label
+            $lblName.Text = $toolDef.ToolName
+            $lblName.Font = $fontNormal
+            $lblName.ForeColor = $colText
+            $lblName.AutoSize = $false
+            $lblName.Size = New-Object System.Drawing.Size(180, 20)
+            $lblName.Location = New-Object System.Drawing.Point(30, 6)
+            $rowPanel.Controls.Add($lblName)
+
+            # Description
+            $lblDesc = New-Object System.Windows.Forms.Label
+            $lblDesc.Text = $toolDef.Description
+            $lblDesc.Font = $fontSmall
+            $lblDesc.ForeColor = $colTextDim
+            $lblDesc.AutoSize = $false
+            $lblDesc.Size = New-Object System.Drawing.Size(360, 20)
+            $lblDesc.Location = New-Object System.Drawing.Point(215, 7)
+            $rowPanel.Controls.Add($lblDesc)
+
+            # Launch button
+            $btnLaunch = New-Object System.Windows.Forms.Button
+            $btnLaunch.Text = "Launch"
+            $btnLaunch.Font = $fontSmall
+            $btnLaunch.Size = New-Object System.Drawing.Size(65, 24)
+            $btnLaunch.Location = New-Object System.Drawing.Point(600, 4)
+            $btnLaunch.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+            $btnLaunch.FlatAppearance.BorderColor = $colAccent
+            $btnLaunch.FlatAppearance.BorderSize = 1
+            $btnLaunch.BackColor = $colNavy
+            $btnLaunch.ForeColor = $colAccent
+            $btnLaunch.Enabled = $isFound
+            $btnLaunch.Cursor = [System.Windows.Forms.Cursors]::Hand
+            $btnLaunch.Tag = $toolPath
+            $btnLaunch.Add_Click({
+                $path = $this.Tag
+                if ($path -and (Test-Path $path)) {
+                    try {
+                        Start-Process -FilePath $path
+                        & $script:LogToGUI "Launched: $path"
+                    } catch {
+                        & $script:LogToGUI "ERROR launching: $($_.Exception.Message)"
+                    }
+                }
+            })
+            $rowPanel.Controls.Add($btnLaunch)
+
+            # Export button
+            $btnExport = New-Object System.Windows.Forms.Button
+            $btnExport.Text = "Export"
+            $btnExport.Font = $fontSmall
+            $btnExport.Size = New-Object System.Drawing.Size(65, 24)
+            $btnExport.Location = New-Object System.Drawing.Point(675, 4)
+            $btnExport.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+            $btnExport.FlatAppearance.BorderColor = $colGreen
+            $btnExport.FlatAppearance.BorderSize = 1
+            $btnExport.BackColor = $colNavy
+            $btnExport.ForeColor = $colGreen
+            $btnExport.Enabled = $isFound
+            $btnExport.Cursor = [System.Windows.Forms.Cursors]::Hand
+            $btnExport.Tag = @{ ToolName = $toolDef.ToolName; ExeName = $toolDef.ExeName; Base = $toolDef.ToolName }
+            $btnExport.Add_Click({
+                $info = $this.Tag
+                & $script:LogToGUI "Exporting $($info.ToolName)..."
+                $this.Enabled = $false
+                [System.Windows.Forms.Application]::DoEvents()
+                try {
+                    $result = Invoke-NirSoftExport -ToolName $info.ToolName -ExeName $info.ExeName -ExportBaseName $info.Base
+                    if ($result.Ran) {
+                        & $script:LogToGUI "  -> $($info.ToolName): $($result.RowCount) record(s) exported to CSV"
+                    } else {
+                        & $script:LogToGUI "  -> $($info.ToolName): Export failed - $($result.Notes)"
+                    }
+                } catch {
+                    & $script:LogToGUI "  -> ERROR: $($_.Exception.Message)"
+                }
+                $this.Enabled = $true
+            })
+            $rowPanel.Controls.Add($btnExport)
+
+            # Privacy badge
+            if ($toolDef.Privacy) {
+                $lblPriv = New-Object System.Windows.Forms.Label
+                $lblPriv.Text = "PRIVACY"
+                $lblPriv.Font = New-Object System.Drawing.Font("Segoe UI", 7, [System.Drawing.FontStyle]::Bold)
+                $lblPriv.ForeColor = [System.Drawing.Color]::FromArgb(245, 158, 11)
+                $lblPriv.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 10)
+                $lblPriv.AutoSize = $true
+                $lblPriv.Location = New-Object System.Drawing.Point(752, 9)
+                $rowPanel.Controls.Add($lblPriv)
+            }
+
+            $yPos += 34
+        }
+
+        $yPos += 6  # space between categories
+    }
+
+    # Summary label at bottom of tool list
+    $foundCount = @($allDefs | Where-Object { Get-ToolPath $_.ExeName }).Count
+    $totalCount = $allDefs.Count
+    $lblSummary = New-Object System.Windows.Forms.Label
+    $lblSummary.Text = "$foundCount of $totalCount tools found in: $NirSoftDir"
+    $lblSummary.Font = $fontSmall
+    $lblSummary.ForeColor = if ($foundCount -eq $totalCount) { $colGreen } elseif ($foundCount -gt 0) { $colAccent } else { $colRed }
+    $lblSummary.AutoSize = $true
+    $lblSummary.Location = New-Object System.Drawing.Point(10, $yPos)
+    $panelMain.Controls.Add($lblSummary)
+
+    # ---- Event Handlers ----
+    $btnRunAll.Add_Click({
+        $btnRunAll.Enabled = $false
+        $btnRunAll.Text = "Running..."
+        $btnRunAll.BackColor = $colAccent
+        [System.Windows.Forms.Application]::DoEvents()
+
+        & $script:LogToGUI "=== FULL DIAGNOSTIC STARTED ==="
+        & $script:LogToGUI "NirSoft Dir: $NirSoftDir"
+        & $script:LogToGUI "Report Dir: $ReportDir"
+
+        try {
+            $progressCb = {
+                param([string]$msg)
+                & $script:LogToGUI $msg
+            }
+            $result = Invoke-FullDiagnostic -ProgressCallback $progressCb
+
+            & $script:LogToGUI "=== DIAGNOSTIC COMPLETE ==="
+            & $script:LogToGUI "HTML Report: $HtmlFile"
+            & $script:LogToGUI "Score: $($result.Score.Score)/100 ($($result.Score.Grade))"
+
+            if ($result.Score.Issues.Count -gt 0) {
+                & $script:LogToGUI "Issues:"
+                foreach ($issue in $result.Score.Issues) {
+                    & $script:LogToGUI "  - $issue"
+                }
+            }
+
+            # Open the HTML report automatically
+            if (Test-Path $HtmlFile) {
+                Start-Process $HtmlFile
+            }
+        } catch {
+            & $script:LogToGUI "ERROR: $($_.Exception.Message)"
+        }
+
+        $btnRunAll.Enabled = $true
+        $btnRunAll.Text = "Run Full Diagnostic"
+        $btnRunAll.BackColor = $colGreen
+    })
+
+    $btnOpenReports.Add_Click({
+        $reportsBase = "C:\PCPlus360\NirSoftReports"
+        if (-not (Test-Path $reportsBase)) {
+            New-Item -ItemType Directory -Path $reportsBase -Force | Out-Null
+        }
+        Start-Process "explorer.exe" -ArgumentList $reportsBase
+    })
+
+    # Initial log message
+    & $script:LogToGUI "PC Plus 360 NirSoft Suite ready. $foundCount/$totalCount tools available."
+    if (-not (Test-Path $NirSoftDir)) {
+        & $script:LogToGUI "WARNING: NirSoft directory not found: $NirSoftDir"
+        & $script:LogToGUI "Place NirSoft EXE files there and restart."
+    }
+
+    # Show the form
+    [void]$form.ShowDialog()
+
+    # Cleanup
+    $form.Dispose()
+}
+
+# ============================================================
+# Main Entry Point
+# ============================================================
+
+if ($NoGUI) {
+    # Console-only mode (original behavior)
     Write-Host ""
-    Write-Host "Issues Found:" -ForegroundColor Yellow
-    foreach ($i in $Score.Issues) { Write-Host "  - $i" -ForegroundColor Yellow }
-}
-
-$missing = @($ToolRuns | Where-Object { -not $_.Found })
-if ($missing.Count -gt 0) {
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "  PC PLUS 360 - NIRSOFT PORTABLE TOOLS SUITE" -ForegroundColor Cyan
+    Write-Host "  PC Plus Computing | pcpluscomputing.com" -ForegroundColor Cyan
+    Write-Host "============================================================" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "Missing NirSoft tools:" -ForegroundColor Yellow
-    $missing | ForEach-Object { Write-Host "  - $($_.ExeName)" -ForegroundColor Yellow }
-    Write-Host "Place EXE files in: $NirSoftDir" -ForegroundColor Yellow
+
+    Write-PCLog "PC Plus 360 NirSoft Diagnostic started."
+    Write-PCLog "NirSoft directory: $NirSoftDir"
+
+    if (-not (Test-Path $NirSoftDir)) {
+        New-Item -ItemType Directory -Path $NirSoftDir -Force | Out-Null
+        Write-PCLog "NirSoft directory created: $NirSoftDir" "WARN"
+        Write-Host "NirSoft directory created at: $NirSoftDir" -ForegroundColor Yellow
+        Write-Host "Place NirSoft EXE files there and run again." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Recommended tools to download from nirsoft.net:" -ForegroundColor Cyan
+        Write-Host "  BlueScreenView.exe, CurrPorts.exe, USBDeview.exe," -ForegroundColor White
+        Write-Host "  BatteryInfoView.exe, WhatInStartup.exe, InstalledDriversList.exe," -ForegroundColor White
+        Write-Host "  DriverView.exe, WinCrashReport.exe, WifiInfoView.exe," -ForegroundColor White
+        Write-Host "  WirelessNetView.exe, FullEventLogView.exe, OpenedFilesView.exe," -ForegroundColor White
+        Write-Host "  ProduKey.exe, DNSDataView.exe" -ForegroundColor White
+        Read-Host "Press Enter to exit"
+        exit
+    }
+
+    if (-not (Test-IsAdmin)) {
+        Write-PCLog "Not running as Administrator. Some outputs may be limited." "WARN"
+    }
+
+    $System = Get-SystemInfo
+
+    # Safe tools (auto-run, no privacy concern)
+    $ToolDefinitions = @(
+        @{ToolName="BlueScreenView";       ExeName="BlueScreenView.exe";       Base="BlueScreenView"},
+        @{ToolName="CurrPorts";            ExeName="CurrPorts.exe";            Base="CurrPorts"},
+        @{ToolName="WhatInStartup";        ExeName="WhatInStartup.exe";        Base="WhatInStartup"},
+        @{ToolName="USBDeview";            ExeName="USBDeview.exe";            Base="USBDeview"},
+        @{ToolName="BatteryInfoView";      ExeName="BatteryInfoView.exe";      Base="BatteryInfoView"},
+        @{ToolName="DriverView";           ExeName="DriverView.exe";           Base="DriverView"},
+        @{ToolName="InstalledDriversList"; ExeName="InstalledDriversList.exe"; Base="InstalledDriversList"},
+        @{ToolName="WinCrashReport";       ExeName="WinCrashReport.exe";       Base="WinCrashReport"},
+        @{ToolName="WifiInfoView";         ExeName="WifiInfoView.exe";         Base="WifiInfoView"},
+        @{ToolName="WirelessNetView";      ExeName="WirelessNetView.exe";      Base="WirelessNetView"},
+        @{ToolName="FullEventLogView";     ExeName="FullEventLogView.exe";     Base="FullEventLogView"},
+        @{ToolName="OpenedFilesView";      ExeName="OpenedFilesView.exe";      Base="OpenedFilesView"},
+        @{ToolName="ProduKey";             ExeName="ProduKey.exe";             Base="ProduKey"},
+        @{ToolName="DNSDataView";          ExeName="DNSDataView.exe";          Base="DNSDataView"},
+        @{ToolName="ProcessActivityView";  ExeName="ProcessActivityView.exe";  Base="ProcessActivityView"},
+        @{ToolName="FolderChangesView";    ExeName="FolderChangesView.exe";    Base="FolderChangesView"},
+        @{ToolName="AppCrashView";         ExeName="AppCrashView.exe";         Base="AppCrashView"},
+        @{ToolName="NetworkInterfacesView";ExeName="NetworkInterfacesView.exe";Base="NetworkInterfacesView"},
+        @{ToolName="NetworkTrafficView";   ExeName="NetworkTrafficView.exe";   Base="NetworkTrafficView"},
+        @{ToolName="DevManView";           ExeName="DevManView.exe";           Base="DevManView"},
+        @{ToolName="USBLogView";           ExeName="USBLogView.exe";           Base="USBLogView"},
+        @{ToolName="JumpListsView";        ExeName="JumpListsView.exe";        Base="JumpListsView"},
+        @{ToolName="RecentFilesView";      ExeName="RecentFilesView.exe";      Base="RecentFilesView"},
+        @{ToolName="ExecutedProgramsList";  ExeName="ExecutedProgramsList.exe"; Base="ExecutedProgramsList"},
+        @{ToolName="UserAssistView";       ExeName="UserAssistView.exe";       Base="UserAssistView"},
+        @{ToolName="MUICacheView";         ExeName="MUICacheView.exe";         Base="MUICacheView"},
+        @{ToolName="ShellBagsView";        ExeName="ShellBagsView.exe";        Base="ShellBagsView"},
+        @{ToolName="SearchMyFiles";        ExeName="SearchMyFiles.exe";        Base="SearchMyFiles"},
+        @{ToolName="VideoCacheView";       ExeName="VideoCacheView.exe";       Base="VideoCacheView"}
+    )
+
+    # Privacy-sensitive tools (require opt-in)
+    if ($IncludeLastActivity) {
+        $ToolDefinitions += @{ToolName="LastActivityView"; ExeName="LastActivityView.exe"; Base="LastActivityView"}
+    }
+    if ($IncludeBrowserHistory) {
+        $ToolDefinitions += @{ToolName="BrowserDownloadsView"; ExeName="BrowserDownloadsView.exe"; Base="BrowserDownloadsView"}
+        $ToolDefinitions += @{ToolName="BrowsingHistoryView"; ExeName="BrowsingHistoryView.exe"; Base="BrowsingHistoryView"}
+        $ToolDefinitions += @{ToolName="ChromeCacheView"; ExeName="ChromeCacheView.exe"; Base="ChromeCacheView"}
+        $ToolDefinitions += @{ToolName="EdgeCookiesView"; ExeName="EdgeCookiesView.exe"; Base="EdgeCookiesView"}
+    }
+
+    $available = @($ToolDefinitions | Where-Object { Get-ToolPath $_.ExeName })
+    $missingTools = @($ToolDefinitions | Where-Object { -not (Get-ToolPath $_.ExeName) })
+
+    Write-Host "Available: $($available.Count) / $($ToolDefinitions.Count) tools" -ForegroundColor Green
+    if ($missingTools.Count -gt 0) {
+        Write-Host "Missing: $($missingTools.Count) tool(s)" -ForegroundColor Yellow
+        foreach ($m in $missingTools) { Write-Host "  - $($m.ExeName)" -ForegroundColor DarkYellow }
+    }
+    Write-Host ""
+
+    $ToolRuns = @()
+    foreach ($tool in $ToolDefinitions) {
+        $ToolRuns += Invoke-NirSoftExport -ToolName $tool.ToolName -ExeName $tool.ExeName -ExportBaseName $tool.Base
+    }
+
+    # Build path map for analysis
+    $PathMap = @{}
+    foreach ($r in $ToolRuns) { $PathMap[$r.ToolName] = $r.CsvPath }
+
+    # Run analysis on each tool's output
+    $Analysis = [PSCustomObject]@{
+        BlueScreenView       = Analyze-BlueScreenView      -CsvPath $PathMap["BlueScreenView"]
+        CurrPorts            = Analyze-CurrPorts            -CsvPath $PathMap["CurrPorts"]
+        WhatInStartup        = Analyze-WhatInStartup        -CsvPath $PathMap["WhatInStartup"]
+        USBDeview            = Analyze-USBDeview            -CsvPath $PathMap["USBDeview"]
+        BatteryInfoView      = Analyze-BatteryInfoView      -CsvPath $PathMap["BatteryInfoView"]
+        DriverView           = Analyze-DriverView           -CsvPath $PathMap["DriverView"]
+        InstalledDriversList = Analyze-InstalledDriversList  -CsvPath $PathMap["InstalledDriversList"]
+        WinCrashReport       = Analyze-WinCrashReport       -CsvPath $PathMap["WinCrashReport"]
+        WifiInfoView         = Analyze-WifiInfoView         -CsvPath $PathMap["WifiInfoView"]
+        WirelessNetView      = Analyze-WirelessNetView      -CsvPath $PathMap["WirelessNetView"]
+        FullEventLogView     = Analyze-FullEventLogView     -CsvPath $PathMap["FullEventLogView"]
+        OpenedFilesView      = Analyze-OpenedFilesView      -CsvPath $PathMap["OpenedFilesView"]
+        ProduKey             = Analyze-ProduKey              -CsvPath $PathMap["ProduKey"]
+        DNSDataView          = Analyze-DNSDataView           -CsvPath $PathMap["DNSDataView"]
+        ProcessActivityView  = Analyze-ProcessActivityView   -CsvPath $PathMap["ProcessActivityView"]
+        FolderChangesView    = Analyze-FolderChangesView     -CsvPath $PathMap["FolderChangesView"]
+    }
+
+    if ($IncludeLastActivity -and $PathMap["LastActivityView"]) {
+        $Analysis | Add-Member -MemberType NoteProperty -Name "LastActivityView" -Value (Analyze-LastActivityView -CsvPath $PathMap["LastActivityView"])
+    }
+    if ($IncludeBrowserHistory -and $PathMap["BrowserDownloadsView"]) {
+        $Analysis | Add-Member -MemberType NoteProperty -Name "BrowserDownloadsView" -Value (Analyze-BrowserDownloadsView -CsvPath $PathMap["BrowserDownloadsView"])
+    }
+
+    $Score = Get-PCPlusNirSoftScore -Analysis $Analysis
+
+    $Data = [PSCustomObject]@{
+        System = $System
+        NirSoftDir = $NirSoftDir
+        ReportDir = $ReportDir
+        ExportDir = $ExportDir
+        ToolRuns = $ToolRuns
+        Analysis = $Analysis
+        Score = $Score
+    }
+
+    # JSON export
+    $Data | ConvertTo-Json -Depth 12 | Set-Content -Path $JsonFile -Encoding UTF8
+
+    # TXT summary
+    $summary = @"
+PC Plus 360 NirSoft Diagnostic Summary
+
+Customer: $CustomerName
+Technician: $TechnicianName
+Computer: $($System.ComputerName)
+Model: $($System.Manufacturer) $($System.Model)
+Serial: $($System.SerialNumber)
+Windows: $($System.OS) Build $($System.Build)
+
+Score: $($Score.Score)/100
+Grade: $($Score.Grade)
+
+Top Findings:
+$($Score.Issues -join "`r`n")
+
+Tool Results:
+$($Analysis.PSObject.Properties | ForEach-Object { "- $($_.Name): $($_.Value.Summary)" } | Out-String)
+
+Reports:
+HTML: $HtmlFile
+JSON: $JsonFile
+Exports: $ExportDir
+"@
+    Set-Content -Path $TxtFile -Value $summary -Encoding UTF8
+
+    # CSV summary
+    [PSCustomObject]@{
+        ComputerName = $System.ComputerName
+        CustomerName = $CustomerName
+        Score = $Score.Score
+        Grade = $Score.Grade
+        BlueScreens = $Analysis.BlueScreenView.CrashCount
+        AppCrashes = $Analysis.WinCrashReport.AppCrashCount
+        StartupEnabled = $Analysis.WhatInStartup.StartupEnabled
+        ExternalConnections = $Analysis.CurrPorts.ExternalConnectionCount
+        UnsignedDrivers = $Analysis.InstalledDriversList.UnsignedDriverCount
+        ProblemDrivers = $Analysis.InstalledDriversList.ProblemDriverCount
+        EventLogErrors = $Analysis.FullEventLogView.ErrorOrCriticalCount
+        USBHistory = $Analysis.USBDeview.TotalUsbHistory
+        ReportDate = Get-Date
+    } | Export-Csv -Path $CsvFile -NoTypeInformation
+
+    # HTML report
+    New-PCPlusHtmlReport -Data $Data
+
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "  PC Plus 360 NirSoft Diagnostic Completed" -ForegroundColor Cyan
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "Score: $($Score.Score)/100 (Grade: $($Score.Grade))" -ForegroundColor $(if ($Score.Score -ge 80) { "Green" } elseif ($Score.Score -ge 60) { "Yellow" } else { "Red" })
+    Write-Host ""
+    Write-Host "Report Folder: $ReportDir" -ForegroundColor White
+    Write-Host "HTML Report:   $HtmlFile" -ForegroundColor White
+    Write-Host "JSON Raw Data: $JsonFile" -ForegroundColor White
+    Write-Host "TXT Summary:   $TxtFile" -ForegroundColor White
+    Write-Host "CSV Summary:   $CsvFile" -ForegroundColor White
+    Write-Host "Exports:       $ExportDir" -ForegroundColor White
+    Write-Host "Log File:      $LogFile" -ForegroundColor White
+
+    if ($Score.Issues.Count -gt 0) {
+        Write-Host ""
+        Write-Host "Issues Found:" -ForegroundColor Yellow
+        foreach ($i in $Score.Issues) { Write-Host "  - $i" -ForegroundColor Yellow }
+    }
+
+    $missing = @($ToolRuns | Where-Object { -not $_.Found })
+    if ($missing.Count -gt 0) {
+        Write-Host ""
+        Write-Host "Missing NirSoft tools:" -ForegroundColor Yellow
+        $missing | ForEach-Object { Write-Host "  - $($_.ExeName)" -ForegroundColor Yellow }
+        Write-Host "Place EXE files in: $NirSoftDir" -ForegroundColor Yellow
+    }
+
+    Write-Host ""
+
+    if ($OpenReport -and (Test-Path $HtmlFile)) {
+        Start-Process $HtmlFile
+    }
+
+    Write-PCLog "PC Plus 360 NirSoft Diagnostic completed."
+} else {
+    # GUI mode (default)
+    Show-NirSoftGUI
 }
-
-Write-Host ""
-
-if ($OpenReport -and (Test-Path $HtmlFile)) {
-    Start-Process $HtmlFile
-}
-
-Write-PCLog "PC Plus 360 NirSoft Diagnostic completed."
