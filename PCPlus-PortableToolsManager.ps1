@@ -59,7 +59,7 @@ $COMPANY_NAME    = "PC Plus Computing"
 $COMPANY_WEBSITE = "pcpluscomputing.com"
 $COMPANY_PHONE1  = "604-760-1662"
 $COMPANY_PHONE2  = "236-500-2700"
-$SCRIPT_VERSION  = "1.0.0"
+$SCRIPT_VERSION  = "3.6.0"
 $COLOR_NAVY      = "#0a1628"
 $COLOR_ACCENT    = "#2596be"
 $COLOR_GREEN     = "#27ae60"
@@ -343,28 +343,62 @@ function Save-Manifest {
 }
 
 function Initialize-Manifest {
-    $loaded = Load-Manifest
-    if ($loaded -and @($loaded).Count -gt 0) {
-        $tools = [System.Collections.ArrayList]::new()
-        foreach ($item in $loaded) { [void]$tools.Add($item) }
-        $existingIds = @{}
-        foreach ($t in $tools) { $existingIds[$t.id] = $true }
-        $added = 0
-        foreach ($t in $DefaultManifest) {
-            if (-not $existingIds.ContainsKey($t.id)) {
-                [void]$tools.Add($t)
-                $added++
+    $catalog = [System.Collections.ArrayList]::new()
+    $seenExes = @{}
+
+    $catManifest = Join-Path $ScriptDir "tools-manifest.json"
+    if (Test-Path $catManifest) {
+        try {
+            $catData = Get-Content $catManifest -Raw -ErrorAction Stop | ConvertFrom-Json
+            foreach ($cat in $catData.categories) {
+                foreach ($tool in $cat.tools) {
+                    $exe = if ($tool.exe) { $tool.exe } else { "" }
+                    if ($exe -and $seenExes.ContainsKey($exe.ToLower())) { continue }
+                    if ($exe) { $seenExes[$exe.ToLower()] = $true }
+                    [void]$catalog.Add(@{
+                        id          = "cat_" + ($tool.name.ToLower() -replace '[^a-z0-9]','_')
+                        name        = $tool.name
+                        description = if ($tool.description) { $tool.description } else { "" }
+                        category    = $cat.name
+                        downloadUrl = ""
+                        fileName    = $exe
+                        executable  = $exe
+                        version     = ""
+                        sha256      = ""
+                        isZip       = $false
+                        extractTo   = $cat.folder
+                    })
+                }
             }
-        }
-        if ($added -gt 0) { Save-Manifest $tools }
-        return $tools
+        } catch { }
     }
-    $tools = [System.Collections.ArrayList]::new()
+
     foreach ($t in $DefaultManifest) {
-        [void]$tools.Add($t)
+        $exe = if ($t.executable) { $t.executable.ToLower() } else { "" }
+        if ($exe -and $seenExes.ContainsKey($exe)) {
+            foreach ($c in $catalog) {
+                if ($c.executable -and $c.executable.ToLower() -eq $exe) {
+                    $c.downloadUrl = $t.downloadUrl
+                    $c.fileName    = $t.fileName
+                    $c.version     = $t.version
+                    $c.sha256      = $t.sha256
+                    $c.isZip       = $t.isZip
+                    if ($t.extractTo) { $c.extractTo = $t.extractTo }
+                    break
+                }
+            }
+        } else {
+            [void]$catalog.Add($t)
+            if ($exe) { $seenExes[$exe] = $true }
+        }
     }
-    Save-Manifest $tools
-    return $tools
+
+    if ($catalog.Count -eq 0) {
+        foreach ($t in $DefaultManifest) { [void]$catalog.Add($t) }
+    }
+
+    Save-Manifest $catalog
+    return $catalog
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -441,6 +475,7 @@ function Get-CategoryLookup {
             $catData = Get-Content $catManifest -Raw | ConvertFrom-Json
             foreach ($cat in $catData.categories) {
                 foreach ($tool in $cat.tools) {
+                    if (-not $tool.exe) { continue }
                     $lookup[$tool.exe.ToLower()] = @{
                         Category    = $cat.name
                         Name        = $tool.name
@@ -491,8 +526,8 @@ function Find-UnregisteredTools {
 
         $relDir = $exe.DirectoryName
         $extractTo = if ($relDir -eq $ToolsDir) { $exe.BaseName } else {
-            $relDir.Replace($ToolsDir, "").TrimStart("\", "/")
-            $parts = $relDir.Replace($ToolsDir, "").TrimStart("\", "/").Split("\", "/")
+            $relPath = $relDir.Replace($ToolsDir, "").TrimStart("\", "/")
+            $parts = $relPath.Split("\", "/")
             $parts[0]
         }
 
