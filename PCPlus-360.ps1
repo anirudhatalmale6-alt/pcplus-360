@@ -276,6 +276,7 @@ $xaml = @"
 
                         <Button x:Name="btnRansomware" Style="{StaticResource SideNav}"><TextBlock Text="  Ransomware Readiness" FontSize="11.5" Foreground="#dc2626"/></Button>
                         <Button x:Name="btnCloudBackup" Style="{StaticResource SideNav}"><TextBlock Text="  Cloud Backup Audit" FontSize="11.5" Foreground="#0ea5e9"/></Button>
+                        <Button x:Name="btnSmartBackup" Style="{StaticResource SideNav}"><TextBlock Text="  Smart Backup" FontSize="11.5" Foreground="#f59e0b" FontWeight="SemiBold"/></Button>
 
                         <TextBlock Text="  DIAGNOSTICS" FontSize="9" FontWeight="SemiBold" Foreground="#4a7a8a" Margin="0,12,0,4"/>
                         <Button x:Name="btnHardwareDiag" Style="{StaticResource SideNav}"><TextBlock Text="  Hardware Diagnostic" FontSize="11.5" Foreground="#10b981" FontWeight="SemiBold"/></Button>
@@ -964,6 +965,7 @@ $xaml = @"
         "btnReportCard"   = @{ Script = "PCPlus-ReportCard.ps1";         STA = $true }
         "btnToolsManager" = @{ Script = "PCPlus-PortableToolsManager.ps1"; STA = $true }
         "btnRemediation"  = @{ Script = "PCPlus-RemediationLibrary.ps1"; STA = $true }
+        "btnSmartBackup"  = @{ Script = "PCPlus-SmartBackup.ps1";       STA = $true }
         # btnDesktopBadge handled separately with Install/Remove dialog
     }
     foreach ($btnName in $roadmapScripts.Keys) {
