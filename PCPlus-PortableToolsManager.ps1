@@ -344,21 +344,21 @@ function Save-Manifest {
 
 function Initialize-Manifest {
     $loaded = Load-Manifest
-    if ($loaded -and $loaded.Count -gt 0) {
-        # Merge in any new default tools that aren't in the saved manifest
+    if ($loaded -and @($loaded).Count -gt 0) {
+        $tools = [System.Collections.ArrayList]::new()
+        foreach ($item in $loaded) { [void]$tools.Add($item) }
         $existingIds = @{}
-        foreach ($t in $loaded) { $existingIds[$t.id] = $true }
+        foreach ($t in $tools) { $existingIds[$t.id] = $true }
         $added = 0
         foreach ($t in $DefaultManifest) {
             if (-not $existingIds.ContainsKey($t.id)) {
-                [void]$loaded.Add($t)
+                [void]$tools.Add($t)
                 $added++
             }
         }
-        if ($added -gt 0) { Save-Manifest $loaded }
-        return $loaded
+        if ($added -gt 0) { Save-Manifest $tools }
+        return $tools
     }
-    # Create from default
     $tools = [System.Collections.ArrayList]::new()
     foreach ($t in $DefaultManifest) {
         [void]$tools.Add($t)
@@ -454,10 +454,9 @@ function Get-CategoryLookup {
 }
 
 function Find-UnregisteredTools {
-    # Scan Tools folder for EXEs not in the manifest and auto-add them
     $knownExes = @{}
     foreach ($t in $script:Manifest) {
-        $knownExes[$t.executable.ToLower()] = $true
+        if ($t.executable) { $knownExes[$t.executable.ToLower()] = $true }
     }
 
     $catLookup = Get-CategoryLookup
