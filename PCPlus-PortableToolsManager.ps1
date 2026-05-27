@@ -69,7 +69,7 @@ $COLOR_ORANGE    = "#f39c12"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 if ([string]::IsNullOrEmpty($ScriptDir)) { $ScriptDir = Get-Location }
 $ToolsDir     = Join-Path $ScriptDir "Tools"
-$ManifestFile = Join-Path $ScriptDir "tools-manifest.json"
+$ManifestFile = Join-Path $ScriptDir "portable-tools-config.json"
 
 if (-not (Test-Path $ToolsDir)) { New-Item -Path $ToolsDir -ItemType Directory -Force | Out-Null }
 
