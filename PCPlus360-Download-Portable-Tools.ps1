@@ -217,42 +217,40 @@ $Tools = @(
 
     # 10 Hardware/System Info
     @{ Category="10-SystemInfo-CPU-GPU-Hardware"; Name="CPU-Z"; DirectUrl="https://download.cpuid.com/cpu-z/cpu-z_2.15-en.zip"; OfficialPage="https://www.cpuid.com/softwares/cpu-z.html"; PasswordTool=$false },
-    @{ Category="10-SystemInfo-CPU-GPU-Hardware"; Name="GPU-Z"; DirectUrl="https://us1-dl.techpowerup.com/files/GPU-Z.2.66.0.exe"; OfficialPage="https://www.techpowerup.com/gpuz/"; PasswordTool=$false },
+    @{ Category="10-SystemInfo-CPU-GPU-Hardware"; Name="GPU-Z"; DirectUrl=""; OfficialPage="https://www.techpowerup.com/gpuz/"; PasswordTool=$false },
     @{ Category="10-SystemInfo-CPU-GPU-Hardware"; Name="HWiNFO64"; DirectUrl="https://www.hwinfo.com/files/hwi64.zip"; OfficialPage="https://www.hwinfo.com/download/"; PasswordTool=$false },
+    @{ Category="10-SystemInfo-CPU-GPU-Hardware"; Name="HWMonitor"; DirectUrl="https://download.cpuid.com/hwmonitor/hwmonitor_1.55.zip"; OfficialPage="https://www.cpuid.com/softwares/hwmonitor.html"; PasswordTool=$false },
     @{ Category="10-SystemInfo-CPU-GPU-Hardware"; Name="LibreHardwareMonitor"; DirectUrl="https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases/latest/download/LibreHardwareMonitor-net472.zip"; OfficialPage="https://github.com/LibreHardwareMonitor/LibreHardwareMonitor"; PasswordTool=$false },
     @{ Category="10-SystemInfo-CPU-GPU-Hardware"; Name="OpenHardwareMonitor"; DirectUrl="https://openhardwaremonitor.org/files/openhardwaremonitor-v0.9.6.zip"; OfficialPage="https://openhardwaremonitor.org/"; PasswordTool=$false },
-    @{ Category="10-SystemInfo-CPU-GPU-Hardware"; Name="Speccy Portable Page"; DirectUrl=""; OfficialPage="https://www.ccleaner.com/speccy/download/portable"; PasswordTool=$false },
 
     # 11 Fan Control Thermal
     @{ Category="11-FanControl-Thermal"; Name="Fan Control"; DirectUrl="https://github.com/Rem0o/FanControl.Releases/releases/latest/download/FanControl.zip"; OfficialPage="https://getfancontrol.com/"; PasswordTool=$false },
-    @{ Category="11-FanControl-Thermal"; Name="SpeedFan Page"; DirectUrl=""; OfficialPage="http://www.almico.com/speedfan.php"; PasswordTool=$false },
-    @{ Category="11-FanControl-Thermal"; Name="MSI Afterburner Page"; DirectUrl=""; OfficialPage="https://www.msi.com/Landing/afterburner/graphics-cards"; PasswordTool=$false },
-    @{ Category="11-FanControl-Thermal"; Name="Argus Monitor Page"; DirectUrl=""; OfficialPage="https://www.argusmonitor.com/"; PasswordTool=$false },
+    @{ Category="11-FanControl-Thermal"; Name="OpenHardwareMonitor"; DirectUrl="https://openhardwaremonitor.org/files/openhardwaremonitor-v0.9.6.zip"; OfficialPage="https://openhardwaremonitor.org/"; PasswordTool=$false },
+    @{ Category="11-FanControl-Thermal"; Name="MSI Afterburner"; DirectUrl=""; OfficialPage="https://www.msi.com/Landing/afterburner/graphics-cards"; PasswordTool=$false },
 
     # 12 Disk Repair Recovery
-    @{ Category="12-DiskRepair-Recovery"; Name="CrystalDiskInfo"; DirectUrl="https://github.com/hiyohiyo/CrystalDiskInfo/releases/latest/download/CrystalDiskInfo.zip"; OfficialPage="https://crystalmark.info/en/software/crystaldiskinfo/"; PasswordTool=$false },
-    @{ Category="12-DiskRepair-Recovery"; Name="CrystalDiskMark"; DirectUrl="https://github.com/hiyohiyo/CrystalDiskMark/releases/latest/download/CrystalDiskMark.zip"; OfficialPage="https://crystalmark.info/en/software/crystaldiskmark/"; PasswordTool=$false },
-    @{ Category="12-DiskRepair-Recovery"; Name="Victoria HDD Page"; DirectUrl=""; OfficialPage="https://hdd.by/victoria/"; PasswordTool=$false },
-    @{ Category="12-DiskRepair-Recovery"; Name="HDDScan Page"; DirectUrl=""; OfficialPage="https://hddscan.com/"; PasswordTool=$false },
+    @{ Category="12-DiskRepair-Recovery"; Name="CrystalDiskInfo"; DirectUrl="https://sourceforge.net/projects/crystaldiskinfo/files/latest/download"; OfficialPage="https://crystalmark.info/en/software/crystaldiskinfo/"; PasswordTool=$false },
+    @{ Category="12-DiskRepair-Recovery"; Name="CrystalDiskMark"; DirectUrl="https://sourceforge.net/projects/crystaldiskmark/files/latest/download"; OfficialPage="https://crystalmark.info/en/software/crystaldiskmark/"; PasswordTool=$false },
     @{ Category="12-DiskRepair-Recovery"; Name="smartmontools"; DirectUrl="https://sourceforge.net/projects/smartmontools/files/latest/download"; OfficialPage="https://www.smartmontools.org/"; PasswordTool=$false },
-    @{ Category="12-DiskRepair-Recovery"; Name="GSmartControl Page"; DirectUrl=""; OfficialPage="https://gsmartcontrol.shaduri.dev/"; PasswordTool=$false },
+    @{ Category="12-DiskRepair-Recovery"; Name="GSmartControl"; DirectUrl="https://sourceforge.net/projects/gsmartcontrol/files/latest/download"; OfficialPage="https://gsmartcontrol.shaduri.dev/"; PasswordTool=$false },
     @{ Category="12-DiskRepair-Recovery"; Name="TestDisk PhotoRec"; DirectUrl="https://www.cgsecurity.org/testdisk-7.2.win.zip"; OfficialPage="https://www.cgsecurity.org/wiki/TestDisk_Download"; PasswordTool=$false },
-    @{ Category="12-DiskRepair-Recovery"; Name="Recuva Portable Page"; DirectUrl=""; OfficialPage="https://www.ccleaner.com/recuva/download/portable"; PasswordTool=$false },
+    @{ Category="12-DiskRepair-Recovery"; Name="Victoria HDD"; DirectUrl=""; OfficialPage="https://hdd.by/victoria/"; PasswordTool=$false },
+    @{ Category="12-DiskRepair-Recovery"; Name="HDDScan"; DirectUrl=""; OfficialPage="https://hddscan.com/"; PasswordTool=$false },
 
     # 13 Stress Testing Benchmarks
-    @{ Category="13-StressTesting-Benchmarks"; Name="OCCT Page"; DirectUrl=""; OfficialPage="https://www.ocbase.com/"; PasswordTool=$false },
-    @{ Category="13-StressTesting-Benchmarks"; Name="FurMark 2 Page"; DirectUrl=""; OfficialPage="https://geeks3d.com/furmark/"; PasswordTool=$false },
     @{ Category="13-StressTesting-Benchmarks"; Name="Prime95"; DirectUrl="https://www.mersenne.org/ftp_root/gimps/p95v308b20.win64.zip"; OfficialPage="https://www.mersenne.org/download/"; PasswordTool=$false },
-    @{ Category="13-StressTesting-Benchmarks"; Name="MemTest86 Page"; DirectUrl=""; OfficialPage="https://www.memtest86.com/download.htm"; PasswordTool=$false },
-    @{ Category="13-StressTesting-Benchmarks"; Name="Cinebench Page"; DirectUrl=""; OfficialPage="https://www.maxon.net/en/downloads/cinebench-downloads"; PasswordTool=$false },
+    @{ Category="13-StressTesting-Benchmarks"; Name="HeavyLoad"; DirectUrl="https://www.jam-software.com/heavyload/HeavyLoad.zip"; OfficialPage="https://www.jam-software.com/heavyload"; PasswordTool=$false },
+    @{ Category="13-StressTesting-Benchmarks"; Name="OCCT"; DirectUrl=""; OfficialPage="https://www.ocbase.com/"; PasswordTool=$false },
+    @{ Category="13-StressTesting-Benchmarks"; Name="FurMark 2"; DirectUrl=""; OfficialPage="https://geeks3d.com/furmark/"; PasswordTool=$false },
+    @{ Category="13-StressTesting-Benchmarks"; Name="MemTest86"; DirectUrl=""; OfficialPage="https://www.memtest86.com/download.htm"; PasswordTool=$false },
 
     # 14 Windows Repair
-    @{ Category="14-WindowsRepair"; Name="Tweaking Windows Repair Page"; DirectUrl=""; OfficialPage="https://www.tweaking.com/content/page/windows_repair_all_in_one.html"; PasswordTool=$false },
-    @{ Category="14-WindowsRepair"; Name="FixWin 11 Page"; DirectUrl=""; OfficialPage="https://www.thewindowsclub.com/fixwin-for-windows-10"; PasswordTool=$false },
     @{ Category="14-WindowsRepair"; Name="DISMTools"; DirectUrl="https://github.com/CodingWonders/DISMTools/releases/latest/download/DISMTools.zip"; OfficialPage="https://github.com/CodingWonders/DISMTools"; PasswordTool=$false },
-    @{ Category="14-WindowsRepair"; Name="SFCFix Page"; DirectUrl=""; OfficialPage="https://www.sysnative.com/forums/downloads/sfcfix/"; PasswordTool=$false },
     @{ Category="14-WindowsRepair"; Name="DriverStore Explorer"; DirectUrl="https://github.com/lostindark/DriverStoreExplorer/releases/latest/download/DriverStoreExplorer.v0.11.92.zip"; OfficialPage="https://github.com/lostindark/DriverStoreExplorer"; PasswordTool=$false },
-    @{ Category="14-WindowsRepair"; Name="Snappy Driver Installer Origin Page"; DirectUrl=""; OfficialPage="https://www.snappy-driver-installer.org/"; PasswordTool=$false },
+    @{ Category="14-WindowsRepair"; Name="BleachBit Portable"; DirectUrl="https://download.bleachbit.org/BleachBit-4.6.2-portable.zip"; OfficialPage="https://www.bleachbit.org/download/windows"; PasswordTool=$false },
+    @{ Category="14-WindowsRepair"; Name="Autoruns"; DirectUrl="https://download.sysinternals.com/files/Autoruns.zip"; OfficialPage="https://learn.microsoft.com/en-us/sysinternals/downloads/autoruns"; PasswordTool=$false },
+    @{ Category="14-WindowsRepair"; Name="Tweaking Windows Repair"; DirectUrl=""; OfficialPage="https://www.tweaking.com/content/page/windows_repair_all_in_one.html"; PasswordTool=$false },
+    @{ Category="14-WindowsRepair"; Name="Snappy Driver Installer Origin"; DirectUrl=""; OfficialPage="https://www.snappy-driver-installer.org/"; PasswordTool=$false },
 
     # 15 Sysinternals
     @{ Category="15-Sysinternals"; Name="Sysinternals Suite"; DirectUrl="https://download.sysinternals.com/files/SysinternalsSuite.zip"; OfficialPage="https://learn.microsoft.com/en-us/sysinternals/downloads/sysinternals-suite"; PasswordTool=$false },
@@ -266,16 +264,18 @@ $Tools = @(
 
     # 16 Malware cleanup
     @{ Category="16-MalwareSecurityCleanup"; Name="AdwCleaner"; DirectUrl="https://downloads.malwarebytes.com/file/adwcleaner"; OfficialPage="https://www.malwarebytes.com/adwcleaner"; PasswordTool=$false },
-    @{ Category="16-MalwareSecurityCleanup"; Name="ESET Online Scanner Page"; DirectUrl=""; OfficialPage="https://www.eset.com/int/home/online-scanner/"; PasswordTool=$false },
-    @{ Category="16-MalwareSecurityCleanup"; Name="Kaspersky KVRT Page"; DirectUrl=""; OfficialPage="https://www.kaspersky.com/downloads/free-virus-removal-tool"; PasswordTool=$false },
-    @{ Category="16-MalwareSecurityCleanup"; Name="Sophos Scan and Clean Page"; DirectUrl=""; OfficialPage="https://www.sophos.com/en-us/free-tools/virus-removal-tool"; PasswordTool=$false },
+    @{ Category="16-MalwareSecurityCleanup"; Name="ESET Online Scanner"; DirectUrl="https://download.eset.com/com/eset/tools/online_scanner/latest/esetonlinescanner.exe"; OfficialPage="https://www.eset.com/int/home/online-scanner/"; PasswordTool=$false },
+    @{ Category="16-MalwareSecurityCleanup"; Name="Emsisoft Emergency Kit"; DirectUrl="https://dl.emsisoft.com/EmsisoftEmergencyKit.exe"; OfficialPage="https://www.emsisoft.com/en/home/emergencykit/"; PasswordTool=$false },
+    @{ Category="16-MalwareSecurityCleanup"; Name="Kaspersky Virus Removal Tool"; DirectUrl="https://devbuilds.s.kaspersky-labs.com/devbuilds/KVRT/latest/full/KVRT.exe"; OfficialPage="https://www.kaspersky.com/downloads/free-virus-removal-tool"; PasswordTool=$false },
+    @{ Category="16-MalwareSecurityCleanup"; Name="Sophos Scan and Clean"; DirectUrl=""; OfficialPage="https://www.sophos.com/en-us/free-tools/virus-removal-tool"; PasswordTool=$false },
 
     # 17 Network Forensics
-    @{ Category="17-NetworkForensics"; Name="Nmap Page"; DirectUrl=""; OfficialPage="https://nmap.org/download.html"; PasswordTool=$false },
-    @{ Category="17-NetworkForensics"; Name="Wireshark Page"; DirectUrl=""; OfficialPage="https://www.wireshark.org/download.html"; PasswordTool=$false },
-    @{ Category="17-NetworkForensics"; Name="Advanced IP Scanner Page"; DirectUrl=""; OfficialPage="https://www.advanced-ip-scanner.com/"; PasswordTool=$false },
-    @{ Category="17-NetworkForensics"; Name="Angry IP Scanner Page"; DirectUrl=""; OfficialPage="https://angryip.org/"; PasswordTool=$false },
-    @{ Category="17-NetworkForensics"; Name="Velociraptor Page"; DirectUrl=""; OfficialPage="https://docs.velociraptor.app/downloads/"; PasswordTool=$false }
+    @{ Category="17-NetworkForensics"; Name="Nmap Portable"; DirectUrl="https://nmap.org/dist/nmap-7.95-win32.zip"; OfficialPage="https://nmap.org/download.html"; PasswordTool=$false },
+    @{ Category="17-NetworkForensics"; Name="Advanced IP Scanner"; DirectUrl="https://download.advanced-ip-scanner.com/download/files/Advanced_IP_Scanner_2.5.4594.1.exe"; OfficialPage="https://www.advanced-ip-scanner.com/"; PasswordTool=$false },
+    @{ Category="17-NetworkForensics"; Name="Angry IP Scanner"; DirectUrl="https://github.com/angryip/ipscan/releases/download/3.9.1/ipscan-win64-3.9.1.exe"; OfficialPage="https://angryip.org/"; PasswordTool=$false },
+    @{ Category="17-NetworkForensics"; Name="TCPView"; DirectUrl="https://download.sysinternals.com/files/TCPView.zip"; OfficialPage="https://learn.microsoft.com/en-us/sysinternals/downloads/tcpview"; PasswordTool=$false },
+    @{ Category="17-NetworkForensics"; Name="Wireshark"; DirectUrl=""; OfficialPage="https://www.wireshark.org/download.html"; PasswordTool=$false },
+    @{ Category="17-NetworkForensics"; Name="Velociraptor"; DirectUrl=""; OfficialPage="https://docs.velociraptor.app/downloads/"; PasswordTool=$false }
 )
 
 $Report = New-Object System.Collections.Generic.List[object]
@@ -335,6 +335,43 @@ Write-Host ""
 Write-Host "PC Plus 360 toolkit download completed." -ForegroundColor Green
 Write-Host "Root folder: $RootPath" -ForegroundColor Green
 Write-Host "Report: $ReportPath" -ForegroundColor Green
-Write-Host "README: $ReadmePath" -ForegroundColor Green
 Write-Host ""
+
+# Per-category summary
+Write-Host "=== CATEGORY SUMMARY ===" -ForegroundColor Cyan
+$downloaded = ($Report | Where-Object { $_.Status -eq "Downloaded" }).Count
+$manual     = ($Report | Where-Object { $_.Status -eq "Manual" }).Count
+$failed     = ($Report | Where-Object { $_.Status -eq "Failed" }).Count
+$skipped    = ($Report | Where-Object { $_.Status -eq "Skipped" }).Count
+Write-Host "  Downloaded: $downloaded | Manual: $manual | Failed: $failed | Skipped (password): $skipped" -ForegroundColor White
+Write-Host ""
+
+foreach ($cat in $Categories) {
+    $catTools = $Report | Where-Object { $_.Category -eq $cat.Name }
+    $catDownloaded = ($catTools | Where-Object { $_.Status -eq "Downloaded" }).Count
+    $catManual = ($catTools | Where-Object { $_.Status -eq "Manual" }).Count
+    $catFailed = ($catTools | Where-Object { $_.Status -eq "Failed" }).Count
+    $catTotal = $catTools.Count
+
+    $catPath = Join-Path $RootPath $cat.Name
+    $exeCount = 0
+    if (Test-Path $catPath) {
+        $exeCount = (Get-ChildItem -Path $catPath -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue).Count
+    }
+
+    $color = if ($exeCount -gt 0) { "Green" } elseif ($catManual -gt 0) { "Yellow" } else { "Red" }
+    $padName = $cat.Name.PadRight(38)
+    Write-Host "  $padName" -ForegroundColor White -NoNewline
+    Write-Host "$exeCount exe(s)" -ForegroundColor $color -NoNewline
+    if ($catManual -gt 0) { Write-Host " | $catManual manual" -ForegroundColor Yellow -NoNewline }
+    if ($catFailed -gt 0) { Write-Host " | $catFailed failed" -ForegroundColor Red -NoNewline }
+    Write-Host ""
+}
+
+Write-Host ""
+if ($manual -gt 0) {
+    Write-Host "Manual downloads needed: check .url shortcut files in each category folder." -ForegroundColor Yellow
+}
 Write-Host "To include NirSoft password recovery tools, run again with: -IncludePasswordTools" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "PC Plus Computing | 604-760-1662 | 236-500-2700 | pcpluscomputing.com" -ForegroundColor Cyan
