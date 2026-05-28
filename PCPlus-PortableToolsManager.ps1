@@ -313,7 +313,7 @@ function Load-Manifest {
                     extractTo   = $t.extractTo
                 })
             }
-            return $tools
+            return ,$tools
         } catch {
             return $null
         }
@@ -398,7 +398,7 @@ function Initialize-Manifest {
     }
 
     Save-Manifest $catalog
-    return $catalog
+    return ,$catalog
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -549,7 +549,7 @@ function Find-UnregisteredTools {
         $knownExes[$exeName] = $true
     }
 
-    return $newTools
+    return ,$newTools
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
