@@ -89,6 +89,29 @@ function Invoke-DownloadFile {
     }
 }
 
+function Resolve-DownloadedFileName {
+    param([string]$FilePath)
+    if (!(Test-Path $FilePath)) { return $FilePath }
+    if ([IO.Path]::GetExtension($FilePath) -ne ".download") { return $FilePath }
+    try {
+        $bytes = New-Object byte[] 4
+        $stream = [IO.File]::OpenRead($FilePath)
+        $stream.Read($bytes, 0, 4) | Out-Null
+        $stream.Close()
+        $newPath = $FilePath
+        if ($bytes[0] -eq 0x50 -and $bytes[1] -eq 0x4B) {
+            $newPath = $FilePath -replace '\.download$', '.zip'
+        } elseif ($bytes[0] -eq 0x4D -and $bytes[1] -eq 0x5A) {
+            $newPath = $FilePath -replace '\.download$', '.exe'
+        }
+        if ($newPath -ne $FilePath) {
+            Move-Item $FilePath $newPath -Force
+            return $newPath
+        }
+    } catch {}
+    return $FilePath
+}
+
 function Expand-DownloadedArchive {
     param(
         [string]$FilePath,
@@ -194,8 +217,8 @@ $Tools = @(
     # 06 Disk Filesystem
     @{ Category="06-DiskFilesystem"; Name="SearchMyFiles"; DirectUrl="https://www.nirsoft.net/utils/searchmyfiles-x64.zip"; OfficialPage="https://www.nirsoft.net/utils/search_my_files.html"; PasswordTool=$false },
     @{ Category="06-DiskFilesystem"; Name="HashMyFiles"; DirectUrl="https://www.nirsoft.net/utils/hashmyfiles-x64.zip"; OfficialPage="https://www.nirsoft.net/utils/hash_my_files.html"; PasswordTool=$false },
-    @{ Category="06-DiskFilesystem"; Name="DiskSmartView"; DirectUrl="https://www.nirsoft.net/utils/disksmartview-x64.zip"; OfficialPage="https://www.nirsoft.net/utils/disk_smart_view.html"; PasswordTool=$false },
-    @{ Category="06-DiskFilesystem"; Name="FolderChangesView"; DirectUrl="https://www.nirsoft.net/utils/folderchangesview-x64.zip"; OfficialPage="https://www.nirsoft.net/utils/folder_changes_view.html"; PasswordTool=$false },
+    @{ Category="06-DiskFilesystem"; Name="DiskSmartView"; DirectUrl="https://www.nirsoft.net/utils/disksmartview.zip"; OfficialPage="https://www.nirsoft.net/utils/disk_smart_view.html"; PasswordTool=$false },
+    @{ Category="06-DiskFilesystem"; Name="FolderChangesView"; DirectUrl="https://www.nirsoft.net/utils/folderchangesview.zip"; OfficialPage="https://www.nirsoft.net/utils/folder_changes_view.html"; PasswordTool=$false },
     @{ Category="06-DiskFilesystem"; Name="NTFSLinksView"; DirectUrl="https://www.nirsoft.net/utils/ntfslinksview.zip"; OfficialPage="https://www.nirsoft.net/utils/ntfs_links_view.html"; PasswordTool=$false },
     @{ Category="06-DiskFilesystem"; Name="AlternateStreamView"; DirectUrl="https://www.nirsoft.net/utils/alternatestreamview-x64.zip"; OfficialPage="https://www.nirsoft.net/utils/alternate_data_streams.html"; PasswordTool=$false },
 
@@ -213,19 +236,19 @@ $Tools = @(
     @{ Category="09-CommandLineAutomation"; Name="MultiMonitorTool"; DirectUrl="https://www.nirsoft.net/utils/multimonitortool-x64.zip"; OfficialPage="https://www.nirsoft.net/utils/multi_monitor_tool.html"; PasswordTool=$false },
     @{ Category="09-CommandLineAutomation"; Name="SoundVolumeView"; DirectUrl="https://www.nirsoft.net/utils/soundvolumeview-x64.zip"; OfficialPage="https://www.nirsoft.net/utils/sound_volume_view.html"; PasswordTool=$false },
     @{ Category="09-CommandLineAutomation"; Name="ControlMyMonitor"; DirectUrl="https://www.nirsoft.net/utils/controlmymonitor.zip"; OfficialPage="https://www.nirsoft.net/utils/control_my_monitor.html"; PasswordTool=$false },
-    @{ Category="09-CommandLineAutomation"; Name="WakeMeOnStandBy"; DirectUrl="https://www.nirsoft.net/utils/wakemeonstandby.zip"; OfficialPage="https://www.nirsoft.net/utils/wake_on_stand_by.html"; PasswordTool=$false },
+    @{ Category="09-CommandLineAutomation"; Name="WakeMeOnStandBy"; DirectUrl=""; OfficialPage="https://www.nirsoft.net/utils/wake_on_stand_by.html"; PasswordTool=$false },
 
     # 10 Hardware/System Info
     @{ Category="10-SystemInfo-CPU-GPU-Hardware"; Name="CPU-Z"; DirectUrl="https://download.cpuid.com/cpu-z/cpu-z_2.15-en.zip"; OfficialPage="https://www.cpuid.com/softwares/cpu-z.html"; PasswordTool=$false },
     @{ Category="10-SystemInfo-CPU-GPU-Hardware"; Name="GPU-Z"; DirectUrl=""; OfficialPage="https://www.techpowerup.com/gpuz/"; PasswordTool=$false },
-    @{ Category="10-SystemInfo-CPU-GPU-Hardware"; Name="HWiNFO64"; DirectUrl="https://www.hwinfo.com/files/hwi64.zip"; OfficialPage="https://www.hwinfo.com/download/"; PasswordTool=$false },
+    @{ Category="10-SystemInfo-CPU-GPU-Hardware"; Name="HWiNFO64"; DirectUrl=""; OfficialPage="https://www.hwinfo.com/download/"; PasswordTool=$false },
     @{ Category="10-SystemInfo-CPU-GPU-Hardware"; Name="HWMonitor"; DirectUrl="https://download.cpuid.com/hwmonitor/hwmonitor_1.55.zip"; OfficialPage="https://www.cpuid.com/softwares/hwmonitor.html"; PasswordTool=$false },
-    @{ Category="10-SystemInfo-CPU-GPU-Hardware"; Name="LibreHardwareMonitor"; DirectUrl="https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases/latest/download/LibreHardwareMonitor-net472.zip"; OfficialPage="https://github.com/LibreHardwareMonitor/LibreHardwareMonitor"; PasswordTool=$false },
+    @{ Category="10-SystemInfo-CPU-GPU-Hardware"; Name="LibreHardwareMonitor"; DirectUrl="https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases/download/v0.9.6/LibreHardwareMonitor.zip"; OfficialPage="https://github.com/LibreHardwareMonitor/LibreHardwareMonitor"; PasswordTool=$false },
     @{ Category="10-SystemInfo-CPU-GPU-Hardware"; Name="OpenHardwareMonitor"; DirectUrl="https://openhardwaremonitor.org/files/openhardwaremonitor-v0.9.6.zip"; OfficialPage="https://openhardwaremonitor.org/"; PasswordTool=$false },
     @{ Category="10-SystemInfo-CPU-GPU-Hardware"; Name="Speccy Portable"; DirectUrl=""; OfficialPage="https://www.ccleaner.com/speccy/download/portable"; PasswordTool=$false },
 
     # 11 Fan Control Thermal
-    @{ Category="11-FanControl-Thermal"; Name="Fan Control"; DirectUrl="https://github.com/Rem0o/FanControl.Releases/releases/latest/download/FanControl.zip"; OfficialPage="https://getfancontrol.com/"; PasswordTool=$false },
+    @{ Category="11-FanControl-Thermal"; Name="Fan Control"; DirectUrl="https://github.com/Rem0o/FanControl.Releases/releases/download/V268/FanControl_268_net_4_8.zip"; OfficialPage="https://getfancontrol.com/"; PasswordTool=$false },
     @{ Category="11-FanControl-Thermal"; Name="OpenHardwareMonitor"; DirectUrl="https://openhardwaremonitor.org/files/openhardwaremonitor-v0.9.6.zip"; OfficialPage="https://openhardwaremonitor.org/"; PasswordTool=$false },
     @{ Category="11-FanControl-Thermal"; Name="SpeedFan"; DirectUrl=""; OfficialPage="http://www.almico.com/speedfan.php"; PasswordTool=$false },
     @{ Category="11-FanControl-Thermal"; Name="MSI Afterburner"; DirectUrl=""; OfficialPage="https://www.msi.com/Landing/afterburner/graphics-cards"; PasswordTool=$false },
@@ -242,8 +265,8 @@ $Tools = @(
     @{ Category="12-DiskRepair-Recovery"; Name="Recuva Portable"; DirectUrl=""; OfficialPage="https://www.ccleaner.com/recuva/download/portable"; PasswordTool=$false },
 
     # 13 Stress Testing Benchmarks
-    @{ Category="13-StressTesting-Benchmarks"; Name="Prime95"; DirectUrl="https://www.mersenne.org/ftp_root/gimps/p95v308b20.win64.zip"; OfficialPage="https://www.mersenne.org/download/"; PasswordTool=$false },
-    @{ Category="13-StressTesting-Benchmarks"; Name="HeavyLoad"; DirectUrl="https://www.jam-software.com/heavyload/HeavyLoad.zip"; OfficialPage="https://www.jam-software.com/heavyload"; PasswordTool=$false },
+    @{ Category="13-StressTesting-Benchmarks"; Name="Prime95"; DirectUrl="https://www.mersenne.org/download/software/v30/30.19/p95v3019b13.win64.zip"; OfficialPage="https://www.mersenne.org/download/"; PasswordTool=$false },
+    @{ Category="13-StressTesting-Benchmarks"; Name="HeavyLoad"; DirectUrl=""; OfficialPage="https://www.jam-software.com/heavyload"; PasswordTool=$false },
     @{ Category="13-StressTesting-Benchmarks"; Name="OCCT"; DirectUrl=""; OfficialPage="https://www.ocbase.com/"; PasswordTool=$false },
     @{ Category="13-StressTesting-Benchmarks"; Name="FurMark 2"; DirectUrl=""; OfficialPage="https://geeks3d.com/furmark/"; PasswordTool=$false },
     @{ Category="13-StressTesting-Benchmarks"; Name="MemTest86"; DirectUrl=""; OfficialPage="https://www.memtest86.com/download.htm"; PasswordTool=$false },
@@ -251,7 +274,7 @@ $Tools = @(
 
     # 14 Windows Repair
     @{ Category="14-WindowsRepair"; Name="DISMTools"; DirectUrl="https://github.com/CodingWonders/DISMTools/releases/latest/download/DISMTools.zip"; OfficialPage="https://github.com/CodingWonders/DISMTools"; PasswordTool=$false },
-    @{ Category="14-WindowsRepair"; Name="DriverStore Explorer"; DirectUrl="https://github.com/lostindark/DriverStoreExplorer/releases/latest/download/DriverStoreExplorer.v0.11.92.zip"; OfficialPage="https://github.com/lostindark/DriverStoreExplorer"; PasswordTool=$false },
+    @{ Category="14-WindowsRepair"; Name="DriverStore Explorer"; DirectUrl="https://github.com/lostindark/DriverStoreExplorer/releases/download/v1.0.26/DriverStoreExplorer-v1.0.26.zip"; OfficialPage="https://github.com/lostindark/DriverStoreExplorer"; PasswordTool=$false },
     @{ Category="14-WindowsRepair"; Name="BleachBit Portable"; DirectUrl="https://download.bleachbit.org/BleachBit-4.6.2-portable.zip"; OfficialPage="https://www.bleachbit.org/download/windows"; PasswordTool=$false },
     @{ Category="14-WindowsRepair"; Name="Autoruns"; DirectUrl="https://download.sysinternals.com/files/Autoruns.zip"; OfficialPage="https://learn.microsoft.com/en-us/sysinternals/downloads/autoruns"; PasswordTool=$false },
     @{ Category="14-WindowsRepair"; Name="Tweaking Windows Repair"; DirectUrl=""; OfficialPage="https://www.tweaking.com/content/page/windows_repair_all_in_one.html"; PasswordTool=$false },
@@ -277,7 +300,7 @@ $Tools = @(
     @{ Category="16-MalwareSecurityCleanup"; Name="Sophos Scan and Clean"; DirectUrl=""; OfficialPage="https://www.sophos.com/en-us/free-tools/virus-removal-tool"; PasswordTool=$false },
 
     # 17 Network Forensics
-    @{ Category="17-NetworkForensics"; Name="Nmap Portable"; DirectUrl="https://nmap.org/dist/nmap-7.95-win32.zip"; OfficialPage="https://nmap.org/download.html"; PasswordTool=$false },
+    @{ Category="17-NetworkForensics"; Name="Nmap"; DirectUrl=""; OfficialPage="https://nmap.org/download.html"; PasswordTool=$false },
     @{ Category="17-NetworkForensics"; Name="Advanced IP Scanner"; DirectUrl="https://download.advanced-ip-scanner.com/download/files/Advanced_IP_Scanner_2.5.4594.1.exe"; OfficialPage="https://www.advanced-ip-scanner.com/"; PasswordTool=$false },
     @{ Category="17-NetworkForensics"; Name="Angry IP Scanner"; DirectUrl="https://github.com/angryip/ipscan/releases/download/3.9.1/ipscan-win64-3.9.1.exe"; OfficialPage="https://angryip.org/"; PasswordTool=$false },
     @{ Category="17-NetworkForensics"; Name="TCPView"; DirectUrl="https://download.sysinternals.com/files/TCPView.zip"; OfficialPage="https://learn.microsoft.com/en-us/sysinternals/downloads/tcpview"; PasswordTool=$false },
@@ -317,6 +340,7 @@ foreach ($tool in $Tools) {
 
     $extractStatus = ""
     if ($result.Success) {
+        $dest = Resolve-DownloadedFileName -FilePath $dest
         $extractStatus = Expand-DownloadedArchive -FilePath $dest -DestinationFolder $categoryPath
         $status = "Downloaded"
     } else {
