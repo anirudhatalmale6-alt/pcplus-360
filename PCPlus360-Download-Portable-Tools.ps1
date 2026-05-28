@@ -222,11 +222,14 @@ $Tools = @(
     @{ Category="10-SystemInfo-CPU-GPU-Hardware"; Name="HWMonitor"; DirectUrl="https://download.cpuid.com/hwmonitor/hwmonitor_1.55.zip"; OfficialPage="https://www.cpuid.com/softwares/hwmonitor.html"; PasswordTool=$false },
     @{ Category="10-SystemInfo-CPU-GPU-Hardware"; Name="LibreHardwareMonitor"; DirectUrl="https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases/latest/download/LibreHardwareMonitor-net472.zip"; OfficialPage="https://github.com/LibreHardwareMonitor/LibreHardwareMonitor"; PasswordTool=$false },
     @{ Category="10-SystemInfo-CPU-GPU-Hardware"; Name="OpenHardwareMonitor"; DirectUrl="https://openhardwaremonitor.org/files/openhardwaremonitor-v0.9.6.zip"; OfficialPage="https://openhardwaremonitor.org/"; PasswordTool=$false },
+    @{ Category="10-SystemInfo-CPU-GPU-Hardware"; Name="Speccy Portable"; DirectUrl=""; OfficialPage="https://www.ccleaner.com/speccy/download/portable"; PasswordTool=$false },
 
     # 11 Fan Control Thermal
     @{ Category="11-FanControl-Thermal"; Name="Fan Control"; DirectUrl="https://github.com/Rem0o/FanControl.Releases/releases/latest/download/FanControl.zip"; OfficialPage="https://getfancontrol.com/"; PasswordTool=$false },
     @{ Category="11-FanControl-Thermal"; Name="OpenHardwareMonitor"; DirectUrl="https://openhardwaremonitor.org/files/openhardwaremonitor-v0.9.6.zip"; OfficialPage="https://openhardwaremonitor.org/"; PasswordTool=$false },
+    @{ Category="11-FanControl-Thermal"; Name="SpeedFan"; DirectUrl=""; OfficialPage="http://www.almico.com/speedfan.php"; PasswordTool=$false },
     @{ Category="11-FanControl-Thermal"; Name="MSI Afterburner"; DirectUrl=""; OfficialPage="https://www.msi.com/Landing/afterburner/graphics-cards"; PasswordTool=$false },
+    @{ Category="11-FanControl-Thermal"; Name="Argus Monitor"; DirectUrl=""; OfficialPage="https://www.argusmonitor.com/"; PasswordTool=$false },
 
     # 12 Disk Repair Recovery
     @{ Category="12-DiskRepair-Recovery"; Name="CrystalDiskInfo"; DirectUrl="https://sourceforge.net/projects/crystaldiskinfo/files/latest/download"; OfficialPage="https://crystalmark.info/en/software/crystaldiskinfo/"; PasswordTool=$false },
@@ -236,6 +239,7 @@ $Tools = @(
     @{ Category="12-DiskRepair-Recovery"; Name="TestDisk PhotoRec"; DirectUrl="https://www.cgsecurity.org/testdisk-7.2.win.zip"; OfficialPage="https://www.cgsecurity.org/wiki/TestDisk_Download"; PasswordTool=$false },
     @{ Category="12-DiskRepair-Recovery"; Name="Victoria HDD"; DirectUrl=""; OfficialPage="https://hdd.by/victoria/"; PasswordTool=$false },
     @{ Category="12-DiskRepair-Recovery"; Name="HDDScan"; DirectUrl=""; OfficialPage="https://hddscan.com/"; PasswordTool=$false },
+    @{ Category="12-DiskRepair-Recovery"; Name="Recuva Portable"; DirectUrl=""; OfficialPage="https://www.ccleaner.com/recuva/download/portable"; PasswordTool=$false },
 
     # 13 Stress Testing Benchmarks
     @{ Category="13-StressTesting-Benchmarks"; Name="Prime95"; DirectUrl="https://www.mersenne.org/ftp_root/gimps/p95v308b20.win64.zip"; OfficialPage="https://www.mersenne.org/download/"; PasswordTool=$false },
@@ -243,6 +247,7 @@ $Tools = @(
     @{ Category="13-StressTesting-Benchmarks"; Name="OCCT"; DirectUrl=""; OfficialPage="https://www.ocbase.com/"; PasswordTool=$false },
     @{ Category="13-StressTesting-Benchmarks"; Name="FurMark 2"; DirectUrl=""; OfficialPage="https://geeks3d.com/furmark/"; PasswordTool=$false },
     @{ Category="13-StressTesting-Benchmarks"; Name="MemTest86"; DirectUrl=""; OfficialPage="https://www.memtest86.com/download.htm"; PasswordTool=$false },
+    @{ Category="13-StressTesting-Benchmarks"; Name="Cinebench"; DirectUrl=""; OfficialPage="https://www.maxon.net/en/downloads/cinebench-downloads"; PasswordTool=$false },
 
     # 14 Windows Repair
     @{ Category="14-WindowsRepair"; Name="DISMTools"; DirectUrl="https://github.com/CodingWonders/DISMTools/releases/latest/download/DISMTools.zip"; OfficialPage="https://github.com/CodingWonders/DISMTools"; PasswordTool=$false },
@@ -250,6 +255,8 @@ $Tools = @(
     @{ Category="14-WindowsRepair"; Name="BleachBit Portable"; DirectUrl="https://download.bleachbit.org/BleachBit-4.6.2-portable.zip"; OfficialPage="https://www.bleachbit.org/download/windows"; PasswordTool=$false },
     @{ Category="14-WindowsRepair"; Name="Autoruns"; DirectUrl="https://download.sysinternals.com/files/Autoruns.zip"; OfficialPage="https://learn.microsoft.com/en-us/sysinternals/downloads/autoruns"; PasswordTool=$false },
     @{ Category="14-WindowsRepair"; Name="Tweaking Windows Repair"; DirectUrl=""; OfficialPage="https://www.tweaking.com/content/page/windows_repair_all_in_one.html"; PasswordTool=$false },
+    @{ Category="14-WindowsRepair"; Name="FixWin 11"; DirectUrl=""; OfficialPage="https://www.thewindowsclub.com/fixwin-for-windows-10"; PasswordTool=$false },
+    @{ Category="14-WindowsRepair"; Name="SFCFix"; DirectUrl=""; OfficialPage="https://www.sysnative.com/forums/downloads/sfcfix/"; PasswordTool=$false },
     @{ Category="14-WindowsRepair"; Name="Snappy Driver Installer Origin"; DirectUrl=""; OfficialPage="https://www.snappy-driver-installer.org/"; PasswordTool=$false },
 
     # 15 Sysinternals
