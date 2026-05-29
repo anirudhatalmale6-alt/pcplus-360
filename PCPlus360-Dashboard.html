@@ -1347,13 +1347,33 @@ body::before {
 
   var isWebView2 = !!(window.chrome && window.chrome.webview);
 
-  // ── Send message to C# host ──
+  // ── Standalone mode banner ──
+  if (!isWebView2) {
+    var banner = document.createElement('div');
+    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:linear-gradient(90deg,#1a3a5c,#2596be);color:#fff;text-align:center;padding:8px 16px;font-family:Outfit,Segoe UI,sans-serif;font-size:13px;display:flex;align-items:center;justify-content:center;gap:12px;';
+    banner.innerHTML = '<span style="font-size:16px">&#9432;</span> <span>This dashboard is interactive when launched via <strong>PCPlus360-Launcher.bat</strong>. Buttons will open PowerShell scripts in new windows.</span> <button onclick="this.parentElement.remove()" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.3);color:#fff;padding:3px 12px;border-radius:4px;cursor:pointer;font-size:12px">Dismiss</button>';
+    document.body.appendChild(banner);
+    document.body.style.paddingTop = '36px';
+  }
+
+  // ── Send message to C# host, or fallback to launching scripts directly ──
   function sendToHost(payload) {
     var msg = JSON.stringify(payload);
     if (isWebView2) {
       window.chrome.webview.postMessage(msg);
     } else {
-      console.log('[Bridge TX]', payload);
+      // Standalone fallback: try to launch .bat wrappers or PowerShell directly
+      if (payload.action === 'launchScript' && payload.script) {
+        var script = payload.script;
+        var batName = script.replace('.ps1', '.bat');
+        // Try protocol handler (won't work in all browsers, but worth trying)
+        try {
+          window.location.href = 'file:///' + batName;
+        } catch(e) {}
+        console.log('[Standalone] Would launch: ' + script);
+      } else {
+        console.log('[Bridge TX]', payload);
+      }
     }
   }
 
