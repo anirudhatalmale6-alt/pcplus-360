@@ -5,7 +5,11 @@
 :: If the compiled exe exists, runs it directly.
 :: Otherwise falls back to building from source.
 
-set "EXEPATH=%~dp0Launcher\dist\PCPlus360Launcher.exe"
+:: Create required folders if missing
+if not exist "%~dp0Tools" mkdir "%~dp0Tools"
+if not exist "%~dp0Reports" mkdir "%~dp0Reports"
+
+set "EXEPATH=%~dp0Launcher\PCPlus360Launcher.exe"
 
 if exist "%EXEPATH%" (
     start "" "%EXEPATH%"
@@ -13,9 +17,15 @@ if exist "%EXEPATH%" (
 )
 
 :: Try alternative locations
-set "EXEPATH2=%~dp0Launcher\publish\PCPlus360Launcher.exe"
+set "EXEPATH2=%~dp0Launcher\dist\PCPlus360Launcher.exe"
 if exist "%EXEPATH2%" (
     start "" "%EXEPATH2%"
+    exit /b 0
+)
+
+set "EXEPATH3=%~dp0Launcher\publish\PCPlus360Launcher.exe"
+if exist "%EXEPATH3%" (
+    start "" "%EXEPATH3%"
     exit /b 0
 )
 
