@@ -29,7 +29,12 @@ public partial class MainWindow : Window
     {
         try
         {
-            var userDataFolder = Path.Combine(Path.GetTempPath(), "PCPlus360");
+            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            var userDataFolder = Path.Combine(baseDir, "..", "WebView2Cache");
+            try { Directory.CreateDirectory(userDataFolder); } catch { }
+            if (!Directory.Exists(userDataFolder) || !HasWriteAccess(userDataFolder))
+                userDataFolder = Path.Combine(Path.GetTempPath(), "PCPlus360");
+            try { Directory.CreateDirectory(userDataFolder); } catch { }
             var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
             await WebView.EnsureCoreWebView2Async(env);
 
@@ -375,6 +380,18 @@ public partial class MainWindow : Window
         WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
 
     private void CloseBtn_Click(object sender, RoutedEventArgs e) => Close();
+
+    private static bool HasWriteAccess(string path)
+    {
+        try
+        {
+            var testFile = Path.Combine(path, ".writetest");
+            File.WriteAllText(testFile, "test");
+            File.Delete(testFile);
+            return true;
+        }
+        catch { return false; }
+    }
 
     private void DownloadLink_Click(object sender, MouseButtonEventArgs e)
     {
