@@ -730,13 +730,18 @@ function Show-BackupUI {
 
     $tabControl = New-Object System.Windows.Forms.TabControl
     $tabControl.Dock = "Fill"
-    $tabControl.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+    $tabControl.Font = New-Object System.Drawing.Font("Segoe UI", 11, [System.Drawing.FontStyle]::Bold)
+    $tabControl.ItemSize = New-Object System.Drawing.Size(200, 36)
+    $tabControl.SizeMode = "Fixed"
+    $tabControl.Appearance = "Buttons"
+    $tabControl.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#161b22")
     $form.Controls.Add($tabControl)
 
     # ── BACKUP TAB ──
     $tabBackup = New-Object System.Windows.Forms.TabPage
-    $tabBackup.Text = "  Backup  "
+    $tabBackup.Text = "  BACKUP  "
     $tabBackup.BackColor = [System.Drawing.ColorTranslator]::FromHtml($COLOR_NAVY)
+    $tabBackup.ForeColor = [System.Drawing.Color]::White
     $tabControl.TabPages.Add($tabBackup)
 
     $backupPanel = New-Object System.Windows.Forms.Panel
@@ -1037,8 +1042,9 @@ function Show-BackupUI {
 
     # ── RESTORE TAB ──
     $tabRestore = New-Object System.Windows.Forms.TabPage
-    $tabRestore.Text = "  Restore  "
+    $tabRestore.Text = "  RESTORE  "
     $tabRestore.BackColor = [System.Drawing.ColorTranslator]::FromHtml($COLOR_NAVY)
+    $tabRestore.ForeColor = [System.Drawing.Color]::White
     $tabControl.TabPages.Add($tabRestore)
 
     $restorePanel = New-Object System.Windows.Forms.Panel

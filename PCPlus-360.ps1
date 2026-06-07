@@ -73,7 +73,9 @@ Write-DebugLog "Running as admin, continuing..."
 # GLOBALS
 # ─────────────────────────────────────────────────────────────────────────────
 $Global:ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
-if ([string]::IsNullOrEmpty($Global:ScriptDir)) { $Global:ScriptDir = Get-Location }
+if ([string]::IsNullOrEmpty($Global:ScriptDir)) { $Global:ScriptDir = $PSScriptRoot }
+if ([string]::IsNullOrEmpty($Global:ScriptDir)) { $Global:ScriptDir = (Get-Location).Path }
+if ([string]::IsNullOrEmpty($Global:ScriptDir)) { $Global:ScriptDir = [System.IO.Path]::GetDirectoryName([System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName) }
 Write-DebugLog "ScriptDir: $Global:ScriptDir"
 $Global:ToolsDir = Join-Path $Global:ScriptDir "tools"
 $Global:ReportsDir = Join-Path $Global:ScriptDir "reports"
