@@ -836,7 +836,7 @@ body::before {
 
   <div class="topbar-device">
     <svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:var(--accent)"><rect x="2" y="3" width="20" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="2" fill="none"/></svg>
-    <span class="dev-name">DESKTOP-7G5H2KJ</span>
+    <span class="dev-name" id="topbar-dev-name">Detecting...</span>
     <span class="dev-os">Windows 11 Pro &nbsp; 23H2 (22631.3155)</span>
     <div class="dev-arrow"></div>
   </div>
@@ -848,11 +848,11 @@ body::before {
     <span>Read-Only Mode</span>
   </div>
 
-  <div class="topbar-customer">
-    <div class="customer-avatar">JS</div>
+  <div class="topbar-customer" style="cursor:pointer" onclick="editCustomerName()">
+    <div class="customer-avatar" id="cust-avatar">--</div>
     <div>
       <div class="cust-label">Customer:</div>
-      <div class="cust-name">John Smith</div>
+      <div class="cust-name" id="cust-name-display">Click to enter name</div>
     </div>
   </div>
 
@@ -1220,7 +1220,7 @@ body::before {
       <div class="sys-info-row">
         <div class="si-icon"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="2" fill="none"/></svg></div>
         <span class="si-label">Device Name</span>
-        <span class="si-value" id="sys-device-name" style="font-family:'JetBrains Mono',monospace;font-size:10px;">DESKTOP-7G5H2KJ</span>
+        <span class="si-value" id="sys-device-name" style="font-family:'JetBrains Mono',monospace;font-size:10px;">Detecting...</span>
       </div>
       <div class="sys-info-row">
         <div class="si-icon"><svg viewBox="0 0 24 24"><path d="M20 3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H4V5h16v14z" fill="currentColor"/></svg></div>
@@ -1572,6 +1572,28 @@ body::before {
         console.log('[Bridge] Unknown message type:', payload.type);
     }
   });
+
+  // ── Customer name editing ──
+  window.editCustomerName = function() {
+    var current = document.getElementById('cust-name-display').textContent;
+    if (current === 'Click to enter name') current = '';
+    var name = prompt('Enter customer name:', current);
+    if (name !== null && name.trim() !== '') {
+      document.getElementById('cust-name-display').textContent = name.trim();
+      var initials = name.trim().split(/\s+/).map(function(w){return w[0]}).join('').toUpperCase().substring(0,2);
+      document.getElementById('cust-avatar').textContent = initials;
+    }
+  };
+
+  // ── Update top bar device name when system info arrives ──
+  var origUpdateSysInfo = updateSystemInfo;
+  updateSystemInfo = function(data) {
+    origUpdateSysInfo(data);
+    if (data.deviceName) {
+      var topBarName = document.getElementById('topbar-dev-name');
+      if (topBarName) topBarName.textContent = data.deviceName;
+    }
+  };
 
   // ── Request system info on load when in WebView2 ──
   if (isWebView2) {
